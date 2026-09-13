@@ -42,12 +42,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const templates = all.reduce((total, session) => total + session.index.fileCount, 0);
     const viaConsole = all.every((session) => session.loaderPaths.source === 'console');
 
-    // Files rather than names: a reader counting templates in the explorer
-    // should arrive at this number.
-    status.text = `$(symbol-file) Wicker: ${plural(templates, 'template')}`;
+    // The badge answers "is Wicker working", which is the only thing worth a
+    // permanent place in the status bar. The count is detail, and detail
+    // belongs in the tooltip where there is room to say what it counts.
+    status.text = '$(symbol-file) Wicker';
     status.tooltip = new vscode.MarkdownString(
       [
         all.length === 1 ? 'One Symfony project' : `${all.length} Symfony projects`,
+        `${plural(templates, 'template')} that a reference can resolve to`,
         viaConsole
           ? 'Namespaces from `bin/console debug:twig`'
           : 'Namespaces from `twig.yaml` only, so bundle namespaces are unknown',
@@ -160,9 +162,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       refreshAllDiagnostics();
       updateStatus();
 
-      const templates = sessions.all().reduce((total, s) => total + s.index.fileCount, 0);
       // Confirms the action without a dialog to dismiss.
-      status.text = `$(check) Wicker: ${plural(templates, 'template')}`;
+      status.text = '$(check) Wicker';
       setTimeout(updateStatus, 2000);
     }),
 

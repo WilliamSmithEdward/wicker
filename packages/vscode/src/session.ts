@@ -25,6 +25,16 @@ import { enginePathOf } from './paths.js';
 const DEFAULT_EXTENSIONS = ['.twig'];
 
 /**
+ * Whether Wicker's editor features are switched on.
+ *
+ * Read at each query rather than cached, so toggling the setting takes effect
+ * on the next hover instead of on the next window reload.
+ */
+export function isEnabled(): boolean {
+  return vscode.workspace.getConfiguration('wicker').get<boolean>('enable', true);
+}
+
+/**
  * One detected Symfony project, its template index, and the watchers that keep
  * the index honest while files change underneath it.
  */
@@ -295,8 +305,22 @@ export class SessionManager implements vscode.Disposable {
     }
   }
 
-  /** The session governing a document, if any. */
+  /**
+   * The session governing a document, if any.
+   *
+   * Every feature resolves its project through here, so returning nothing
+   * while `wicker.enable` is off silences all of them at once: navigation,
+   * hover, completion, colouring, quick fixes and diagnostics. That switch
+   * exists for the case where another extension covers the same ground, and
+   * an escape hatch is worth nothing unless it closes every exit.
+   *
+   * Indexing and the file watchers keep running, so turning it back on is
+   * immediate rather than a rebuild.
+   */
   sessionFor(document: vscode.TextDocument): ProjectSession | undefined {
+    if (!isEnabled()) {
+      return undefined;
+    }
     const path = enginePathOf(document.uri);
     let best: ProjectSession | undefined;
     for (const session of this.sessions.values()) {

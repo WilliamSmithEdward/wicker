@@ -2,7 +2,7 @@
   "name": "wicker",
   "displayName": "Wicker: Symfony & Twig Tooling",
   "description": "Navigate between Symfony controllers and the Twig templates they render.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "WilliamSmithE",
   "license": "MIT",
   "repository": {
@@ -143,7 +143,7 @@
     "vsix": "npm run build && node scripts/package.mjs"
   },
   "dependencies": {
-    "@wicker/core": "0.1.0"
+    "@wicker/core": "0.1.1"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

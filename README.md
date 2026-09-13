@@ -163,13 +163,29 @@ Next, in order:
    [CalendarLink](https://ux.symfony.com/calendar-link).
 3. **Routes.** Completion and navigation for route names, `path()` and `url()`.
 4. **Services and the container.** Autowiring and parameter intelligence.
-5. **PHP as a language, not just as Symfony.** Navigation, completion, hover
-   and diagnostics across a PHP codebase: symbols, types, use statements,
-   inheritance. The PHP lexer written for the template bridge is the
-   foundation; a full parser and symbol index go on top of it. This is large
-   enough to be released in stages alongside the Symfony work rather than
-   after it.
-6. Translations, forms, and the rest of the Symfony surface.
+5. Translations, forms, and the rest of the Symfony surface.
+
+### Not planned: PHP as a general language
+
+Navigation, completion and diagnostics across a PHP codebase at large, the
+things an established PHP extension already does, are deliberately out of
+scope.
+
+The reason is how VS Code resolves overlapping extensions. Hovers and
+definitions merge, so two extensions can both contribute. Completion does not:
+providers are grouped by selector score and the first group to answer wins,
+so a lower-scoring provider is never asked. Semantic tokens are stricter
+still, with one provider selected outright. Competing for those slots is
+decided by selector specificity and, on a tie, by whichever extension
+activated last.
+
+That is a contest with no good outcome. Winning it means replacing a mature
+PHP implementation with a newer one; losing it means shipping features that
+silently never run. Neither is worth it when the gap actually worth closing is
+the one between a controller and its template, which nothing else covers.
+
+Wicker stays on Symfony and Twig, and expects to be installed next to a PHP
+extension rather than instead of one.
 
 ## License
 

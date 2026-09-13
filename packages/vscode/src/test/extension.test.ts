@@ -353,4 +353,51 @@ suite('Wicker', () => {
       assert.ok(!messages.some((m) => m.includes('badge.html.twig')));
     });
   });
+
+  suite('wicker.enable', () => {
+    test('switching it off silences every feature', async () => {
+      const document = await open('src', 'Controller', 'TaskController.php');
+      const position = positionOf(document, 'task/index.html.twig');
+
+      // Works first, so the test cannot pass by the feature never having
+      // worked in the first place.
+      await waitFor(async () => {
+        const found = await definitionsAt(document, position);
+        return found.length > 0 ? found : undefined;
+      }, 'the index to resolve before disabling');
+
+      const settings = vscode.workspace.getConfiguration('wicker');
+      await settings.update('enable', false, vscode.ConfigurationTarget.Workspace);
+
+      try {
+        assert.equal((await definitionsAt(document, position)).length, 0, 'definition');
+
+        const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
+          'vscode.executeHoverProvider',
+          document.uri,
+          position,
+        );
+        assert.equal(hovers.length, 0, 'hover');
+
+        const tokens = await vscode.commands.executeCommand<vscode.SemanticTokens | undefined>(
+          'vscode.provideDocumentSemanticTokens',
+          document.uri,
+        );
+        assert.equal(decodeTokenRanges(tokens).length, 0, 'semantic tokens');
+
+        await waitFor(
+          () => (vscode.languages.getDiagnostics(document.uri).length === 0 ? true : undefined),
+          'diagnostics to clear',
+        );
+      } finally {
+        await settings.update('enable', undefined, vscode.ConfigurationTarget.Workspace);
+      }
+
+      // And comes back, so the switch is a switch rather than a way out.
+      await waitFor(async () => {
+        const found = await definitionsAt(document, position);
+        return found.length > 0 ? found : undefined;
+      }, 'features to return after re-enabling');
+    });
+  });
 });

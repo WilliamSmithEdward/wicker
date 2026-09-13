@@ -22,7 +22,7 @@ import {
   SEMANTIC_TOKENS_LEGEND,
   TemplateSemanticTokensProvider,
 } from './semanticTokens.js';
-import { SessionManager, type ProjectSession } from './session.js';
+import { isEnabled, SessionManager, type ProjectSession } from './session.js';
 
 const SELECTOR: vscode.DocumentSelector = [
   { language: 'php', scheme: 'file' },
@@ -48,7 +48,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const updateStatus = (): void => {
     const all = sessions.all();
-    if (all.length === 0) {
+    // Nothing in the status bar either: an extension that says it found your
+    // project while contributing nothing to it is just noise.
+    if (!isEnabled() || all.length === 0) {
       status.hide();
       return;
     }
@@ -293,6 +295,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (event.affectsConfiguration('wicker')) {
         await sessions.refreshAll();
         refreshAllDiagnostics();
+        // Toggling wicker.enable has to reach the colouring and the badge as
+        // well, not just the squiggles.
+        semanticTokens.refresh();
+        updateStatus();
       }
     }),
     // The index changing can turn a missing template into a found one.

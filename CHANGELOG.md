@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.1
+
+### Fixed
+
+- `wicker.enable` now works. It was declared in the settings but read by
+  nothing, so turning Wicker off left every feature running. Setting it to
+  false now silences navigation, hover, completion, colouring, quick fixes and
+  diagnostics together, and hides the status bar item.
+
+### Changed
+
+- General PHP language support is no longer on the roadmap. VS Code selects a
+  single provider for completion and for semantic tokens, so competing there
+  with an established PHP extension either replaces a mature implementation or
+  ships features that silently never run. Wicker stays on Symfony and Twig and
+  expects to sit alongside a PHP extension.
+
 ## 0.1.0
 
 First release. The bridge between a Symfony controller and the Twig template it

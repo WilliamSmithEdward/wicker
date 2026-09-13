@@ -79,6 +79,19 @@
           "default": "error",
           "description": "How to report a template reference that resolves to no file."
         },
+        "wicker.console.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Ask `bin/console debug:twig` for the Twig namespaces. Bundle namespaces such as `@Twig` are not declared in any configuration file, so without this they cannot be resolved. Never runs in an untrusted workspace."
+        },
+        "wicker.console.command": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Command that runs the Symfony console, as a list of arguments. Empty means `php bin/console` from the project root. Set this when PHP is not where the editor is, for example `[\"docker\", \"exec\", \"my-php-1\", \"php\", \"bin/console\"]`."
+        },
         "wicker.templates.extensions": {
           "type": "array",
           "items": {

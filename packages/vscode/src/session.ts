@@ -5,15 +5,18 @@ import {
   extensionsFromPatterns,
   loaderPathsFromTwigConfig,
   parseTwigConfig,
+  resolveLoaderPaths,
   TwigTemplateIndex,
   TWIG_CONFIG_PATH,
   joinProjectPath,
   normalizeRootPath,
   toProjectPath,
   type IndexedTemplate,
+  type LoaderPathsResolution,
   type SymfonyProject,
 } from '@wicker/core';
 
+import { ProcessConsoleRunner } from './console.js';
 import { VsCodeFileSystem } from './fileSystem.js';
 import { enginePathOf } from './paths.js';
 
@@ -34,6 +37,8 @@ export class ProjectSession implements vscode.Disposable {
   private readonly rootUri: vscode.Uri;
 
   private templateIndex: TwigTemplateIndex;
+  /** Where the namespaces came from, so the UI can say so. */
+  private loaderPathInfo: LoaderPathsResolution;
   private readonly watchers: vscode.FileSystemWatcher[] = [];
   private readonly changed = new vscode.EventEmitter<void>();
   private refreshTimer: ReturnType<typeof setTimeout> | undefined;
@@ -47,12 +52,19 @@ export class ProjectSession implements vscode.Disposable {
     rootUri: vscode.Uri,
     fileSystem: VsCodeFileSystem,
     index: TwigTemplateIndex,
+    loaderPaths: LoaderPathsResolution,
   ) {
     this.project = project;
     this.rootUri = rootUri;
     this.fileSystem = fileSystem;
     this.templateIndex = index;
+    this.loaderPathInfo = loaderPaths;
     this.installWatchers();
+  }
+
+  /** Where the namespace list came from, and why, for status reporting. */
+  get loaderPaths(): LoaderPathsResolution {
+    return this.loaderPathInfo;
   }
 
   /** Detects a project at or above a workspace folder, and indexes it. */
@@ -62,8 +74,8 @@ export class ProjectSession implements vscode.Disposable {
     if (project === undefined) {
       return undefined;
     }
-    const index = await buildIndex(fileSystem, project);
-    return new ProjectSession(project, folder.uri, fileSystem, index);
+    const built = await buildIndex(fileSystem, project);
+    return new ProjectSession(project, folder.uri, fileSystem, built.index, built.loaderPaths);
   }
 
   get index(): TwigTemplateIndex {
@@ -98,7 +110,9 @@ export class ProjectSession implements vscode.Disposable {
       return this.refreshInFlight;
     }
     this.refreshInFlight = (async () => {
-      this.templateIndex = await buildIndex(this.fileSystem, this.project);
+      const built = await buildIndex(this.fileSystem, this.project);
+      this.templateIndex = built.index;
+      this.loaderPathInfo = built.loaderPaths;
       this.changed.fire();
     })().finally(() => {
       this.refreshInFlight = undefined;
@@ -161,10 +175,17 @@ export class ProjectSession implements vscode.Disposable {
 async function buildIndex(
   fileSystem: VsCodeFileSystem,
   project: SymfonyProject,
-): Promise<TwigTemplateIndex> {
+): Promise<{ index: TwigTemplateIndex; loaderPaths: LoaderPathsResolution }> {
   const raw = await fileSystem.readFile(joinProjectPath(project.root, TWIG_CONFIG_PATH));
   const config = parseTwigConfig(raw ?? '');
-  const loaderPaths = loaderPathsFromTwigConfig(config);
+
+  // twig.yaml only declares the namespaces an application registers for
+  // itself. Bundle namespaces such as @Twig exist nowhere in configuration, so
+  // the console is asked first and the configuration is the fallback.
+  const loaderPaths = await resolveLoaderPaths(
+    ProcessConsoleRunner.create(project.root),
+    loaderPathsFromTwigConfig(config),
+  );
 
   const settings = vscode.workspace.getConfiguration('wicker');
   const configured = settings.get<string[]>('templates.extensions', []);
@@ -173,10 +194,11 @@ async function buildIndex(
       ? configured
       : extensionsFromPatterns(config.fileNamePatterns, DEFAULT_EXTENSIONS);
 
-  return TwigTemplateIndex.build(fileSystem, project.root, loaderPaths, {
+  const index = await TwigTemplateIndex.build(fileSystem, project.root, loaderPaths.paths, {
     extensions,
     maxFiles: settings.get<number>('index.maxFiles', 20000),
   });
+  return { index, loaderPaths };
 }
 
 /**

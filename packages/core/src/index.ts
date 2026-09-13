@@ -18,6 +18,15 @@ export { InMemoryFileSystem } from './fs/inMemoryFileSystem.js';
 export { NodeFileSystem } from './fs/nodeFileSystem.js';
 
 export {
+  parseJsonLoosely,
+  resolveLoaderPaths,
+  type ConsoleResult,
+  type ConsoleRunner,
+  type LoaderPathSource,
+  type LoaderPathsResolution,
+} from './console/consoleRunner.js';
+
+export {
   scanTemplateReferences,
   type OffsetRange,
   type TemplateReference,

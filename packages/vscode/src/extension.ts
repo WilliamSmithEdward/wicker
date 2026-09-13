@@ -126,10 +126,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           .allNames()
           .filter((name) => name.startsWith('@'))
           .map((name) => name.slice(1, name.indexOf('/')));
+        const loaderPaths = session.loaderPaths;
+        const origin =
+          loaderPaths.source === 'console'
+            ? 'bin/console debug:twig'
+            : `config/packages/twig.yaml${
+                loaderPaths.consoleError === undefined
+                  ? ''
+                  : ` (console unavailable: ${loaderPaths.consoleError})`
+              }`;
+
         return [
           session.project.root,
           `  templates: ${session.index.size}`,
           `  namespaces: ${[...new Set(namespaces)].join(', ') || '(main only)'}`,
+          `  namespaces from: ${origin}`,
           `  detected by: ${session.project.evidence.join(', ')}`,
         ].join('\n');
       });

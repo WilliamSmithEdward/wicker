@@ -11,7 +11,7 @@
  * references, and it works everywhere with no process to spawn.
  */
 
-import { parse as parseYaml } from 'yaml';
+import { parseYaml } from '../util/yaml.js';
 
 import {
   DEFAULT_TEMPLATE_DIRECTORY,
@@ -45,12 +45,7 @@ const EMPTY_CONFIG: TwigConfig = { entries: [], fileNamePatterns: [] };
  * hand and is routinely invalid mid-keystroke, which must not break the index.
  */
 export function parseTwigConfig(raw: string): TwigConfig {
-  let document: unknown;
-  try {
-    document = parseYaml(raw);
-  } catch {
-    return EMPTY_CONFIG;
-  }
+  const document: unknown = parseYaml(raw);
   if (typeof document !== 'object' || document === null || Array.isArray(document)) {
     return EMPTY_CONFIG;
   }

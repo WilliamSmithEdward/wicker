@@ -41,6 +41,25 @@
         "configuration": "./language-configuration.json"
       }
     ],
+    "grammars": [
+      {
+        "language": "twig",
+        "scopeName": "text.html.twig",
+        "path": "./syntaxes/twig.tmLanguage.json",
+        "embeddedLanguages": {
+          "text.html": "html",
+          "source.css": "css",
+          "source.js": "javascript"
+        }
+      },
+      {
+        "scopeName": "twig.injection",
+        "path": "./syntaxes/twig-injection.tmLanguage.json",
+        "injectTo": [
+          "text.html.twig"
+        ]
+      }
+    ],
     "configuration": {
       "title": "Wicker",
       "properties": {
@@ -102,6 +121,8 @@
     "@types/vscode": "1.95.0",
     "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.1.0",
-    "mocha": "^12.0.1"
+    "mocha": "^12.0.1",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
   }
 }

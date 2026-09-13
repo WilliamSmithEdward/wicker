@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Twig in HTML strings",
+  "scopeName": "twig.injection",
+  "comment": "The HTML grammar consumes an entire attribute value as one string, so `href=\"{{ path('x') }}\"` would lose its Twig highlighting. This injects the Twig constructs back into quoted strings, which is where they most often appear in a template.",
+  "injectionSelector": "L:text.html.twig string.quoted -comment",
+  "patterns": [
+    { "include": "text.html.twig#twig-comment" },
+    { "include": "text.html.twig#twig-statement" },
+    { "include": "text.html.twig#twig-expression" }
+  ]
+}

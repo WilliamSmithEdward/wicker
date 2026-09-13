@@ -154,6 +154,49 @@ To drive the extension against it:
 
 Grant workspace trust when prompted, or the console integration will not run.
 
+That project's `.vscode/settings.json` already carries the setting that makes
+this work, and any containerised project needs its equivalent:
+
+    "wicker.console.command": ["docker", "exec", "symfonyapp-php-1", "php", "bin/console"]
+
+Without it Wicker falls back to `config/packages/twig.yaml` and cannot resolve
+bundle namespaces such as `@Twig` or `@Turbo`, which are declared in no
+configuration file. The symptom is a yellow status bar and a lower template
+count. Opening the project inside the dev container instead puts PHP on PATH
+and the setting can be dropped.
+
+### Verifying by hand
+
+The integration suite covers the providers, but it runs against a fixture. A
+change to anything user-facing should also be looked at in the real app.
+
+`src/Controller/WickerTourController.php` in the demo project is written as a
+numbered tour and is the fastest route through every feature. Work down it:
+
+- A `render()` call with three context keys. Hover the template name: the file,
+  the kind of reference, and those three variables. Ctrl-click opens it.
+- A `#[Template]` attribute instead of a `render()` call.
+- A method with no route holding two broken names. They must report
+  differently, a missing file against an unregistered namespace, and the quick
+  fix must offer to create the first and decline the second.
+- A name built at runtime by concatenation. It must report nothing at all.
+
+Then `templates/wicker/navigation.html.twig` for the Twig side: `extends`, a
+namespaced `include`, the `include()` function and an `embed`, each
+ctrl-clickable.
+
+Template names that resolve should be coloured differently from ordinary
+strings. Names that do not resolve must keep the plain string colour, or the
+colour claims an understanding the extension does not have.
+
+The status bar reads `Wicker` and is not yellow when the console is reachable.
+Its tooltip says where the namespaces came from, and clicking it opens the
+project detail.
+
+The first `test:integration` run downloads a VS Code build into
+`packages/vscode/.vscode-test/`, so it takes minutes rather than seconds. That
+is not a hang.
+
 ### Releasing
 
 1. `npm run check` and `npm run test:integration -w wicker`, both green.

@@ -16,6 +16,7 @@
     "Programming Languages",
     "Linters"
   ],
+  "icon": "icon.png",
   "keywords": [
     "symfony",
     "twig",

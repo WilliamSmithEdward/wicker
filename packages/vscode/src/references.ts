@@ -151,6 +151,17 @@ function scanDocument(document: vscode.TextDocument): readonly DocumentTemplateR
   }));
 }
 
+/**
+ * "a" or "an" for a label from `describeKind`.
+ *
+ * Decided by the sound the label starts with rather than its spelling, which
+ * is the rule English actually follows: "an include() function", but "a use
+ * tag". The labels are a closed set, so the vowel letters cover it.
+ */
+export function articleFor(label: string): string {
+  return /^[aeiou]/i.test(label) ? 'an' : 'a';
+}
+
 /** Human-readable label for a reference kind, used in hovers. */
 export function describeKind(reference: DocumentTemplateReference): string {
   switch (reference.kind) {

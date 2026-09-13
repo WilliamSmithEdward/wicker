@@ -60,6 +60,22 @@
         ]
       }
     ],
+    "semanticTokenTypes": [
+      {
+        "id": "wickerTemplate",
+        "superType": "type",
+        "description": "A Twig template name that Wicker resolved to a file."
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "scopes": {
+          "wickerTemplate": [
+            "entity.name.type"
+          ]
+        }
+      }
+    ],
     "configuration": {
       "title": "Wicker",
       "properties": {

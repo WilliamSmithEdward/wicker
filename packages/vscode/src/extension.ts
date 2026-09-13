@@ -4,6 +4,7 @@ import { parseTemplateName, type IndexedTemplate } from '@wicker/core';
 
 import { CreateTemplateActionProvider } from './codeActions.js';
 import {
+  articleFor,
   clearCache,
   describeKind,
   forgetDocument,
@@ -12,6 +13,10 @@ import {
   templateReferencesIn,
   type DocumentTemplateReference,
 } from './references.js';
+import {
+  SEMANTIC_TOKENS_LEGEND,
+  TemplateSemanticTokensProvider,
+} from './semanticTokens.js';
 import { SessionManager, type ProjectSession } from './session.js';
 
 const SELECTOR: vscode.DocumentSelector = [
@@ -22,6 +27,7 @@ const SELECTOR: vscode.DocumentSelector = [
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const sessions = new SessionManager();
+  const semanticTokens = new TemplateSemanticTokensProvider(sessions);
   const output = vscode.window.createOutputChannel('Wicker');
   const diagnostics = vscode.languages.createDiagnosticCollection('wicker');
 
@@ -281,8 +287,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // The index changing can turn a missing template into a found one.
     sessions.onDidChange(() => {
       refreshAllDiagnostics();
+      semanticTokens.refresh();
       updateStatus();
     }),
+
+    semanticTokens,
+    vscode.languages.registerDocumentSemanticTokensProvider(
+      SELECTOR,
+      semanticTokens,
+      SEMANTIC_TOKENS_LEGEND,
+    ),
 
     vscode.languages.registerCodeActionsProvider(
       SELECTOR,
@@ -305,10 +319,12 @@ function hoverContent(
   const markdown = new vscode.MarkdownString();
   markdown.isTrusted = false;
 
+  const kind = describeKind(reference);
+
   const template = session.lookup(reference.templateName);
   if (template === undefined) {
     markdown.appendMarkdown(`**Template not found**\n\n`);
-    markdown.appendMarkdown(`\`${reference.templateName}\` from a ${describeKind(reference)}.\n\n`);
+    markdown.appendMarkdown(`\`${reference.templateName}\` from ${articleFor(kind)} ${kind}.\n\n`);
 
     const parsed = parseTemplateName(reference.templateName);
     if (!parsed.ok) {
@@ -323,7 +339,7 @@ function hoverContent(
 
   markdown.appendMarkdown(`**${template.name}**\n\n`);
   markdown.appendMarkdown(`\`${template.projectPath}\`\n\n`);
-  markdown.appendMarkdown(`Referenced by a ${describeKind(reference)}.`);
+  markdown.appendMarkdown(`Referenced by ${articleFor(kind)} ${kind}.`);
 
   if (reference.contextKeys.length > 0) {
     const keys = reference.contextKeys.map((key) => `\`${key}\``).join(', ');

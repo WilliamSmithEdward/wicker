@@ -54,6 +54,34 @@ function onlyTargetPath(links: readonly (vscode.Location | vscode.LocationLink)[
   return targetPath(first);
 }
 
+/**
+ * Absolute ranges of the semantic tokens in a document.
+ *
+ * The protocol encodes each token as a delta from the one before it, so the
+ * positions only mean anything once the deltas have been accumulated.
+ */
+function decodeTokenRanges(tokens: vscode.SemanticTokens | undefined): vscode.Range[] {
+  if (tokens === undefined) {
+    return [];
+  }
+
+  const ranges: vscode.Range[] = [];
+  let line = 0;
+  let character = 0;
+
+  for (let index = 0; index + 4 < tokens.data.length; index += 5) {
+    const deltaLine = tokens.data[index] ?? 0;
+    const deltaStart = tokens.data[index + 1] ?? 0;
+    const length = tokens.data[index + 2] ?? 0;
+
+    line += deltaLine;
+    character = deltaLine === 0 ? character + deltaStart : deltaStart;
+    ranges.push(new vscode.Range(line, character, line, character + length));
+  }
+
+  return ranges;
+}
+
 /** Waits for a condition, since indexing and diagnostics are asynchronous. */
 async function waitFor<T>(
   produce: () => T | undefined | Promise<T | undefined>,
@@ -163,6 +191,33 @@ suite('Wicker', () => {
       assert.match(text, /templates\/task\/index\.html\.twig/);
       assert.match(text, /tasks/);
       assert.match(text, /openCount/);
+    });
+  });
+
+  suite('semantic tokens', () => {
+    test('colours a name that resolves and leaves one that does not', async () => {
+      const document = await open('src', 'Controller', 'TaskController.php');
+
+      const ranges = await waitFor(async () => {
+        const tokens = await vscode.commands.executeCommand<vscode.SemanticTokens | undefined>(
+          'vscode.provideDocumentSemanticTokens',
+          document.uri,
+        );
+        const decoded = decodeTokenRanges(tokens);
+        return decoded.length > 0 ? decoded : undefined;
+      }, 'the index to produce semantic tokens');
+
+      const tokenised = (needle: string): boolean =>
+        ranges.some((range) => range.contains(positionOf(document, needle)));
+
+      assert.ok(tokenised('task/index.html.twig'), 'a resolved template name should be coloured');
+
+      // The claim the colour makes is "this reaches a file". A name that
+      // reaches nothing must not make it, or the colour means nothing.
+      assert.ok(
+        !tokenised('task/does_not_exist.html.twig'),
+        'an unresolved template name should be left in the plain string colour',
+      );
     });
   });
 

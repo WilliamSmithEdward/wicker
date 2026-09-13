@@ -4,6 +4,7 @@ import {
   discoverSymfonyProject,
   extensionsFromPatterns,
   loaderPathsFromTwigConfig,
+  parseTemplateName,
   parseTwigConfig,
   resolveLoaderPaths,
   TwigTemplateIndex,
@@ -102,6 +103,36 @@ export class ProjectSession implements vscode.Disposable {
   /** The editor URI for an indexed template. */
   uriFor(template: IndexedTemplate): vscode.Uri {
     return this.fileSystem.toUri(joinProjectPath(this.project.root, template.projectPath));
+  }
+
+  /**
+   * Where a template of this name would live, if it existed.
+   *
+   * The first loader directory registered for the namespace, which is the one
+   * Twig would find first, so creating the file there makes the name resolve.
+   * Undefined when the namespace is unknown: guessing a location for an
+   * unregistered namespace would create a file Twig could never load.
+   */
+  suggestedPathFor(
+    templateName: string,
+  ): { projectPath: string; uri: vscode.Uri } | undefined {
+    const parsed = parseTemplateName(templateName);
+    if (!parsed.ok) {
+      return undefined;
+    }
+    const [candidate] = this.loaderPathInfo.paths.resolveCandidates(parsed.value);
+    if (candidate === undefined) {
+      return undefined;
+    }
+    return {
+      projectPath: candidate,
+      uri: this.fileSystem.toUri(joinProjectPath(this.project.root, candidate)),
+    };
+  }
+
+  /** The template most likely to be a layout, used when scaffolding a new file. */
+  layoutTemplateName(): string | undefined {
+    return this.templateIndex.allNames().find((name) => name === 'base.html.twig');
   }
 
   /** Rebuilds the index now, collapsing concurrent callers onto one build. */

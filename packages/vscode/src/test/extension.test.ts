@@ -184,6 +184,66 @@ suite('Wicker', () => {
     });
   });
 
+  suite('quick fix', () => {
+    async function actionsFor(
+      document: vscode.TextDocument,
+      needle: string,
+    ): Promise<vscode.CodeAction[]> {
+      const at = positionOf(document, needle);
+      const range = new vscode.Range(at, at);
+      return (
+        (await vscode.commands.executeCommand<vscode.CodeAction[]>(
+          'vscode.executeCodeActionProvider',
+          document.uri,
+          range,
+          vscode.CodeActionKind.QuickFix.value,
+        )) ?? []
+      );
+    }
+
+    test('offers to create a missing template, naming where it would go', async () => {
+      const document = await open('src', 'Controller', 'TaskController.php');
+      // Diagnostics must exist before a quick fix can attach to one.
+      await waitFor(
+        () =>
+          vscode.languages
+            .getDiagnostics(document.uri)
+            .find((d) => d.message.includes('does_not_exist')),
+        'the diagnostic the fix attaches to',
+      );
+
+      const actions = await actionsFor(document, 'task/does_not_exist.html.twig');
+      const create = actions.find((action) => action.title.startsWith('Create '));
+
+      assert.ok(create, 'expected a create action');
+      assert.equal(create.title, 'Create templates/task/does_not_exist.html.twig');
+      assert.ok(create.edit, 'the fix should carry a workspace edit, so it is undoable');
+    });
+
+    test('does not offer to create one in an unregistered namespace', async () => {
+      const document = await open('src', 'Controller', 'TaskController.php');
+      await waitFor(
+        () =>
+          vscode.languages.getDiagnostics(document.uri).find((d) => d.message.includes('@Nope')),
+        'the namespace diagnostic',
+      );
+
+      const actions = await actionsFor(document, '@Nope/thing.html.twig');
+      // There is nowhere correct to put it, and inventing a location would
+      // create a file Twig could never load.
+      assert.equal(
+        actions.filter((action) => action.title.startsWith('Create ')).length,
+        0,
+      );
+    });
+
+    test('offers nothing where there is no problem', async () => {
+      const document = await open('src', 'Controller', 'TaskController.php');
+      const actions = await actionsFor(document, 'task/index.html.twig');
+      assert.equal(actions.filter((a) => a.title.startsWith('Create ')).length, 0);
+    });
+  });
+
   suite('diagnostics', () => {
     test('reports a missing template in PHP', async () => {
       const document = await open('src', 'Controller', 'TaskController.php');

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 
 import { parseTemplateName, type IndexedTemplate } from '@wicker/core';
 
+import { CreateTemplateActionProvider } from './codeActions.js';
 import {
   clearCache,
   describeKind,
@@ -21,11 +22,51 @@ const SELECTOR: vscode.DocumentSelector = [
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const sessions = new SessionManager();
-  context.subscriptions.push(sessions);
-  await sessions.initialize();
-
+  const output = vscode.window.createOutputChannel('Wicker');
   const diagnostics = vscode.languages.createDiagnosticCollection('wicker');
-  context.subscriptions.push(diagnostics);
+
+  // Reports what Wicker found without stealing focus. Clicking it opens the
+  // detail, so the count is glanceable and the reasoning is one click away
+  // rather than pushed at the user in a dialog.
+  const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  status.command = 'wicker.showProjectInfo';
+
+  context.subscriptions.push(sessions, output, diagnostics, status);
+
+  const updateStatus = (): void => {
+    const all = sessions.all();
+    if (all.length === 0) {
+      status.hide();
+      return;
+    }
+    const templates = all.reduce((total, session) => total + session.index.size, 0);
+    const viaConsole = all.every((session) => session.loaderPaths.source === 'console');
+
+    status.text = `$(symbol-file) Wicker: ${templates} template${templates === 1 ? '' : 's'}`;
+    status.tooltip = new vscode.MarkdownString(
+      [
+        all.length === 1 ? 'One Symfony project' : `${all.length} Symfony projects`,
+        viaConsole
+          ? 'Namespaces from `bin/console debug:twig`'
+          : 'Namespaces from `twig.yaml` only, so bundle namespaces are unknown',
+        '',
+        'Click for detail.',
+      ].join('\n\n'),
+    );
+    // Warn only when running degraded, and in text as well as colour.
+    status.backgroundColor = viaConsole
+      ? undefined
+      : new vscode.ThemeColor('statusBarItem.warningBackground');
+    status.show();
+  };
+
+  // Indexing reads the whole template tree, which on a large project or a
+  // remote filesystem is past the point where silence reads as a hang.
+  await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Window, title: 'Wicker: indexing templates' },
+    () => sessions.initialize(),
+  );
+  updateStatus();
 
   const resolve = (
     document: vscode.TextDocument,
@@ -110,15 +151,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     vscode.commands.registerCommand('wicker.reindex', async () => {
       clearCache();
-      await sessions.refreshAll();
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Window, title: 'Wicker: rebuilding template index' },
+        () => sessions.refreshAll(),
+      );
       refreshAllDiagnostics();
-      void vscode.window.showInformationMessage('Wicker: template index rebuilt.');
+      updateStatus();
+
+      const templates = sessions.all().reduce((total, s) => total + s.index.size, 0);
+      // Confirms the action without a dialog to dismiss.
+      status.text = `$(check) Wicker: ${templates} templates`;
+      setTimeout(updateStatus, 2000);
     }),
 
     vscode.commands.registerCommand('wicker.showProjectInfo', () => {
       const all = sessions.all();
       if (all.length === 0) {
-        void vscode.window.showWarningMessage('Wicker: no Symfony project detected.');
+        // An empty state that says what was looked for and what to do, rather
+        // than reporting a dead end.
+        output.clear();
+        output.appendLine('Wicker found no Symfony project in this workspace.');
+        output.appendLine('');
+        output.appendLine('A folder is treated as a Symfony application when it contains');
+        output.appendLine('a composer.json alongside any one of:');
+        output.appendLine('  - a symfony/framework-bundle requirement');
+        output.appendLine('  - config/bundles.php');
+        output.appendLine('  - src/Kernel.php');
+        output.appendLine('');
+        output.appendLine('A bin/console script or a symfony/ package alone is not enough,');
+        output.appendLine('because those also describe a plain console tool or a library.');
+        output.appendLine('');
+        output.appendLine('If the project lives in a subfolder, open that folder or add it');
+        output.appendLine('to the workspace.');
+        output.show(true);
         return;
       }
       const lines = all.map((session) => {
@@ -138,13 +203,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
         return [
           session.project.root,
-          `  templates: ${session.index.size}`,
-          `  namespaces: ${[...new Set(namespaces)].join(', ') || '(main only)'}`,
-          `  namespaces from: ${origin}`,
-          `  detected by: ${session.project.evidence.join(', ')}`,
+          `  templates      ${session.index.size}${session.index.truncated ? ' (truncated at the configured limit)' : ''}`,
+          `  namespaces     ${[...new Set(namespaces)].join(', ') || '(main only)'}`,
+          `  read from      ${origin}`,
+          `  detected by    ${session.project.evidence.join(', ')}`,
         ].join('\n');
       });
-      void vscode.window.showInformationMessage('Wicker', { modal: true, detail: lines.join('\n\n') });
+
+      // An output channel rather than a modal: the content is reference
+      // material to read and copy, and a modal would block the editor to show
+      // information nobody asked to be interrupted by.
+      output.clear();
+      output.appendLine(all.length === 1 ? 'Symfony project' : `${all.length} Symfony projects`);
+      output.appendLine('');
+      output.appendLine(lines.join('\n\n'));
+
+      if (all.some((session) => session.loaderPaths.source === 'config')) {
+        output.appendLine('');
+        output.appendLine('Bundle namespaces such as @Twig are declared in no configuration');
+        output.appendLine('file, so they can only be read from the console. Set');
+        output.appendLine('wicker.console.command if PHP is not on this machine, for example:');
+        output.appendLine('  ["docker", "exec", "my-php-1", "php", "bin/console"]');
+      }
+      output.show(true);
     }),
   );
 
@@ -190,7 +271,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }),
     // The index changing can turn a missing template into a found one.
-    sessions.onDidChange(() => refreshAllDiagnostics()),
+    sessions.onDidChange(() => {
+      refreshAllDiagnostics();
+      updateStatus();
+    }),
+
+    vscode.languages.registerCodeActionsProvider(
+      SELECTOR,
+      new CreateTemplateActionProvider(sessions),
+      CreateTemplateActionProvider.metadata,
+    ),
   );
 
   refreshAllDiagnostics();

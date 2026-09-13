@@ -14,6 +14,8 @@ In the editor today:
 - Hover naming the resolved file, the reference that reached it, and the
   variables the controller passes
 - Completion of indexed template names inside the quotes
+- Twig variable completion and hover showing the PHP calls that supply each
+  literal context key, updated as the controller is edited
 - Diagnostics for a template that resolves to nothing, distinguishing a missing
   file from an unregistered namespace, and staying silent on a name built at
   runtime
@@ -22,6 +24,10 @@ In the editor today:
 - Template names that resolve coloured as their own semantic token, so the
   references the extension actually understands are visible in the code
 - Twig syntax highlighting, with HTML, JavaScript and CSS embedded
+- "Rendered by" links above a Twig template, opening each PHP render call or
+  `#[Template]` attribute that resolves to it, including unsaved PHP edits
+- A Wicker sidebar with a leaf icon, detected projects, namespace status and
+  templates grouped by namespace
 
 Underneath it:
 
@@ -76,7 +82,7 @@ Three packages, so the intelligence is not welded to one editor:
 | --- | --- |
 | `packages/core` | The engine. Pure TypeScript, no editor or protocol dependencies, fully unit-testable. |
 | `packages/server` | A Language Server Protocol server wrapping the engine. Not yet started. |
-| `packages/vscode` | The VS Code extension: LSP client plus the features LSP has no shape for. Not yet started. |
+| `packages/vscode` | The VS Code extension, calling the engine directly through native editor providers. |
 
 Two conventions in the engine are worth knowing before reading the code.
 
@@ -139,6 +145,80 @@ Without that it falls back to `config/packages/twig.yaml`, which resolves the
 namespaces an application declares for itself but not the ones its bundles
 register.
 
+### Browsing the sidebar
+
+Click the leaf in the Activity Bar to open Wicker. Each Symfony project shows
+**Controllers** and **Templates** sections.
+Under **Controllers**, expand a controller and an action to see its template
+targets. Clicking the controller opens its PHP file; clicking an action selects
+its first render call or `#[Template]` attribute; clicking a resolved target opens
+the Twig file. Unresolved names stay visible with a warning.
+
+This view includes literal template references in classes following the
+`Controller` directory, namespace or class-suffix convention. Actions follow
+source order. Methods without literal template references are omitted, and
+rendering services outside those conventions remain available through
+**Rendered by** links. Unsaved PHP edits update the tree.
+
+Under **Templates**, expand **Application** or a named
+namespace to browse collapsible folders, with folders sorted before files and
+template counts beside them. Click a filename to open the file Twig resolves
+to; its tooltip retains the full template name and project path.
+
+The title buttons reveal the current template, rebuild the index, and open
+Wicker settings. Bundle namespaces such as `@Turbo` are hidden by default;
+application namespaces such as `@Design` and overrides under **Application →
+bundles** remain visible. The eye button shows or hides bundle templates and
+remembers that choice for this workspace. Revealing an open bundle template
+also shows bundle namespaces. This filter affects browsing under **Templates**;
+explicit controller targets, navigation, completion and diagnostics still use
+the full index.
+
+Hover the project name to see where namespaces came from. Limited namespace
+discovery or a truncated index shows an expandable warning with **Retry** and
+the relevant **Settings** action. A saved Symfony namespace list stays in the
+tooltip while the console is unavailable. Right-click a project and choose
+**Show diagnostics** to open its detailed report in Output. The same command
+in the Command Palette reports all detected projects.
+
+The tree updates when template files or configuration change.
+Turning off `wicker.enable` replaces the tree with a link to settings so it can
+be enabled again. In an empty workspace, the sidebar offers to open a Symfony
+application folder.
+
+### Navigating back to PHP
+
+Open a Twig template and click a `Rendered by Controller::method` link above
+its first line to select the template name in that PHP call or attribute. Each
+render site has its own link. VS Code's `editor.codeLens` setting controls
+whether these links are visible.
+
+Wicker scans project PHP files outside `vendor`, `var`, `node_modules`, and
+`.git`. Links follow unsaved edits, file changes, and Twig loader precedence.
+Only direct, literal render references count: an inherited layout or included
+partial does not borrow its caller's controllers, and runtime template names
+are not guessed. Turning off `wicker.enable` hides the links too.
+
+### Controller variables in Twig
+
+When a PHP call renders a literal template name with an array such as
+`['tasks' => $tasks, 'heading' => 'Tasks']`, Wicker suggests `tasks` and
+`heading` at Twig expression positions. Type inside `{{ }}` or press
+Ctrl+Space to see suggestions. Hover a supplied variable to see the controller
+method, render call and source file. Both features follow unsaved PHP edits.
+
+A template rendered by several calls receives the union of their known keys.
+Hover reports how many indexed calls explicitly supply a key and identifies
+those calls. A key supplied by one call may be absent from another; Wicker
+does not infer its type or promise that it always exists.
+
+This first pass reads literal context arrays at direct render sites. It does
+not follow PHP variables, method return arrays for `#[Template]`, inheritance
+or includes. Twig assignments, loop bindings and macro aliases hide matching
+controller names; isolated scopes and expressions with bindings that Wicker
+cannot resolve are omitted. These are context suggestions, with no
+unknown-variable diagnostics. Turning off `wicker.enable` disables them.
+
 ## Roadmap
 
 Built one capability at a time, each finished before the next starts.
@@ -146,13 +226,15 @@ Built one capability at a time, each finished before the next starts.
 **Done.** The controller and template bridge: go to definition, hover,
 completion, missing-template diagnostics and semantic colouring on every
 template reference from both PHP and Twig, with a quick fix that creates the
-file. Twig syntax highlighting with HTML, JavaScript and CSS embedded.
+file. Twig syntax highlighting with HTML, JavaScript and CSS embedded. Reverse
+navigation from a template to its PHP render calls and attributes. A native
+sidebar for browsing controllers, actions and templates by namespace. Controller context
+keys suggested inside Twig, with hover identifying their PHP sources.
 
 Next, in order:
 
-1. **Twig language intelligence.** Variables a controller passes made known
-   inside the template it renders, and the reverse direction: an open template
-   naming the controllers that render it. Unknown filters and functions checked
+1. **Twig language intelligence.** Extend variable understanding through Twig
+   scopes, includes and inheritance. Unknown filters and functions checked
    against the real list from `debug:twig`, which a grammar can only guess at.
 2. **Symfony UX and Twig Components.** `<twig:Button />` resolved to its class
    and template, with prop completion. This is one feature family covering

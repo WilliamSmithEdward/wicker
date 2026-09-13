@@ -2,7 +2,7 @@
   "name": "wicker",
   "displayName": "Wicker: Symfony & Twig Tooling",
   "description": "Navigate between Symfony controllers and the Twig templates they render.",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "WilliamSmithE",
   "license": "MIT",
   "repository": {
@@ -28,6 +28,88 @@
     "workspaceContains:**/composer.json"
   ],
   "contributes": {
+    "configurationDefaults": {
+      "[twig]": {
+        "editor.minimap.showRegionSectionHeaders": false
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "wicker",
+          "title": "Wicker",
+          "icon": "resources/wicker-leaf.svg"
+        }
+      ]
+    },
+    "views": {
+      "wicker": [
+        {
+          "id": "wicker.projects",
+          "name": "Projects",
+          "contextualTitle": "Wicker",
+          "icon": "resources/wicker-leaf.svg"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "wicker.projects",
+        "when": "!config.wicker.enable",
+        "contents": "Wicker is disabled. Enable it in settings to browse your projects.\n[Open Wicker Settings](command:wicker.openSettings)"
+      },
+      {
+        "view": "wicker.projects",
+        "when": "config.wicker.enable",
+        "contents": "Open a Symfony application folder to browse its templates and namespaces.\n[Open Folder](command:vscode.openFolder)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "wicker.revealTemplate",
+          "when": "view == wicker.projects && config.wicker.enable",
+          "group": "navigation@1"
+        },
+        {
+          "command": "wicker.reindex",
+          "when": "view == wicker.projects && config.wicker.enable",
+          "group": "navigation@2"
+        },
+        {
+          "command": "wicker.openSettings",
+          "when": "view == wicker.projects",
+          "group": "navigation@3"
+        },
+        {
+          "command": "wicker.showBundleTemplates",
+          "when": "view == wicker.projects && config.wicker.enable && !wicker.showBundleTemplates",
+          "group": "navigation@4"
+        },
+        {
+          "command": "wicker.hideBundleTemplates",
+          "when": "view == wicker.projects && config.wicker.enable && wicker.showBundleTemplates",
+          "group": "navigation@4"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "wicker.showProjectInfo",
+          "when": "view == wicker.projects && viewItem == wicker.project && config.wicker.enable",
+          "group": "diagnostics"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "wicker.showBundleTemplates",
+          "when": "!wicker.showBundleTemplates"
+        },
+        {
+          "command": "wicker.hideBundleTemplates",
+          "when": "wicker.showBundleTemplates"
+        }
+      ]
+    },
     "languages": [
       {
         "id": "twig",
@@ -126,11 +208,37 @@
     "commands": [
       {
         "command": "wicker.reindex",
-        "title": "Wicker: Rebuild template index"
+        "title": "Wicker: Rebuild template index",
+        "icon": "$(refresh)"
       },
       {
         "command": "wicker.showProjectInfo",
-        "title": "Wicker: Show detected Symfony project"
+        "title": "Wicker: Show diagnostics",
+        "shortTitle": "Show diagnostics",
+        "enablement": "config.wicker.enable"
+      },
+      {
+        "command": "wicker.openSettings",
+        "title": "Wicker: Open settings",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "wicker.revealTemplate",
+        "title": "Wicker: Reveal current template in sidebar",
+        "icon": "$(go-to-file)",
+        "enablement": "wicker.canRevealTemplate"
+      },
+      {
+        "command": "wicker.showBundleTemplates",
+        "title": "Wicker: Show bundle templates",
+        "icon": "$(eye)",
+        "enablement": "config.wicker.enable"
+      },
+      {
+        "command": "wicker.hideBundleTemplates",
+        "title": "Wicker: Hide bundle templates",
+        "icon": "$(eye-closed)",
+        "enablement": "config.wicker.enable"
       }
     ]
   },
@@ -143,7 +251,7 @@
     "vsix": "npm run build && node scripts/package.mjs"
   },
   "dependencies": {
-    "@wicker/core": "0.1.1"
+    "@wicker/core": "0.2.0"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

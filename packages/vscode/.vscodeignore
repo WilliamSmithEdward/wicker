@@ -11,6 +11,7 @@
 !syntaxes/**
 !language-configuration.json
 !icon.png
+!resources/wicker-leaf.svg
 !README.md
 !CHANGELOG.md
 !LICENSE

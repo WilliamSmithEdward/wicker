@@ -33,6 +33,13 @@ export {
   type TemplateReferenceKind,
   type TemplateReferenceScan,
 } from './php/templateReferences.js';
+export { RenderSiteIndex, type RenderSite, type RenderingController } from './php/renderSiteIndex.js';
+export {
+  templateContextVariables,
+  twigVariableContextAt,
+  type TemplateContextVariable,
+  type TwigVariableContext,
+} from './twig/contextVariables.js';
 
 export {
   classToProjectPaths,

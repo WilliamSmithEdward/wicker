@@ -2,3 +2,4 @@ twig:
     file_name_pattern: '*.twig'
     paths:
         '%kernel.project_dir%/design': Design
+        '%kernel.project_dir%/vendor/sidebar-fixture/templates': Infrastructure

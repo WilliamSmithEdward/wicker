@@ -3,7 +3,6 @@ import * as vscode from 'vscode';
 import {
   parseTemplateName,
   type IndexedTemplate,
-  type LoaderPathSource,
 } from '@wicker/core';
 
 import { CreateTemplateActionProvider } from './codeActions.js';
@@ -18,11 +17,19 @@ import {
   type DocumentTemplateReference,
 } from './references.js';
 import { LoaderPathMemory } from './loaderPathMemory.js';
+import { RenderedByProvider } from './renderedBy.js';
 import {
   SEMANTIC_TOKENS_LEGEND,
   TemplateSemanticTokensProvider,
 } from './semanticTokens.js';
-import { isEnabled, SessionManager, type ProjectSession } from './session.js';
+import { SessionManager, type ProjectSession } from './session.js';
+import { WickerSidebar, type SidebarNode } from './sidebar.js';
+import { TwigVariableProvider } from './twigVariables.js';
+
+const TWIG_SELECTOR: vscode.DocumentSelector = [
+  { language: 'twig', scheme: 'file' },
+  { pattern: '**/*.twig', scheme: 'file' },
+];
 
 const SELECTOR: vscode.DocumentSelector = [
   { language: 'php', scheme: 'file' },
@@ -35,51 +42,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // and mean nothing anywhere else.
   const sessions = new SessionManager(new LoaderPathMemory(context.workspaceState));
   const semanticTokens = new TemplateSemanticTokensProvider(sessions);
+  const renderedBy = new RenderedByProvider(sessions);
+  const twigVariables = new TwigVariableProvider(sessions);
+  const sidebar = new WickerSidebar(sessions, context.workspaceState);
   const output = vscode.window.createOutputChannel('Wicker');
   const diagnostics = vscode.languages.createDiagnosticCollection('wicker');
 
-  // Reports what Wicker found without stealing focus. Clicking it opens the
-  // detail, so the count is glanceable and the reasoning is one click away
-  // rather than pushed at the user in a dialog.
-  const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  status.command = 'wicker.showProjectInfo';
-
-  context.subscriptions.push(sessions, output, diagnostics, status);
-
-  const updateStatus = (): void => {
-    const all = sessions.all();
-    // Nothing in the status bar either: an extension that says it found your
-    // project while contributing nothing to it is just noise.
-    if (!isEnabled() || all.length === 0) {
-      status.hide();
-      return;
-    }
-    const templates = all.reduce((total, session) => total + session.index.fileCount, 0);
-    // The weakest source across projects, since the warning has to describe
-    // the project that is worst off rather than the average.
-    const source = weakestSource(all);
-
-    // The badge answers "is Wicker working", which is the only thing worth a
-    // permanent place in the status bar. The count is detail, and detail
-    // belongs in the tooltip where there is room to say what it counts.
-    status.text = '$(symbol-file) Wicker';
-    status.tooltip = new vscode.MarkdownString(
-      [
-        all.length === 1 ? 'One Symfony project' : `${all.length} Symfony projects`,
-        `${plural(templates, 'template')} that a reference can resolve to`,
-        NAMESPACE_ORIGIN[source],
-        '',
-        'Click for detail.',
-      ].join('\n\n'),
-    );
-    // Warn only when bundle namespaces are genuinely unknown. A remembered
-    // answer resolves them correctly, so warning about it would train the
-    // user to ignore the colour that matters.
-    status.backgroundColor = source !== 'config'
-      ? undefined
-      : new vscode.ThemeColor('statusBarItem.warningBackground');
-    status.show();
-  };
+  context.subscriptions.push(sessions, output, diagnostics, renderedBy, sidebar);
 
   // Indexing reads the whole template tree, which on a large project or a
   // remote filesystem is past the point where silence reads as a hang.
@@ -87,7 +56,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     { location: vscode.ProgressLocation.Window, title: 'Wicker: indexing templates' },
     () => sessions.initialize(),
   );
-  updateStatus();
+  sidebar.finishLoading();
 
   const resolve = (
     document: vscode.TextDocument,
@@ -102,6 +71,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
+      TWIG_SELECTOR,
+      renderedBy,
+    ),
+    vscode.languages.registerCompletionItemProvider(TWIG_SELECTOR, twigVariables),
+    vscode.languages.registerHoverProvider(TWIG_SELECTOR, twigVariables),
     vscode.languages.registerDefinitionProvider(SELECTOR, {
       provideDefinition(document, position) {
         const reference = templateReferenceAt(document, position);
@@ -177,15 +152,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         () => sessions.refreshAll(),
       );
       refreshAllDiagnostics();
-      updateStatus();
-
-      // Confirms the action without a dialog to dismiss.
-      status.text = '$(check) Wicker';
-      setTimeout(updateStatus, 2000);
     }),
 
-    vscode.commands.registerCommand('wicker.showProjectInfo', () => {
-      const all = sessions.all();
+    vscode.commands.registerCommand('wicker.showProjectInfo', (node?: SidebarNode) => {
+      let all = sessions.all();
+      if (node !== undefined) {
+        if (node.kind !== 'project') {
+          return;
+        }
+        const session = sessions.sessionFor({ uri: node.root });
+        if (session?.fileSystem.toUri(session.project.root).toString() !== node.root.toString()) {
+          return;
+        }
+        all = [session];
+      }
       if (all.length === 0) {
         // An empty state that says what was looked for and what to do, rather
         // than reporting a dead end.
@@ -225,8 +205,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
         return [
           session.project.root,
-          // Both counts, because the badge shows files and a reader comparing
-          // the two should not have to guess why they differ.
+          // A file can resolve under more than one template name.
           `  templates      ${plural(session.index.fileCount, 'file')}, reachable under ${plural(
             session.index.nameCount,
             'name',
@@ -237,22 +216,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ].join('\n');
       });
 
-      // An output channel rather than a modal: the content is reference
-      // material to read and copy, and a modal would block the editor to show
-      // information nobody asked to be interrupted by.
-      output.clear();
-      output.appendLine(all.length === 1 ? 'Symfony project' : `${all.length} Symfony projects`);
-      output.appendLine('');
-      output.appendLine(lines.join('\n\n'));
-
+      let report = `${all.length === 1 ? 'Symfony project' : `${all.length} Symfony projects`}\n\n${lines.join('\n\n')}`;
       if (all.some((session) => session.loaderPaths.source === 'config')) {
-        output.appendLine('');
-        output.appendLine('Bundle namespaces such as @Twig are declared in no configuration');
-        output.appendLine('file, so they can only be read from the console. Set');
-        output.appendLine('wicker.console.command if PHP is not on this machine, for example:');
-        output.appendLine('  ["docker", "exec", "my-php-1", "php", "bin/console"]');
+        report += '\n\nBundle namespaces such as @Twig are declared in no configuration\n' +
+          'file, so they can only be read from the console. Set\n' +
+          'wicker.console.command if PHP is not on this machine, for example:\n' +
+          '  ["docker", "exec", "my-php-1", "php", "bin/console"]';
       }
+      output.clear();
+      output.appendLine(report);
       output.show(true);
+      return report;
     }),
   );
 
@@ -295,17 +269,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (event.affectsConfiguration('wicker')) {
         await sessions.refreshAll();
         refreshAllDiagnostics();
-        // Toggling wicker.enable has to reach the colouring and the badge as
-        // well, not just the squiggles.
+        // Toggling wicker.enable has to refresh colouring as well as diagnostics.
         semanticTokens.refresh();
-        updateStatus();
       }
     }),
     // The index changing can turn a missing template into a found one.
     sessions.onDidChange(() => {
       refreshAllDiagnostics();
       semanticTokens.refresh();
-      updateStatus();
     }),
 
     semanticTokens,
@@ -416,34 +387,6 @@ function buildDiagnostics(
 /** "1 template", "37 templates". */
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
-}
-
-/** How the tooltip explains each way the namespaces can have been obtained. */
-const NAMESPACE_ORIGIN: Record<LoaderPathSource, string> = {
-  console: 'Namespaces from `bin/console debug:twig`',
-  remembered:
-    'Namespaces remembered from an earlier run, because the console is not answering now. Bundle namespaces still resolve, but a bundle added since then is unknown.',
-  config: 'Namespaces from `twig.yaml` only, so bundle namespaces are unknown',
-};
-
-/**
- * The least informed source among the open projects.
- *
- * A warning has to describe the project that is worst off. Reporting the best
- * of them would hide the one actually misbehaving.
- */
-function weakestSource(sessions: readonly ProjectSession[]): LoaderPathSource {
-  let weakest: LoaderPathSource = 'console';
-  for (const session of sessions) {
-    const source = session.loaderPaths.source;
-    if (source === 'config') {
-      return 'config';
-    }
-    if (source === 'remembered') {
-      weakest = 'remembered';
-    }
-  }
-  return weakest;
 }
 
 function severityFromSettings(): vscode.DiagnosticSeverity | undefined {

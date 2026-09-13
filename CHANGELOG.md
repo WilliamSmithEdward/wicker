@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.2.0
+
+### Added
+
+- Controllers and Templates sections in the Wicker sidebar. Expand controller
+  actions to browse literal render targets, jump to PHP calls or attributes,
+  and open their Twig files. Follows unsaved edits and shows unresolved targets.
+- Twig variable completion and hover from literal controller context keys.
+  Hover identifies each PHP source and explains when only some render calls
+  supply a variable. Follows unsaved edits, respects local bindings and
+  `wicker.enable`, and keeps nested workspace contexts separate.
+- Wicker sidebar with a monochrome leaf Activity Bar icon. Browse templates by
+  project, namespace and folder, see the namespace source, reveal the current template,
+  refresh the index, and open Wicker settings. Includes empty and disabled states.
+  Bundle namespaces are hidden by default, with a workspace-persistent toggle
+  to show them. Application templates and overrides remain visible.
+- "Rendered by" links above Twig templates jump to each PHP render call or
+  `#[Template]` attribute that resolves to the file. Links follow unsaved PHP
+  edits, file creation, changes, renames and deletion, and template overrides.
+  They respect `wicker.enable` and VS Code's `editor.codeLens` setting.
+
+### Removed
+
+- Persistent Wicker status bar item. Namespace status and project details are
+  available from the Wicker sidebar.
+
+### Changed
+
+- Hide minimap region headings in Twig by default. Folding markers for ordinary
+  Twig blocks were producing oversized labels containing raw template syntax.
+- Moved namespace source information into the project tooltip. Limited
+  resolution shows a warning with Retry and Settings actions. The project
+  context menu's Show diagnostics action opens a report for that project;
+  normal tree rows no longer open Output.
+
 ## 0.1.1
 
 ### Fixed

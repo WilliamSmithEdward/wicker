@@ -3,6 +3,9 @@ import * as path from 'node:path';
 
 import * as vscode from 'vscode';
 
+import './sidebar.test.js';
+import './twigVariables.test.js';
+
 /**
  * These tests drive the real extension inside a real VS Code instance against
  * a fixture Symfony project. They call the same provider commands the editor
@@ -45,6 +48,30 @@ async function definitionsAt(
 function targetPath(link: vscode.Location | vscode.LocationLink): string {
   const uri = 'targetUri' in link ? link.targetUri : link.uri;
   return path.relative(FIXTURE_ROOT, uri.fsPath).split(path.sep).join('/');
+}
+
+async function renderedBy(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
+  const lenses = await vscode.commands.executeCommand<vscode.CodeLens[]>(
+    'vscode.executeCodeLensProvider', document.uri,
+  );
+  return (lenses ?? []).filter((lens) => lens.command?.command === 'wicker.openRenderSite');
+}
+
+async function replaceText(document: vscode.TextDocument, text: string): Promise<void> {
+  const edit = new vscode.WorkspaceEdit();
+  edit.replace(document.uri, new vscode.Range(document.positionAt(0),
+    document.positionAt(document.getText().length)), text);
+  assert.ok(await vscode.workspace.applyEdit(edit));
+}
+
+async function deleteIfPresent(uri: vscode.Uri): Promise<void> {
+  try {
+    await vscode.workspace.fs.delete(uri);
+  } catch (error) {
+    if (!(error instanceof vscode.FileSystemError) || error.code !== 'FileNotFound') {
+      throw error;
+    }
+  }
 }
 
 /** The single definition these tests expect, as a fixture-relative path. */
@@ -354,10 +381,113 @@ suite('Wicker', () => {
     });
   });
 
+  suite('rendered by', () => {
+    test('keeps a nested workspace project\'s render sites out of its parent', async () => {
+      const parent = await open('templates', 'task', '_row.html.twig');
+      const nested = await open('nested-app', 'templates', 'task', '_row.html.twig');
+      assert.deepEqual((await renderedBy(nested)).map((lens) => lens.command?.title),
+        ['Rendered by NestedController::index']);
+      assert.equal((await renderedBy(parent)).length, 0, 'parent must not borrow nested render sites');
+    });
+
+    test('discovers a controller on disk and its link selects the PHP template name', async () => {
+      const template = await open('templates', 'task', 'index.html.twig');
+      const lenses = await renderedBy(template);
+      assert.equal(lenses.length, 1);
+      const lens = lenses[0];
+      assert.equal(lens?.command?.title, 'Rendered by TaskController::index');
+      assert.equal(lens.range.start.line, 0);
+      assert.ok(lens.command);
+      await vscode.commands.executeCommand(lens.command.command, ...(lens.command.arguments ?? []));
+      const editor = vscode.window.activeTextEditor;
+      assert.ok(editor);
+      assert.equal(editor.document.uri.toString(), fixtureUri('src', 'Controller', 'TaskController.php').toString());
+      assert.equal(editor.document.getText(editor.selection), 'task/index.html.twig');
+    });
+
+    test('tracks unsaved calls and attributes, shifted offsets, rebuilds and discarded edits', async () => {
+      const php = await open('src', 'Controller', 'TaskController.php');
+      const original = php.getText();
+      const template = await open('templates', 'task', '_row.html.twig');
+      assert.equal((await renderedBy(template)).length, 0);
+      try {
+        await replaceText(php, `<?php\r\n// Offset check\r\nclass UnsavedController {
+          public function row() { return $this->render('task/_row.html.twig', ['task' => []]); }
+          #[Template('task/_row.html.twig')]
+          public function attribute() {}
+        }`);
+        assert.ok(php.isDirty);
+        await vscode.commands.executeCommand('wicker.reindex');
+        const lenses = await renderedBy(template);
+        assert.deepEqual(lenses.map((lens) => lens.command?.title), [
+          'Rendered by UnsavedController::row', 'Rendered by UnsavedController::attribute',
+        ]);
+        const oldTemplate = await vscode.workspace.openTextDocument(fixtureUri('templates', 'task', 'index.html.twig'));
+        assert.equal((await renderedBy(oldTemplate)).length, 0);
+        for (const lens of lenses) {
+          assert.ok(lens.command);
+          await vscode.commands.executeCommand(lens.command.command, ...(lens.command.arguments ?? []));
+          const editor = vscode.window.activeTextEditor;
+          assert.ok(editor);
+          assert.equal(editor.document.getText(editor.selection), 'task/_row.html.twig');
+          if (lens.command.title.endsWith('::attribute')) {
+            assert.match(editor.document.lineAt(editor.selection.start.line).text, /#\[Template/);
+          }
+        }
+        await vscode.window.showTextDocument(php);
+        await vscode.commands.executeCommand('workbench.action.files.revert');
+        assert.equal(php.getText(), original);
+        await waitFor(async () => (await renderedBy(template)).length === 0 ? true : undefined,
+          'discarded render sites to disappear');
+        assert.equal((await renderedBy(oldTemplate)).length, 1);
+      } finally {
+        await replaceText(php, original);
+        await vscode.window.showTextDocument(php);
+        await vscode.commands.executeCommand('workbench.action.files.revert');
+      }
+    });
+
+    test('updates links for created, changed, renamed and deleted PHP files', async () => {
+      const uri = fixtureUri('src', 'Controller', 'RenderSiteTest.php');
+      const renamed = fixtureUri('src', 'Controller', 'RenamedRenderSiteTest.php');
+      const template = await open('templates', 'task', '_row.html.twig');
+      const other = await vscode.workspace.openTextDocument(fixtureUri('templates', 'base.html.twig'));
+      const write = async (name: string): Promise<void> => {
+        await vscode.workspace.fs.writeFile(uri, Buffer.from(`<?php $twig->render('${name}');`));
+      };
+      try {
+        await write('task/_row.html.twig');
+        await waitFor(async () => (await renderedBy(template)).length === 1 ? true : undefined,
+          'a newly created PHP render site');
+        await write('base.html.twig');
+        await waitFor(async () => (await renderedBy(template)).length === 0 &&
+          (await renderedBy(other)).length === 1 ? true : undefined, 'the saved reference change');
+        await vscode.workspace.fs.rename(uri, renamed);
+        await waitFor(async () => {
+          const lenses = await renderedBy(other);
+          return lenses.length === 1 && lenses[0]?.command?.title.includes('RenamedRenderSiteTest.php')
+            ? true : undefined;
+        }, 'the renamed source');
+        await vscode.workspace.openTextDocument(renamed);
+        await vscode.workspace.fs.delete(renamed);
+        await waitFor(async () => (await renderedBy(other)).length === 0 ? true : undefined,
+          'the deleted source to disappear');
+        await vscode.commands.executeCommand('wicker.reindex');
+        assert.equal((await renderedBy(other)).length, 0, 'rebuild must not revive a deleted open source');
+      } finally {
+        for (const file of [uri, renamed]) {
+          await deleteIfPresent(file);
+        }
+      }
+    });
+  });
+
   suite('wicker.enable', () => {
     test('switching it off silences every feature', async () => {
       const document = await open('src', 'Controller', 'TaskController.php');
       const position = positionOf(document, 'task/index.html.twig');
+      const template = await vscode.workspace.openTextDocument(fixtureUri('templates', 'task', 'index.html.twig'));
+      assert.equal((await renderedBy(template)).length, 1);
 
       // Works first, so the test cannot pass by the feature never having
       // worked in the first place.
@@ -371,6 +501,7 @@ suite('Wicker', () => {
 
       try {
         assert.equal((await definitionsAt(document, position)).length, 0, 'definition');
+        assert.equal((await renderedBy(template)).length, 0, 'rendered by');
 
         const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
           'vscode.executeHoverProvider',
@@ -398,6 +529,7 @@ suite('Wicker', () => {
         const found = await definitionsAt(document, position);
         return found.length > 0 ? found : undefined;
       }, 'features to return after re-enabling');
+      assert.equal((await renderedBy(template)).length, 1);
     });
   });
 });

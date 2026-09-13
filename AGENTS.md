@@ -137,9 +137,10 @@ There is no PHP on the Windows host. Run console commands through the container:
 
     docker exec symfonyapp-php-1 php bin/console debug:twig --format=json
 
-The containers stop when Docker or WSL restarts. A yellow Wicker status bar
-means the console is unreachable; `docker compose up -d` from the project
-directory brings it back.
+The containers stop when Docker or WSL restarts. The Wicker sidebar's project
+tooltip reports whether namespaces came from the console, a remembered answer,
+or configuration. If the console is unreachable, `docker compose up -d`
+from the project directory brings the containers back.
 
 That app uses AssetMapper, Tailwind 4, Stimulus, Turbo and React via Symfony UX,
 and carries a three-part tour under `/wicker` built to exercise the extension.
@@ -161,11 +162,25 @@ this work, and any containerised project needs its equivalent:
 
 Without it Wicker falls back to `config/packages/twig.yaml` and cannot resolve
 bundle namespaces such as `@Twig` or `@Turbo`, which are declared in no
-configuration file. The symptom is a yellow status bar and a lower template
-count. Opening the project inside the dev container instead puts PHP on PATH
-and the setting can be dropped.
+configuration file. The sidebar reports configuration as the namespace source
+and a lower template count. Opening the project inside the dev container instead
+puts PHP on PATH and the setting can be dropped.
 
 ### Verifying by hand
+
+After each completed implementation change, run the build and launch commands
+for the user: build all packages, then open the real Symfony app in a VS Code
+Extension Development Host using this checkout. Launch only if the build
+succeeds. If the development host is already open, reload it to load the latest
+build. Repeating `code.cmd` with the same `--extensionDevelopmentPath` reloads
+the existing development host, so UI automation is not needed for this step.
+This is authorized; do not ask again or substitute a launch snippet.
+Use `npm.cmd` and `code.cmd` explicitly: PowerShell script execution is disabled
+on this machine, so `npm` can select a blocked `npm.ps1` launcher.
+In the final response, confirm the test window is ready and give a short,
+change-specific live-test checklist naming the files, actions and expected
+results. Include how to undo temporary test edits. Automated test results do
+not replace this handoff.
 
 The integration suite covers the providers, but it runs against a fixture. A
 change to anything user-facing should also be looked at in the real app.
@@ -189,9 +204,17 @@ Template names that resolve should be coloured differently from ordinary
 strings. Names that do not resolve must keep the plain string colour, or the
 colour claims an understanding the extension does not have.
 
-The status bar reads `Wicker` and is not yellow when the console is reachable.
-Its tooltip says where the namespaces came from, and clicking it opens the
-project detail.
+The Wicker sidebar's project tooltip reports Symfony console when it is reachable.
+Healthy projects contain Controllers and Templates sections. Under Controllers,
+expand TaskController, then index(): clicking the action selects its PHP template
+name and clicking the template opens Twig. WickerTourController includes both
+render calls and a Template attribute. Unresolved names remain visible with a
+warning; methods without literal template names are omitted. The tree follows
+unsaved PHP edits; undo temporary edits after checking this.
+Limited namespace discovery or a truncated index shows an expandable warning
+with Retry and Settings actions.
+Right-click the project and choose Show diagnostics for its report in Output.
+Wicker has no persistent status bar item.
 
 The first `test:integration` run downloads a VS Code build into
 `packages/vscode/.vscode-test/`, so it takes minutes rather than seconds. That

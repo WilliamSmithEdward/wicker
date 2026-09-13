@@ -14,6 +14,7 @@ import {
   toProjectPath,
   type IndexedTemplate,
   type LoaderPathsResolution,
+  type RenderSite,
   type SymfonyProject,
 } from '@wicker/core';
 
@@ -21,6 +22,7 @@ import { ProcessConsoleRunner } from './console.js';
 import { VsCodeFileSystem } from './fileSystem.js';
 import type { LoaderPathMemory } from './loaderPathMemory.js';
 import { enginePathOf } from './paths.js';
+import { RenderSiteTracker } from './renderSiteTracker.js';
 
 const DEFAULT_EXTENSIONS = ['.twig'];
 
@@ -41,6 +43,7 @@ export function isEnabled(): boolean {
 export class ProjectSession implements vscode.Disposable {
   readonly project: SymfonyProject;
   readonly fileSystem: VsCodeFileSystem;
+  readonly renderSites: RenderSiteTracker;
   /**
    * The workspace folder's own URI, kept so watchers and child URIs are built
    * from it rather than reconstructed from a path string. Rebuilding would
@@ -72,6 +75,7 @@ export class ProjectSession implements vscode.Disposable {
     this.project = project;
     this.rootUri = rootUri;
     this.fileSystem = fileSystem;
+    this.renderSites = new RenderSiteTracker(project.root, fileSystem);
     this.templateIndex = index;
     this.loaderPathInfo = loaderPaths;
     this.memory = memory;
@@ -94,7 +98,7 @@ export class ProjectSession implements vscode.Disposable {
       return undefined;
     }
     const built = await buildIndex(fileSystem, project, memory);
-    return new ProjectSession(
+    const session = new ProjectSession(
       project,
       folder.uri,
       fileSystem,
@@ -102,6 +106,13 @@ export class ProjectSession implements vscode.Disposable {
       built.loaderPaths,
       memory,
     );
+    try {
+      await session.renderSites.refresh();
+      return session;
+    } catch (error) {
+      session.dispose();
+      throw error;
+    }
   }
 
   get index(): TwigTemplateIndex {
@@ -224,6 +235,7 @@ export class ProjectSession implements vscode.Disposable {
     for (const watcher of this.watchers) {
       watcher.dispose();
     }
+    this.renderSites.dispose();
     this.changed.dispose();
   }
 }
@@ -272,8 +284,10 @@ async function buildIndex(
 export class SessionManager implements vscode.Disposable {
   private readonly sessions = new Map<string, ProjectSession>();
   private readonly changed = new vscode.EventEmitter<void>();
+  private readonly renderSitesChanged = new vscode.EventEmitter<void>();
 
   readonly onDidChange = this.changed.event;
+  readonly onDidChangeRenderSites = this.renderSitesChanged.event;
 
   constructor(private readonly memory: LoaderPathMemory) {}
 
@@ -293,6 +307,7 @@ export class SessionManager implements vscode.Disposable {
       return;
     }
     session.onDidChange(() => this.changed.fire());
+    session.renderSites.onDidChange(() => this.renderSitesChanged.fire());
     this.sessions.set(key, session);
     this.changed.fire();
   }
@@ -317,7 +332,7 @@ export class SessionManager implements vscode.Disposable {
    * Indexing and the file watchers keep running, so turning it back on is
    * immediate rather than a rebuild.
    */
-  sessionFor(document: vscode.TextDocument): ProjectSession | undefined {
+  sessionFor(document: Pick<vscode.TextDocument, 'uri'>): ProjectSession | undefined {
     if (!isEnabled()) {
       return undefined;
     }
@@ -335,12 +350,30 @@ export class SessionManager implements vscode.Disposable {
     return best;
   }
 
+  /** Direct render sites owned by the same project as this template. */
+  renderSitesFor(document: Pick<vscode.TextDocument, 'uri'>): readonly RenderSite[] {
+    const session = this.sessionFor(document);
+    const path = session?.relativePathOf(enginePathOf(document.uri));
+    if (session === undefined || path === undefined) {
+      return [];
+    }
+    return session.renderSites.index.forTemplate(path, session.index).filter((site) => {
+      const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, site.projectPath));
+      // A parent workspace can contain another open Symfony project. Its PHP
+      // references belong to that deeper session, not to the parent's templates.
+      return this.sessionFor({ uri }) === session;
+    });
+  }
+
   all(): readonly ProjectSession[] {
     return [...this.sessions.values()];
   }
 
   async refreshAll(): Promise<void> {
-    await Promise.all(this.all().map((session) => session.refresh()));
+    await Promise.all(this.all().map(async (session) => {
+      await session.refresh();
+      await session.renderSites.refresh();
+    }));
   }
 
   dispose(): void {
@@ -349,5 +382,6 @@ export class SessionManager implements vscode.Disposable {
     }
     this.sessions.clear();
     this.changed.dispose();
+    this.renderSitesChanged.dispose();
   }
 }

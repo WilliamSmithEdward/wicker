@@ -177,8 +177,20 @@ export class TwigTemplateIndex {
     return names.sort();
   }
 
-  /** Count of distinct template names. */
-  get size(): number {
+  /**
+   * Count of distinct template files.
+   *
+   * Lower than `nameCount`, because one file is reachable under every
+   * namespace that covers it: a bundle override answers to `@Twig/x`,
+   * `@!Twig/x` and `bundles/TwigBundle/x` alike. This is the count to show a
+   * reader who asked how many templates a project has.
+   */
+  get fileCount(): number {
+    return this.byProjectPath.size;
+  }
+
+  /** Count of distinct template names, which is what a reference resolves against. */
+  get nameCount(): number {
     return this.byName.size;
   }
 }

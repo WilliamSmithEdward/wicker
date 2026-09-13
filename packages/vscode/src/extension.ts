@@ -39,10 +39,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       status.hide();
       return;
     }
-    const templates = all.reduce((total, session) => total + session.index.size, 0);
+    const templates = all.reduce((total, session) => total + session.index.fileCount, 0);
     const viaConsole = all.every((session) => session.loaderPaths.source === 'console');
 
-    status.text = `$(symbol-file) Wicker: ${templates} template${templates === 1 ? '' : 's'}`;
+    // Files rather than names: a reader counting templates in the explorer
+    // should arrive at this number.
+    status.text = `$(symbol-file) Wicker: ${plural(templates, 'template')}`;
     status.tooltip = new vscode.MarkdownString(
       [
         all.length === 1 ? 'One Symfony project' : `${all.length} Symfony projects`,
@@ -158,9 +160,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       refreshAllDiagnostics();
       updateStatus();
 
-      const templates = sessions.all().reduce((total, s) => total + s.index.size, 0);
+      const templates = sessions.all().reduce((total, s) => total + s.index.fileCount, 0);
       // Confirms the action without a dialog to dismiss.
-      status.text = `$(check) Wicker: ${templates} templates`;
+      status.text = `$(check) Wicker: ${plural(templates, 'template')}`;
       setTimeout(updateStatus, 2000);
     }),
 
@@ -203,7 +205,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
         return [
           session.project.root,
-          `  templates      ${session.index.size}${session.index.truncated ? ' (truncated at the configured limit)' : ''}`,
+          // Both counts, because the badge shows files and a reader comparing
+          // the two should not have to guess why they differ.
+          `  templates      ${plural(session.index.fileCount, 'file')}, reachable under ${plural(
+            session.index.nameCount,
+            'name',
+          )}${session.index.truncated ? ' (truncated at the configured limit)' : ''}`,
           `  namespaces     ${[...new Set(namespaces)].join(', ') || '(main only)'}`,
           `  read from      ${origin}`,
           `  detected by    ${session.project.evidence.join(', ')}`,
@@ -370,6 +377,11 @@ function buildDiagnostics(
     result.push(diagnostic);
   }
   return result;
+}
+
+/** "1 template", "37 templates". */
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
 }
 
 function severityFromSettings(): vscode.DiagnosticSeverity | undefined {

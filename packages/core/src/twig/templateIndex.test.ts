@@ -74,7 +74,8 @@ describe('TwigTemplateIndex.build', () => {
   it('produces an empty index when nothing is there', async () => {
     const fs = new InMemoryFileSystem();
     const index = await TwigTemplateIndex.build(fs, '/app', TwigLoaderPaths.default());
-    expect(index.size).toBe(0);
+    expect(index.fileCount).toBe(0);
+    expect(index.nameCount).toBe(0);
     expect(index.allNames()).toEqual([]);
     expect(index.truncated).toBe(false);
   });
@@ -109,7 +110,7 @@ describe('TwigTemplateIndex.build', () => {
       maxFiles: 10,
     });
     expect(index.truncated).toBe(true);
-    expect(index.size).toBeLessThanOrEqual(10);
+    expect(index.fileCount).toBeLessThanOrEqual(10);
   });
 });
 
@@ -152,6 +153,21 @@ describe('TwigTemplateIndex override ordering', () => {
     expect(candidates).toHaveLength(2);
     expect(candidates[1]?.projectPath).toBe('vendor/symfony/maker-bundle/templates/email.html.twig');
     expect(candidates[1]?.shadowed).toBe(true);
+  });
+
+  it('counts files and names separately, because one file answers to several', async () => {
+    const index = await TwigTemplateIndex.build(
+      new InMemoryFileSystem(OVERRIDE_FILES),
+      '/app',
+      OVERRIDE_PATHS,
+    );
+
+    // Two files on disk, reachable as @Maker/email.html.twig,
+    // @!Maker/email.html.twig and bundles/MakerBundle/email.html.twig. A
+    // reader counting templates means the files, so the two must not be
+    // conflated behind one ambiguous total.
+    expect(index.fileCount).toBe(2);
+    expect(index.nameCount).toBe(3);
   });
 
   it('lets the @! form reach past the override, which is its purpose', async () => {

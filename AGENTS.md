@@ -16,6 +16,62 @@ between a controller and the template it renders, is finished and shipped.
 Releases are `vX.Y.Z` for both the tag and the release title, nothing else in
 the title.
 
+### Product vision and experience principles
+
+Wicker's ultimate vision is to be a one-stop shop for Symfony and Twig
+development, with a developer experience that is a joy to use and lowers
+cognitive load as much as possible. Use this as the basis for product, roadmap
+and interaction decisions.
+
+Explore that experience through real use and iteration. The user does not need
+to arrive with a fixed list of pain points: propose concrete improvements, try
+them in the live app, and learn what makes Symfony development feel better.
+
+Initial project and environment setup is outside the product's intended scope.
+Once a project is set up, the ambition is broad: everyday Symfony and Twig
+development may include creating application code, refactoring, running project
+commands, testing and debugging, as well as editor intelligence. These are areas
+to explore, not promised features or a change to the roadmap's delivery order.
+
+- Serve beginners and experienced developers through one coherent experience.
+  Make concepts and actions discoverable, with explanations available when
+  needed and efficient interactions that remain unobtrusive as familiarity grows.
+- Connect related parts of an application through consistent navigation,
+  completion and explanations: controllers, templates, routes, services,
+  components and frontend integrations such as Stimulus.
+- Reduce what developers must remember, search for, configure or switch between.
+  For each proposed feature, name the concrete workflow and the friction it
+  removes. Judge the result by that workflow from start to finish, including
+  how clear and pleasant it feels to use.
+- Discover what the project provides and keep editor surfaces current as files
+  change. Normal editing should not require manual reindexing or window reloads.
+- Keep the default interface calm. Use familiar VS Code controls, show relevant
+  information where the developer is working, and reveal deeper detail on
+  demand. Every persistent label, count, warning and action should earn its place.
+- Make assistance trustworthy: ground claims in project evidence, explain
+  uncertainty, and provide clear recovery when discovery is incomplete. Avoid
+  speculative diagnostics that create extra work for the developer.
+- Prefer sensible defaults, accessible keyboard interactions and consistent
+  behavior across features. Preserve user preferences as coverage expands.
+
+### Documentation and roadmap scope
+
+Use these official documentation sites as primary references:
+
+- [Twig 3.x](https://twig.symfony.com/doc/3.x/)
+- [Symfony](https://symfony.com/doc)
+
+The user explicitly authorizes comprehensive browsing and crawling of these
+sites and their linked official documentation as needed for research and
+implementation. Check documentation against the project's installed versions;
+Symfony's runtime discovery remains the authority for what that app provides.
+
+Wicker's roadmap covers the wider Symfony ecosystem, including Symfony UX and
+Stimulus integration with Twig. Keep Stimulus explicit in README.md's roadmap.
+Deliver one capability at a time; a roadmap entry is planned support, not a
+claim that the feature has shipped. General PHP language support remains out
+of scope as described below.
+
 ### Constraints that are not negotiable
 
 **The extension ships no third-party runtime code.** Not a preference, a
@@ -86,6 +142,18 @@ is deliberate. It is the single gate where `wicker.enable` turns everything off
 at once. A new provider that reaches around it will keep running when the user
 has switched the extension off.
 
+**Template context and direct render sites are different facts.**
+`TemplateContextIndex` follows literal Twig includes and inheritance for variable
+suggestions; `RenderSiteIndex` and the Rendered by links describe direct PHP
+calls only. Keep both PHP and Twig sources within the owning session. Twig text
+changes are tracked independently of console discovery, including unsaved edits.
+
+**Component registrations come from `debug:twig-component`.** UX 2.x and 3.x
+expose a table, not a JSON formatter; read its unstyled four-column rows
+defensively. Do not guess registrations from directory conventions. Prop
+suggestions read the registered source's current editor buffer. They cover
+direct declarations, not PHP inheritance or dynamic lifecycle hooks.
+
 ### Things that have already gone wrong
 
 Each of these cost real time. They are written down so they cost it once.
@@ -142,7 +210,7 @@ tooltip reports whether namespaces came from the console, a remembered answer,
 or configuration. If the console is unreachable, `docker compose up -d`
 from the project directory brings the containers back.
 
-That app uses AssetMapper, Tailwind 4, Stimulus, Turbo and React via Symfony UX,
+That app uses AssetMapper, Tailwind 4, Stimulus, Turbo, React and Twig Components via Symfony UX,
 and carries a three-part tour under `/wicker` built to exercise the extension.
 `assets/wicker/twig.tmLanguage.json` is a manual copy of the extension's grammar
 and `assets/wicker/dark-2026.color-theme.json` is VS Code's Dark 2026 theme with
@@ -215,6 +283,12 @@ Limited namespace discovery or a truncated index shows an expandable warning
 with Retry and Settings actions.
 Right-click the project and choose Show diagnostics for its report in Output.
 Wicker has no persistent status bar item.
+
+For Twig Components, open `templates/wicker/components.html.twig` in the demo.
+`WickerNotice` has a PHP class and template; `WickerBadge` is anonymous. Complete
+names after `<twig:`, use Go to Definition on a component or prop, and change a
+prop declaration without saving to verify that completion follows the buffer.
+The examples render on `/wicker`. Undo temporary test edits afterward.
 
 The first `test:integration` run downloads a VS Code build into
 `packages/vscode/.vscode-test/`, so it takes minutes rather than seconds. That

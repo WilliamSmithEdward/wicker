@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+
+- Twig Component name completion, hover and navigation from HTML-like tags,
+  `component()` and component tags, using Symfony's registered class/template
+  pairs. Prop completion and navigation cover direct PHP properties, setters,
+  mount parameters and anonymous `{% props %}`, including unsaved source edits.
+- Twig local-variable completion and hover for assignments, loop bindings,
+  macro parameters and literal `with` scopes. Literal includes and inheritance
+  carry context across files, respecting `only`, overrides and project boundaries.
+  Hover identifies possible PHP/Twig sources. Follows unsaved edits and file
+  changes without adding unknown-variable diagnostics.
+- Twig filter and function completion using the project's `debug:twig` output,
+  including custom registrations. Hover shows discovered metadata and official
+  references for standard names. Wildcard registrations resolve without being
+  inserted as literal callable names.
+- Unknown Twig filter/function warnings when discovery is fresh and complete,
+  configurable through `wicker.diagnostics.unknownCallable`. Application PHP,
+  configuration and dependency changes refresh discovery automatically. Warnings
+  are suspended for unsaved project changes or unavailable/incomplete discovery.
+
+### Fixed
+
+- Rebuild again when a project change arrives during an in-flight refresh,
+  preventing older discovery results from overwriting newer project state.
+
 ## 0.2.0
 
 ### Added

@@ -2,6 +2,8 @@ import type { RenderSite } from '../php/renderSiteIndex.js';
 import type { OffsetRange } from '../php/templateReferences.js';
 
 import { lexTwigRegions } from './twigLexer.js';
+import { tokenizeTwigExpression as tokenize, type TwigExpressionToken as Token } from './expressionLexer.js';
+import { splitTwigTokens, twigContextMap, type ContextKey } from './contextSyntax.js';
 
 const NAME = /^[a-zA-Z_\u0080-\uffff][a-zA-Z0-9_\u0080-\uffff]*$/;
 const RESERVED = new Set([
@@ -34,16 +36,25 @@ export function templateContextVariables(sites: readonly RenderSite[]): readonly
   }));
 }
 
-interface Token extends OffsetRange {
-  readonly value: string;
-  readonly kind: 'name' | 'string' | 'number' | 'punctuation';
-}
-
 export interface TwigVariableContext {
   /** Whole identifier, or an empty range at a position expecting an expression. */
   readonly range: OffsetRange;
   readonly name: string;
   readonly localNames: ReadonlySet<string>;
+  readonly bindings: readonly TwigLocalBinding[];
+  readonly isolated: boolean;
+  readonly blockName: string | undefined;
+}
+
+export interface TwigLocalBinding extends ContextKey {
+  readonly kind: 'set' | 'loop' | 'macro' | 'with' | 'import';
+}
+
+export interface TwigScope {
+  readonly localNames: ReadonlySet<string>;
+  readonly bindings: readonly TwigLocalBinding[];
+  readonly isolated: boolean;
+  readonly blockName: string | undefined;
 }
 
 interface Scope {
@@ -51,6 +62,9 @@ interface Scope {
   readonly names: Set<string>;
   readonly assigned: Set<string>;
   readonly isolated: boolean;
+  readonly bindings: Map<string, TwigLocalBinding>;
+  readonly assignments: Map<string, TwigLocalBinding>;
+  readonly blockName?: string;
 }
 
 /**
@@ -58,8 +72,8 @@ interface Scope {
  * bindings hide controller names; uncertain scopes and arrow expressions are
  * omitted until we can resolve them. No runtime parser is shipped with Wicker.
  */
-export function twigVariableContextAt(source: string, offset: number): TwigVariableContext | undefined {
-  const scopes: Scope[] = [{ tag: '', names: new Set(), assigned: new Set(), isolated: false }];
+export function twigVariableContextAt(source: string, offset: number, allowIsolated = false): TwigVariableContext | undefined {
+  const scope = twigScopeAt(source, offset);
   let verbatim = false;
   for (const region of lexTwigRegions(source)) {
     if (region.start > offset) {
@@ -81,7 +95,7 @@ export function twigVariableContextAt(source: string, offset: number): TwigVaria
       continue;
     }
     if (offset >= region.innerStart && offset <= region.innerEnd) {
-      if (scopes.some((scope) => scope.isolated)) {
+      if (scope.isolated && !allowIsolated) {
         return undefined;
       }
       const expression = expressionTokens(tokens, tag, offset);
@@ -91,50 +105,38 @@ export function twigVariableContextAt(source: string, offset: number): TwigVaria
       }
       return {
         range, name: source.slice(range.start, range.end),
-        localNames: new Set(scopes.flatMap((scope) => [...scope.names])),
+        ...scope,
       };
-    }
-    if (tag !== undefined && region.end <= offset) {
-      updateScopes(scopes, tokens, tag);
     }
   }
   return undefined;
 }
 
-function tokenize(source: string, start: number, end: number): Token[] {
-  const tokens: Token[] = [];
-  const pattern = /\s+|[a-zA-Z_\u0080-\uffff][a-zA-Z0-9_\u0080-\uffff]*|\d+(?:\.\d+)?|\?\.|=>|==|!=|<=|>=|\?\?|\.\.|\*\*|\/\/|./gy;
-  const text = source.slice(0, end);
-  let cursor = start;
-  while (cursor < end) {
-    const char = source[cursor];
-    if (char === "'" || char === '"') {
-      const from = cursor++;
-      while (cursor < end) {
-        const current = source[cursor++];
-        if (current === '\\') {
-          cursor = Math.min(end, cursor + 1);
-        } else if (current === char) {
-          break;
-        }
-      }
-      tokens.push({ value: source.slice(from, cursor), start: from, end: cursor, kind: 'string' });
-      continue;
-    }
-    pattern.lastIndex = cursor;
-    const match = pattern.exec(text);
-    if (match === null) {
-      break;
-    }
-    const value = match[0];
-    const from = cursor;
-    cursor += value.length;
-    if (!/^\s+$/.test(value)) {
-      tokens.push({ value, start: from, end: cursor,
-        kind: NAME.test(value) ? 'name' : /^\d/.test(value) ? 'number' : 'punctuation' });
-    }
+/** Bindings visible before a source position; closed scopes cannot leak local names. */
+export function twigScopeAt(source: string, offset: number): TwigScope {
+  const scopes: Scope[] = [newScope('')];
+  let verbatim = false;
+  for (const region of lexTwigRegions(source)) {
+    if (region.end > offset) { break; }
+    if (region.kind !== 'statement') { continue; }
+    const tokens = tokenize(source, region.innerStart, region.innerEnd);
+    const tag = tokens[0]?.value;
+    if (verbatim) { if (tag === 'endverbatim') { verbatim = false; } continue; }
+    if (tag === 'verbatim') { verbatim = true; continue; }
+    if (tag !== undefined) { updateScopes(scopes, tokens, tag); }
   }
-  return tokens;
+  const active = scopes.slice(Math.max(0, scopes.map((scope) => scope.isolated).lastIndexOf(true)));
+  const bindings = new Map<string, TwigLocalBinding>();
+  for (const scope of active) { for (const [name, binding] of scope.bindings) { bindings.set(name, binding); } }
+  return {
+    localNames: new Set(active.flatMap((scope) => [...scope.names])),
+    bindings: [...bindings.values()], isolated: scopes.some((scope) => scope.isolated),
+    blockName: [...active].reverse().find((scope) => scope.blockName !== undefined)?.blockName,
+  };
+}
+
+function newScope(tag: string, isolated = false): Scope {
+  return { tag, names: new Set(), assigned: new Set(), isolated, bindings: new Map(), assignments: new Map() };
 }
 
 /** Only tag positions whose expression grammar we understand are offered. */
@@ -153,7 +155,6 @@ function expressionTokens(tokens: readonly Token[], tag: string | undefined, off
     return separator === -1 || offset <= (tokens[separator]?.end ?? offset)
       ? undefined : tokens.slice(separator + 1);
   }
-  // Includes and inheritance are not followed to infer additional variables.
   if (['include', 'extends', 'embed', 'with'].includes(tag)) {
     return tokens.slice(1);
   }
@@ -210,10 +211,16 @@ function updateScopes(scopes: Scope[], tokens: readonly Token[], tag: string): v
   if (scope === undefined) {
     return;
   }
-  const assign = (names: readonly string[]): void => {
+  const assign = (names: readonly string[], kind: TwigLocalBinding['kind'] = 'set'): void => {
     for (const name of names) {
       scope.names.add(name);
       scope.assigned.add(name);
+      const token = tokens.find((token) => token.value === name);
+      if (token !== undefined) {
+        const binding = { name, kind, range: { start: token.start, end: token.end } };
+        scope.bindings.set(name, binding);
+        scope.assignments.set(name, binding);
+      }
     }
   };
   if (tag.startsWith('end')) {
@@ -221,10 +228,15 @@ function updateScopes(scopes: Scope[], tokens: readonly Token[], tag: string): v
       scopes.pop();
       const parent = scopes.at(-1);
       // A loop can change an existing context key even when its binding is local.
-      if (parent !== undefined && (scope.tag === 'for' || scope.tag === 'set')) {
+      if (parent !== undefined && ['for', 'set', 'if'].includes(scope.tag)) {
         for (const name of scope.assigned) {
           parent.names.add(name);
           parent.assigned.add(name);
+          const binding = scope.assignments.get(name);
+          if (binding !== undefined && (scope.tag !== 'for' || parent.bindings.has(name))) {
+            parent.bindings.set(name, binding);
+            parent.assignments.set(name, binding);
+          }
         }
       }
     }
@@ -232,43 +244,66 @@ function updateScopes(scopes: Scope[], tokens: readonly Token[], tag: string): v
   }
   if (tag === 'set') {
     const equals = tokens.findIndex((token) => token.value === '=');
-    const names = tokens.slice(1, equals === -1 ? undefined : equals)
+    const filter = tokens.findIndex((token) => token.value === '|');
+    const names = tokens.slice(1, equals === -1 ? (filter === -1 ? undefined : filter) : equals)
       .filter((token) => token.kind === 'name').map((token) => token.value);
     if (equals !== -1) {
       assign(names);
     } else {
-      scopes.push({ tag, names: new Set(), assigned: new Set(names), isolated: false });
+      const capture = newScope(tag);
+      for (const name of names) {
+        capture.assigned.add(name);
+        const token = tokens.find((token) => token.value === name)!;
+        capture.assignments.set(name, { name, kind: 'set', range: { start: token.start, end: token.end } });
+      }
+      scopes.push(capture);
     }
   } else if (tag === 'for') {
     const separator = tokens.findIndex((token) => token.value === 'in');
     const names = tokens.slice(1, separator === -1 ? undefined : separator)
       .filter((token) => token.kind === 'name').map((token) => token.value);
-    scopes.push({ tag, names: new Set([...names, 'loop']), assigned: new Set(), isolated: false });
+    const loop = newScope(tag);
+    for (const name of [...names, 'loop']) {
+      const token = tokens.find((token) => token.value === name) ?? tokens[0]!;
+      loop.names.add(name);
+      loop.bindings.set(name, { name, kind: 'loop', range: { start: token.start, end: token.end } });
+    }
+    scopes.push(loop);
+  } else if (tag === 'if') {
+    scopes.push(newScope(tag));
+  } else if ((tag === 'else' || tag === 'elseif') && ['for', 'if'].includes(scope.tag)) {
+    // The else branch runs when the loop had no items, so its iteration names do not exist.
+    scope.names.clear();
+    scope.bindings.clear();
   } else if (tag === 'macro' || tag === 'block' || tag === 'with' || tag === 'embed') {
+    if (tag === 'block' && tokens.length > 2) { return; }
     // A dynamic with-map could replace any key. Leave this scope unclaimed.
     const withAt = tag === 'with' ? 0 : tokens.findIndex((token) => token.value === 'with');
     const hasContext = withAt !== -1;
-    const names = new Set<string>();
-    if (hasContext) {
-      for (let i = withAt + 1; i < tokens.length; i++) {
-        const token = tokens[i];
-        if (token !== undefined && tokens[i + 1]?.value === ':' &&
-            (token.kind === 'name' || token.kind === 'string')) {
-          names.add(token.kind === 'string' ? token.value.slice(1, -1) : token.value);
+    const map = hasContext && tokens[withAt + 1] !== undefined && tokens[withAt + 1]?.value !== 'only'
+      ? twigContextMap(tokens.slice(withAt + 1, tokens.at(-1)?.value === 'only' ? -1 : undefined)) : undefined;
+    const nested = newScope(tag, tag === 'macro' || tokens.at(-1)?.value === 'only' || (map !== undefined && !map.complete));
+    for (const key of map?.keys ?? []) {
+      nested.names.add(key.name);
+      nested.bindings.set(key.name, { ...key, kind: 'with' });
+    }
+    if (tag === 'macro') {
+      for (const parameter of splitTwigTokens(tokens.slice(3, -1), ',')) {
+        const token = parameter[0];
+        if (token?.kind === 'name') {
+          nested.names.add(token.value);
+          nested.bindings.set(token.value, { name: token.value, kind: 'macro', range: { start: token.start, end: token.end } });
         }
       }
+      nested.names.add('varargs');
+      nested.bindings.set('varargs', { name: 'varargs', kind: 'macro', range: { start: tokens[0]!.start, end: tokens[0]!.end } });
     }
-    scopes.push({ tag, names, assigned: new Set(),
-      isolated: tag === 'macro' || tokens.some((token) => token.value === 'only') ||
-        (hasContext && (tokens[withAt + 1]?.value !== '{' ||
-          tokens.some((token) => token.value === '..' || token.value === '(' ||
-            (token.kind === 'string' && /\\|#\{/.test(token.value))))) });
+    scopes.push(tag === 'block' && tokens[1]?.kind === 'name' ? { ...nested, blockName: tokens[1].value } : nested);
   } else if (tag === 'do') {
-    assign(tokens.filter((token, i) => token.kind === 'name' && tokens[i + 1]?.value === '=')
-      .map((token) => token.value));
+    if (tokens[1]?.kind === 'name' && tokens[2]?.value === '=') { assign([tokens[1].value]); }
   } else if (tag === 'import' || tag === 'from') {
     const separator = tokens.findIndex((token) => token.value === (tag === 'import' ? 'as' : 'import'));
     assign(tokens.slice(separator + 1).filter((token, i, rest) => token.kind === 'name' &&
-      token.value !== 'as' && rest[i + 1]?.value !== 'as').map((token) => token.value));
+      token.value !== 'as' && rest[i + 1]?.value !== 'as').map((token) => token.value), 'import');
   }
 }

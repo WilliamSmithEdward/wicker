@@ -4,51 +4,70 @@ import {
   templateContextVariables,
   twigVariableContextAt,
   type TemplateContextVariable,
+  type TwigContextVariable,
 } from '@wicker/core';
 
 import type { SessionManager } from './session.js';
 
-/** Controller keys at root-variable positions in directly rendered templates. */
+/** Variable name evidence from PHP, local Twig bindings and literal rendering paths. */
 export class TwigVariableProvider implements vscode.CompletionItemProvider, vscode.HoverProvider {
   constructor(private readonly sessions: SessionManager) {}
 
   provideCompletionItems(document: vscode.TextDocument, position: vscode.Position): vscode.CompletionItem[] | undefined {
-    const sites = this.sessions.renderSitesFor(document);
-    if (sites.length === 0) {
-      return undefined;
-    }
-    const context = twigVariableContextAt(document.getText(), document.offsetAt(position));
+    if (this.sessions.sessionFor(document) === undefined) { return undefined; }
+    const context = twigVariableContextAt(document.getText(), document.offsetAt(position), true);
     if (context === undefined) {
       return undefined;
     }
     const range = new vscode.Range(document.positionAt(context.range.start), document.positionAt(context.range.end));
-    return templateContextVariables(sites).filter((variable) => !context.localNames.has(variable.name))
+    return this.sessions.contextVariablesFor(document, document.offsetAt(position))
       .map((variable) => {
         const item = new vscode.CompletionItem(variable.name, vscode.CompletionItemKind.Variable);
         item.range = range;
-        item.detail = 'Wicker · Controller context';
-        item.documentation = variableDocumentation(variable);
+        const direct = this.directVariable(document, variable);
+        item.detail = direct === undefined ? 'Wicker · Twig context' : 'Wicker · Controller context';
+        item.documentation = direct === undefined ? twigDocumentation(variable) : variableDocumentation(direct);
         return item;
       });
   }
 
   provideHover(document: vscode.TextDocument, position: vscode.Position): vscode.Hover | undefined {
-    const sites = this.sessions.renderSitesFor(document);
-    if (sites.length === 0) {
+    if (this.sessions.sessionFor(document) === undefined) { return undefined; }
+    const context = twigVariableContextAt(document.getText(), document.offsetAt(position), true);
+    if (context === undefined || context.name === '') {
       return undefined;
     }
-    const context = twigVariableContextAt(document.getText(), document.offsetAt(position));
-    if (context === undefined || context.name === '' || context.localNames.has(context.name)) {
-      return undefined;
-    }
-    const variable = templateContextVariables(sites).find((candidate) => candidate.name === context.name);
+    const variable = this.sessions.contextVariablesFor(document, document.offsetAt(position)).find((candidate) => candidate.name === context.name);
     if (variable === undefined) {
       return undefined;
     }
-    return new vscode.Hover(variableDocumentation(variable), new vscode.Range(
+    const direct = this.directVariable(document, variable);
+    return new vscode.Hover(direct === undefined ? twigDocumentation(variable) : variableDocumentation(direct), new vscode.Range(
       document.positionAt(context.range.start), document.positionAt(context.range.end),
     ));
   }
+
+  private directVariable(document: vscode.TextDocument, variable: TwigContextVariable): TemplateContextVariable | undefined {
+    return variable.origins.every((origin) => origin.kind === 'controller' && origin.via.length === 0)
+      ? templateContextVariables(this.sessions.renderSitesFor(document)).find((item) => item.name === variable.name) : undefined;
+  }
+}
+
+function twigDocumentation(variable: TwigContextVariable): vscode.MarkdownString {
+  const content = new vscode.MarkdownString();
+  content.isTrusted = false;
+  content.appendText(variable.name);
+  content.appendMarkdown('\n\n**Twig context**\n\n');
+  content.appendMarkdown('Possible sources in the indexed templates. Availability can depend on the caller and execution path.');
+  for (const origin of variable.origins) {
+    content.appendMarkdown('\n\n- ');
+    content.appendText(`${origin.label} — ${origin.projectPath}`);
+    for (const step of origin.via) {
+      content.appendMarkdown('  \n  ');
+      content.appendText(`via ${step.kind === 'include-function' ? 'include()' : step.kind} in ${step.projectPath}`);
+    }
+  }
+  return content;
 }
 
 function variableDocumentation(variable: TemplateContextVariable): vscode.MarkdownString {

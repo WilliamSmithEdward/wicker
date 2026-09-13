@@ -1,7 +1,9 @@
 # Wicker: Symfony & Twig Tooling
 
-A VS Code extension that makes working across Symfony controllers and Twig
-templates feel like working in one language instead of two.
+Wicker aims to be a one-stop shop for Symfony and Twig development in VS Code,
+with a developer experience that is a joy to use and lowers cognitive load as
+much as possible. It starts by connecting controllers and templates directly
+in the editor.
 
 ## Status
 
@@ -14,8 +16,12 @@ In the editor today:
 - Hover naming the resolved file, the reference that reached it, and the
   variables the controller passes
 - Completion of indexed template names inside the quotes
-- Twig variable completion and hover showing the PHP calls that supply each
-  literal context key, updated as the controller is edited
+- Twig variable completion and hover from controller keys, local bindings,
+  literal includes and inheritance, updated as PHP or Twig is edited
+- Twig filter and function completion from the project's console discovery,
+  with hover, official reference links for standard names and unknown-name warnings
+- Twig Component name and prop completion, hover and navigation to the registered
+  PHP class, Twig template and prop declarations
 - Diagnostics for a template that resolves to nothing, distinguishing a missing
   file from an unregistered namespace, and staying silent on a name built at
   runtime
@@ -63,6 +69,24 @@ and neither side can see the other. Wicker's goal is to close that gap, so that
 the template name is navigable, the variables the controller passes are known
 inside the template, and a typo in either direction is an error you see while
 typing rather than at runtime.
+
+The wider vision connects the Symfony ecosystem through consistent navigation,
+completion and explanations. Developers should spend less time remembering
+names, finding related files, switching contexts and configuring tools. Project
+discovery and automatic updates keep assistance relevant; a calm interface
+puts useful information at the point of work and deeper detail within reach.
+Each feature should make a real development task easier from start to finish.
+
+That experience should work for people learning Symfony and those who use it
+every day. Discoverable actions and explanations should help people get started
+with a workflow, while familiar, efficient interactions keep it pleasant as
+their experience grows. Real use and iteration will guide what comes next.
+
+The focus begins once a project is set up. Initial project and environment setup
+are outside the intended scope; the ambition for everyday development after
+that is broad. Creating application code, refactoring, running project commands,
+testing and debugging are possible future directions alongside editor
+intelligence, evaluated one capability at a time.
 
 ## No dependencies
 
@@ -199,7 +223,7 @@ Only direct, literal render references count: an inherited layout or included
 partial does not borrow its caller's controllers, and runtime template names
 are not guessed. Turning off `wicker.enable` hides the links too.
 
-### Controller variables in Twig
+### Variables in Twig
 
 When a PHP call renders a literal template name with an array such as
 `['tasks' => $tasks, 'heading' => 'Tasks']`, Wicker suggests `tasks` and
@@ -212,16 +236,89 @@ Hover reports how many indexed calls explicitly supply a key and identifies
 those calls. A key supplied by one call may be absent from another; Wicker
 does not infer its type or promise that it always exists.
 
-This first pass reads literal context arrays at direct render sites. It does
-not follow PHP variables, method return arrays for `#[Template]`, inheritance
-or includes. Twig assignments, loop bindings and macro aliases hide matching
-controller names; isolated scopes and expressions with bindings that Wicker
-cannot resolve are omitted. These are context suggestions, with no
-unknown-variable diagnostics. Turning off `wicker.enable` disables them.
+Local `set` variables, loop keys and items, `loop`, macro parameters and literal
+`with` keys are suggested in their scope. Loop bindings disappear outside the
+loop; macros and `with ... only` do not borrow their enclosing context. Imported
+macro aliases hide matching variable names.
+
+Literal `include` tags and `include()` calls carry the caller's visible context
+into the included template. Literal map keys add or replace variables; `only`
+and `with_context: false` restrict suggestions to explicitly passed keys.
+Hover identifies the PHP or Twig source and the include chain. Several callers
+produce a union of possible inputs, not a promise that every input is available.
+
+Literal `extends` relationships carry controller keys and child top-level
+assignments into layouts. Child blocks can see parent assignments made before
+the corresponding block. Sibling templates keep their own rendering context.
+Unsaved PHP and Twig edits, discarded edits and file changes update these
+suggestions automatically. The `Rendered by` links still describe direct PHP
+render sites only.
+
+Inference remains conservative: PHP variable arrays and `#[Template]` method
+return values, dynamic template names, candidate lists, dynamic context maps,
+cross-file `embed`/`use` behavior and arrow-function scopes are not inferred.
+Template text and graph traversal have bounded limits. There are no inferred
+value types or unknown-variable diagnostics. Turning off `wicker.enable`
+disables all variable assistance.
+
+### Twig filters and functions
+
+Type `|` after a value for filter suggestions, or use Ctrl+Space at a Twig
+expression position for functions. Wicker reads the names registered in your
+project from `debug:twig`, including custom extensions and installed bundles.
+Hover a filter or function to see its registration, arguments reported by
+Symfony, and an official reference link for recognized standard names.
+Symfony's argument output can include implicit PHP parameters, so Wicker does
+not present it as a Twig signature or insert argument placeholders.
+
+Unknown filters and functions receive warnings when discovery is fresh and
+complete. Wildcard registrations are recognized; methods, imported macros,
+Twig tests, strings, comments and verbatim content are excluded. This is a
+conservative reader of common Twig expressions and tags, not a full syntax
+checker; custom tag syntax and string interpolation are not analyzed.
+
+Saved application PHP, configuration, Composer and supported environment-file
+changes refresh discovery automatically. Unsaved project changes suspend
+unknown-name warnings until saved or discarded. If the console becomes
+unavailable, these warnings and callable suggestions are cleared; template
+namespace fallback continues to work. Runtime-only registrations that are not
+listed by `debug:twig` cannot be discovered.
+
+Set `wicker.diagnostics.unknownCallable` to `error`, `warning` (the default),
+`information` or `off`. `wicker.enable` disables all of these surfaces, and
+`wicker.console.enabled` controls console discovery. Show diagnostics from a
+project's sidebar context menu reports the discovered callable counts.
+
+### Twig Components
+
+In a project using Symfony UX Twig Components, Wicker discovers registrations
+with `debug:twig-component`. Complete names inside `<twig:...>`, closing tags,
+`component('...')` and `{% component '...' %}`. Hover explains the registration;
+Go to Definition offers its PHP class and Twig template when available locally.
+
+Inside an opening component tag, Ctrl+Space suggests props from writable public
+properties, setters and `mount()` parameters declared on the registered class.
+Anonymous components use their template's `{% props %}` declarations. A suggested
+prop inserts `name=""` with the cursor inside the quotes; an existing value is
+preserved. Already supplied props are omitted. Hover or Go to Definition on a
+prop identifies its declaration.
+
+Prop suggestions follow unsaved PHP/Twig edits. Saved PHP, configuration and
+dependency changes, plus template creation/deletion, refresh registrations.
+Console execution must be enabled and the workspace trusted. When discovery is
+unavailable, component assistance stays quiet; the project's diagnostics report
+explains why. No unknown-component or unknown-prop warnings are added.
+
+This first component step covers literal names and directly declared props.
+Inherited/trait props, dynamic component names, prop type checking, custom
+property hooks and Live Component behavior are not inferred. Classes outside
+the application's Composer PSR-4 mappings still link to their indexed template.
 
 ## Roadmap
 
 Built one capability at a time, each finished before the next starts.
+The intended scope spans the Symfony ecosystem, including its frontend
+integrations through Symfony UX and Stimulus.
 
 **Done.** The controller and template bridge: go to definition, hover,
 completion, missing-template diagnostics and semantic colouring on every
@@ -230,22 +327,29 @@ file. Twig syntax highlighting with HTML, JavaScript and CSS embedded. Reverse
 navigation from a template to its PHP render calls and attributes. A native
 sidebar for browsing controllers, actions and templates by namespace. Controller context
 keys suggested inside Twig, with hover identifying their PHP sources.
+Filter and function completion, hover and unknown-name warnings grounded in
+the project's Twig discovery.
+Scoped local variables and context propagation through literal includes and
+inheritance, with PHP/Twig sources identified on hover.
+Twig Component name and prop completion, hover and navigation to registered
+classes, templates and directly declared props.
 
 Next, in order:
 
-1. **Twig language intelligence.** Extend variable understanding through Twig
-   scopes, includes and inheritance. Unknown filters and functions checked
-   against the real list from `debug:twig`, which a grammar can only guess at.
-2. **Symfony UX and Twig Components.** `<twig:Button />` resolved to its class
-   and template, with prop completion. This is one feature family covering
+1. **Symfony UX, Twig Components and Stimulus.** Build these capabilities in
+   separate steps. Component navigation and prop completion are implemented;
+   next connect Twig's Stimulus references to JavaScript controllers,
+   with navigation and completion for controllers, actions, targets and values.
+   This part of the roadmap covers
    [Twig Components](https://symfony.com/bundles/ux-twig-component/current/index.html),
    [Live Components](https://ux.symfony.com/live-component),
+   [StimulusBundle](https://symfony.com/bundles/StimulusBundle/current/index.html),
    [UX Toolkit](https://ux.symfony.com/toolkit),
    [Icons](https://ux.symfony.com/icons) and
    [CalendarLink](https://ux.symfony.com/calendar-link).
-3. **Routes.** Completion and navigation for route names, `path()` and `url()`.
-4. **Services and the container.** Autowiring and parameter intelligence.
-5. Translations, forms, and the rest of the Symfony surface.
+2. **Routes.** Completion and navigation for route names, `path()` and `url()`.
+3. **Services and the container.** Autowiring and parameter intelligence.
+4. Translations, forms, and the rest of the Symfony surface.
 
 ### Not planned: PHP as a general language
 

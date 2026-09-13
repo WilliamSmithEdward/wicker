@@ -97,8 +97,8 @@ suite('Wicker sidebar', () => {
     assert.equal(provider.getTreeItem(provider.getParent(design)!).id, provider.getTreeItem(templates).id);
     assert.equal(provider.getTreeItem(provider.getParent(templates)!).id, provider.getTreeItem(project).id);
     const application = provider.getChildren(main);
-    assert.deepEqual(application.map((node) => provider.getTreeItem(node).label), ['task', 'base.html.twig']);
-    const task = application[0];
+    assert.deepEqual(application.map((node) => provider.getTreeItem(node).label), ['components', 'task', 'base.html.twig']);
+    const task = application.find((node) => provider.getTreeItem(node).label === 'task');
     assert.ok(task);
     assert.equal(provider.getTreeItem(task).description, '2');
     const taskFiles = provider.getChildren(task);
@@ -343,23 +343,26 @@ suite('Wicker sidebar', () => {
     const groups = () => templateGroups(provider, project)
       .filter((node) => node.kind === 'namespace').map((node) => node.namespace);
     assert.deepEqual(groups(), ['', '@Design']);
-    assert.equal(provider.getTreeItem(section(provider, project, 'templates')).description, '4');
+    assert.equal(provider.getTreeItem(section(provider, project, 'templates')).description, '6');
     assert.ok(sessions.sessionFor({ uri: rootUri })?.lookup('@Infrastructure/status.html.twig'));
     let changes = 0;
     const listener = provider.onDidChangeTreeData(() => { changes += 1; });
     try {
+      const beforeShow = changes;
       provider.setShowBundleTemplates(true);
+      assert.equal(changes, beforeShow + 1);
       await vscode.commands.executeCommand('wicker.showBundleTemplates');
       assert.deepEqual(groups(), ['', '@Design', '@Infrastructure']);
-      assert.equal(provider.getTreeItem(section(provider, project, 'templates')).description, '5');
+      assert.equal(provider.getTreeItem(section(provider, project, 'templates')).description, '7');
       const bundle = templateGroups(provider, project).find((node) => node.kind === 'namespace' && node.namespace === '@Infrastructure');
       assert.ok(bundle);
       assert.equal(provider.getChildren(bundle).length, 1);
+      const beforeHide = changes;
       provider.setShowBundleTemplates(false);
+      assert.equal(changes, beforeHide + 1);
       await vscode.commands.executeCommand('wicker.hideBundleTemplates');
       assert.deepEqual(provider.getChildren(bundle), []);
       assert.deepEqual(groups(), ['', '@Design']);
-      assert.equal(changes, 2);
       await vscode.commands.executeCommand('wicker.openTemplate', rootUri, '@Infrastructure/status.html.twig');
       assert.equal(vscode.window.activeTextEditor?.document.uri.toString(),
         vscode.Uri.joinPath(rootUri, 'vendor/sidebar-fixture/templates/status.html.twig').toString());

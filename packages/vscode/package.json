@@ -1,8 +1,8 @@
 {
   "name": "wicker",
   "displayName": "Wicker: Symfony & Twig Tooling",
-  "description": "Navigate between Symfony controllers and the Twig templates they render.",
-  "version": "0.2.0",
+  "description": "Symfony and Twig navigation, variables, filters, functions and components.",
+  "version": "0.3.0",
   "publisher": "WilliamSmithE",
   "license": "MIT",
   "repository": {
@@ -177,10 +177,16 @@
           "default": "error",
           "description": "How to report a template reference that resolves to no file."
         },
+        "wicker.diagnostics.unknownCallable": {
+          "type": "string",
+          "enum": ["error", "warning", "information", "off"],
+          "default": "warning",
+          "description": "How to report unknown Twig filters and functions when fresh, complete project discovery is available."
+        },
         "wicker.console.enabled": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Ask `bin/console debug:twig` for the Twig namespaces. Bundle namespaces such as `@Twig` are not declared in any configuration file, so without this they cannot be resolved. Never runs in an untrusted workspace."
+          "markdownDescription": "Ask `bin/console debug:twig` for Twig namespaces, filters and functions, and `debug:twig-component` for installed Twig Components. Bundle namespaces such as `@Twig` are not declared in any configuration file, so without this they cannot be resolved. Never runs in an untrusted workspace."
         },
         "wicker.console.command": {
           "type": "array",
@@ -251,7 +257,7 @@
     "vsix": "npm run build && node scripts/package.mjs"
   },
   "dependencies": {
-    "@wicker/core": "0.2.0"
+    "@wicker/core": "0.3.0"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

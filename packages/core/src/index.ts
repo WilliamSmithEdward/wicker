@@ -37,9 +37,11 @@ export { RenderSiteIndex, type RenderSite, type RenderingController } from './ph
 export {
   templateContextVariables,
   twigVariableContextAt,
+  twigScopeAt,
   type TemplateContextVariable,
   type TwigVariableContext,
 } from './twig/contextVariables.js';
+export { TemplateContextIndex, type TwigContextVariable, type TwigVariableOrigin } from './twig/templateContextIndex.js';
 
 export {
   classToProjectPaths,
@@ -88,6 +90,20 @@ export {
   type TwigTemplateName,
 } from './twig/templateName.js';
 export { lexTwigRegions, readStringLiterals, type TwigRegion } from './twig/twigLexer.js';
+export { componentsFromDebug, componentClassSource, anonymousComponentProps, isComponentName,
+  type TwigComponent, type ComponentProp } from './twig/components.js';
+export { componentReferenceAt, type ComponentReference } from './twig/componentReferences.js';
+export {
+  twigCallablesFromDebug,
+  callableGroup,
+  findTwigCallable,
+  scanTwigCallables,
+  twigCallableContextAt,
+  isConcreteTwigCallable,
+  type TwigCallable,
+  type TwigCallableKind,
+  type TwigCallableCatalog,
+} from './twig/callables.js';
 export {
   scanTwigTemplateReferences,
   type TwigReferenceKind,

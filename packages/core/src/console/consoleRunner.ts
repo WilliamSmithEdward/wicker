@@ -13,6 +13,7 @@
  */
 
 import { TwigLoaderPaths, type LoaderPathEntry } from '../twig/loaderPaths.js';
+import { twigCallablesFromDebug, type TwigCallableCatalog } from '../twig/callables.js';
 
 export interface ConsoleResult {
   readonly ok: boolean;
@@ -35,6 +36,8 @@ export interface ConsoleRunner {
 export type LoaderPathSource = 'console' | 'remembered' | 'config';
 
 export interface LoaderPathsResolution {
+  /** Fresh callable discovery from the same console invocation; never inferred from config. */
+  readonly callables?: TwigCallableCatalog;
   readonly paths: TwigLoaderPaths;
   readonly source: LoaderPathSource;
   /** Present when the console was tried and could not be used. */
@@ -98,6 +101,7 @@ export async function resolveLoaderPaths(
   const fromConsole = TwigLoaderPaths.fromDebugTwigJson(payload);
   const merged: LoaderPathEntry[] = [...fromConsole.all(), ...configuredPaths.all()];
   return {
+    callables: twigCallablesFromDebug(payload),
     paths: TwigLoaderPaths.fromEntries(merged),
     source: 'console',
     consoleError: undefined,

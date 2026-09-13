@@ -16,13 +16,16 @@ import {
   type LoaderPathsResolution,
   type RenderSite,
   type SymfonyProject,
+  type TwigContextVariable,
 } from '@wicker/core';
 
 import { ProcessConsoleRunner } from './console.js';
+import { discoverComponents, type ComponentDiscovery } from './componentDiscovery.js';
 import { VsCodeFileSystem } from './fileSystem.js';
 import type { LoaderPathMemory } from './loaderPathMemory.js';
 import { enginePathOf } from './paths.js';
 import { RenderSiteTracker } from './renderSiteTracker.js';
+import { TemplateContextTracker } from './templateContextTracker.js';
 
 const DEFAULT_EXTENSIONS = ['.twig'];
 
@@ -44,6 +47,7 @@ export class ProjectSession implements vscode.Disposable {
   readonly project: SymfonyProject;
   readonly fileSystem: VsCodeFileSystem;
   readonly renderSites: RenderSiteTracker;
+  readonly templateContexts: TemplateContextTracker;
   /**
    * The workspace folder's own URI, kept so watchers and child URIs are built
    * from it rather than reconstructed from a path string. Rebuilding would
@@ -54,10 +58,14 @@ export class ProjectSession implements vscode.Disposable {
   private templateIndex: TwigTemplateIndex;
   /** Where the namespaces came from, so the UI can say so. */
   private loaderPathInfo: LoaderPathsResolution;
-  private readonly watchers: vscode.FileSystemWatcher[] = [];
+  private componentInfo: ComponentDiscovery;
+  private readonly watchers: vscode.Disposable[] = [];
   private readonly changed = new vscode.EventEmitter<void>();
   private refreshTimer: ReturnType<typeof setTimeout> | undefined;
   private refreshInFlight: Promise<void> | undefined;
+  private refreshRevision = 0;
+  private discoveryPending = false;
+  private disposed = false;
 
   /** Fires after the index has been rebuilt. */
   readonly onDidChange = this.changed.event;
@@ -70,14 +78,17 @@ export class ProjectSession implements vscode.Disposable {
     fileSystem: VsCodeFileSystem,
     index: TwigTemplateIndex,
     loaderPaths: LoaderPathsResolution,
+    components: ComponentDiscovery,
     memory: LoaderPathMemory,
   ) {
     this.project = project;
     this.rootUri = rootUri;
     this.fileSystem = fileSystem;
     this.renderSites = new RenderSiteTracker(project.root, fileSystem);
+    this.templateContexts = new TemplateContextTracker(project.root, fileSystem, (path) => this.relativePathOf(path));
     this.templateIndex = index;
     this.loaderPathInfo = loaderPaths;
+    this.componentInfo = components;
     this.memory = memory;
     this.installWatchers();
   }
@@ -85,6 +96,14 @@ export class ProjectSession implements vscode.Disposable {
   /** Where the namespace list came from, and why, for status reporting. */
   get loaderPaths(): LoaderPathsResolution {
     return this.loaderPathInfo;
+  }
+
+  get components(): ComponentDiscovery { return this.componentInfo; }
+
+  /** Console data describes saved files; unsaved registration edits cannot disprove a name. */
+  get canCheckCallables(): boolean {
+    return !this.discoveryPending && !vscode.workspace.textDocuments.some((document) =>
+      document.isDirty && this.affectsTwigEnvironment(document.uri));
   }
 
   /** Detects a project at or above a workspace folder, and indexes it. */
@@ -104,10 +123,12 @@ export class ProjectSession implements vscode.Disposable {
       fileSystem,
       built.index,
       built.loaderPaths,
+      built.components,
       memory,
     );
     try {
       await session.renderSites.refresh();
+      await session.templateContexts.refresh(built.index);
       return session;
     } catch (error) {
       session.dispose();
@@ -171,16 +192,30 @@ export class ProjectSession implements vscode.Disposable {
     return this.templateIndex.allNames().find((name) => name === 'base.html.twig');
   }
 
-  /** Rebuilds the index now, collapsing concurrent callers onto one build. */
+  /** Coalesce requests, but repeat when a change arrived during an older build. */
   async refresh(): Promise<void> {
+    this.refreshRevision++;
+    this.discoveryPending = true;
+    this.changed.fire();
     if (this.refreshInFlight !== undefined) {
       return this.refreshInFlight;
     }
     this.refreshInFlight = (async () => {
-      const built = await buildIndex(this.fileSystem, this.project, this.memory);
-      this.templateIndex = built.index;
-      this.loaderPathInfo = built.loaderPaths;
-      this.changed.fire();
+      while (!this.disposed) {
+        const revision = this.refreshRevision;
+        const built = await buildIndex(this.fileSystem, this.project, this.memory);
+        if (this.disposed) { return; }
+        if (revision !== this.refreshRevision) { continue; }
+        this.templateIndex = built.index;
+        this.loaderPathInfo = built.loaderPaths;
+        this.componentInfo = built.components;
+        await this.templateContexts.refresh(built.index);
+        if (this.disposed) { return; }
+        if (revision !== this.refreshRevision) { continue; }
+        this.discoveryPending = false;
+        this.changed.fire();
+        return;
+      }
     })().finally(() => {
       this.refreshInFlight = undefined;
     });
@@ -194,13 +229,27 @@ export class ProjectSession implements vscode.Disposable {
    * this the index would be rebuilt once per file.
    */
   private scheduleRefresh(): void {
+    this.refreshRevision++;
+    if (!this.discoveryPending) {
+      this.discoveryPending = true;
+      this.changed.fire();
+    }
     if (this.refreshTimer !== undefined) {
       clearTimeout(this.refreshTimer);
     }
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = undefined;
       void this.refresh();
-    }, 250);
+    }, 350);
+  }
+
+  private affectsTwigEnvironment(uri: vscode.Uri): boolean {
+    if (uri.scheme !== this.rootUri.scheme || uri.authority !== this.rootUri.authority) { return false; }
+    const path = this.relativePathOf(enginePathOf(uri));
+    return path !== undefined &&
+      !path.split('/').some((part) => ['vendor', 'var', 'node_modules', '.git'].includes(part)) &&
+      (path.endsWith('.php') || /^config\/.*\.(?:ya?ml|xml)$/.test(path) ||
+        ['composer.json', 'composer.lock', 'symfony.lock', '.env', '.env.local', '.env.dev', '.env.dev.local'].includes(path));
   }
 
   private installWatchers(): void {
@@ -217,18 +266,43 @@ export class ProjectSession implements vscode.Disposable {
     // so onDidChange is deliberately not wired here.
     watch('**/*.twig', () => this.scheduleRefresh());
 
-    // Namespace configuration: an edit does change resolution, so this one
-    // listens for content changes too.
+    // Twig extensions can live in any application PHP directory. Configuration
+    // and dependency changes can register or remove them as well.
     const configWatcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(this.rootUri, TWIG_CONFIG_PATH),
+      new vscode.RelativePattern(this.rootUri, '**/{*.php,*.yaml,*.yml,*.xml,composer.json,composer.lock,symfony.lock,.env,.env.*}'),
     );
-    configWatcher.onDidCreate(() => this.scheduleRefresh());
-    configWatcher.onDidDelete(() => this.scheduleRefresh());
-    configWatcher.onDidChange(() => this.scheduleRefresh());
+    const refreshEnvironment = (uri: vscode.Uri): void => {
+      if (this.affectsTwigEnvironment(uri)) { this.scheduleRefresh(); }
+    };
+    configWatcher.onDidCreate(refreshEnvironment);
+    configWatcher.onDidDelete(refreshEnvironment);
+    configWatcher.onDidChange(refreshEnvironment);
     this.watchers.push(configWatcher);
+    const dirty = new Set(vscode.workspace.textDocuments.filter((document) =>
+      document.isDirty && this.affectsTwigEnvironment(document.uri)).map((document) => document.uri.toString()));
+    const dirtyStateChanged = (document: vscode.TextDocument): void => {
+      if (!this.affectsTwigEnvironment(document.uri)) { return; }
+      const key = document.uri.toString();
+      const wasDirty = dirty.has(key);
+      if (document.isDirty && !document.isClosed) { dirty.add(key); }
+      else { dirty.delete(key); }
+      // Suspend warnings once on the first edit, not by rescanning every open
+      // template on each PHP keystroke.
+      if (wasDirty !== dirty.has(key)) { this.changed.fire(); }
+    };
+    this.watchers.push(
+      vscode.workspace.onDidOpenTextDocument(dirtyStateChanged),
+      vscode.workspace.onDidChangeTextDocument((event) => dirtyStateChanged(event.document)),
+      vscode.workspace.onDidSaveTextDocument((document) => refreshEnvironment(document.uri)),
+      vscode.workspace.onDidCloseTextDocument((document) => {
+        dirty.delete(document.uri.toString());
+        refreshEnvironment(document.uri);
+      }),
+    );
   }
 
   dispose(): void {
+    this.disposed = true;
     if (this.refreshTimer !== undefined) {
       clearTimeout(this.refreshTimer);
     }
@@ -236,6 +310,7 @@ export class ProjectSession implements vscode.Disposable {
       watcher.dispose();
     }
     this.renderSites.dispose();
+    this.templateContexts.dispose();
     this.changed.dispose();
   }
 }
@@ -244,7 +319,7 @@ async function buildIndex(
   fileSystem: VsCodeFileSystem,
   project: SymfonyProject,
   memory: LoaderPathMemory,
-): Promise<{ index: TwigTemplateIndex; loaderPaths: LoaderPathsResolution }> {
+): Promise<{ index: TwigTemplateIndex; loaderPaths: LoaderPathsResolution; components: ComponentDiscovery }> {
   const raw = await fileSystem.readFile(joinProjectPath(project.root, TWIG_CONFIG_PATH));
   const config = parseTwigConfig(raw ?? '');
 
@@ -252,11 +327,12 @@ async function buildIndex(
   // itself. Bundle namespaces such as @Twig exist nowhere in configuration, so
   // the console is asked first, an earlier console answer is the fallback, and
   // the configuration is the last resort.
-  const loaderPaths = await resolveLoaderPaths(
-    ProcessConsoleRunner.create(project.root),
+  const runner = ProcessConsoleRunner.create(project.root);
+  const [loaderPaths, components] = await Promise.all([resolveLoaderPaths(
+    runner,
     loaderPathsFromTwigConfig(config),
     memory.read(project.root),
-  );
+  ), discoverComponents(fileSystem, project.root, runner)]);
 
   // Only a fresh console answer is recorded, so a run with the container down
   // cannot overwrite a good answer with a worse one.
@@ -275,7 +351,7 @@ async function buildIndex(
     extensions,
     maxFiles: settings.get<number>('index.maxFiles', 20000),
   });
-  return { index, loaderPaths };
+  return { index, loaderPaths, components };
 }
 
 /**
@@ -369,10 +445,20 @@ export class SessionManager implements vscode.Disposable {
     return [...this.sessions.values()];
   }
 
+  contextVariablesFor(document: vscode.TextDocument, offset: number): readonly TwigContextVariable[] {
+    const session = this.sessionFor(document);
+    const path = session?.relativePathOf(enginePathOf(document.uri));
+    if (session === undefined || path === undefined) { return []; }
+    session.templateContexts.update(document);
+    return session.templateContexts.index.variablesFor(path, offset, session.index, session.renderSites.index,
+      (source) => this.sessionFor({ uri: session.fileSystem.toUri(joinProjectPath(session.project.root, source)) }) === session);
+  }
+
   async refreshAll(): Promise<void> {
     await Promise.all(this.all().map(async (session) => {
       await session.refresh();
       await session.renderSites.refresh();
+      await session.templateContexts.refresh(session.index, true);
     }));
   }
 

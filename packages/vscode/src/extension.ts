@@ -25,6 +25,8 @@ import {
 import { SessionManager, type ProjectSession } from './session.js';
 import { WickerSidebar, type SidebarNode } from './sidebar.js';
 import { TwigVariableProvider } from './twigVariables.js';
+import { TwigCallableProvider, twigCallableDiagnostics } from './twigCallables.js';
+import { TwigComponentProvider } from './twigComponents.js';
 
 const TWIG_SELECTOR: vscode.DocumentSelector = [
   { language: 'twig', scheme: 'file' },
@@ -44,6 +46,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const semanticTokens = new TemplateSemanticTokensProvider(sessions);
   const renderedBy = new RenderedByProvider(sessions);
   const twigVariables = new TwigVariableProvider(sessions);
+  const twigCallables = new TwigCallableProvider(sessions);
+  const twigComponents = new TwigComponentProvider(sessions);
   const sidebar = new WickerSidebar(sessions, context.workspaceState);
   const output = vscode.window.createOutputChannel('Wicker');
   const diagnostics = vscode.languages.createDiagnosticCollection('wicker');
@@ -77,6 +81,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ),
     vscode.languages.registerCompletionItemProvider(TWIG_SELECTOR, twigVariables),
     vscode.languages.registerHoverProvider(TWIG_SELECTOR, twigVariables),
+    vscode.languages.registerCompletionItemProvider(TWIG_SELECTOR, twigCallables, '|'),
+    vscode.languages.registerHoverProvider(TWIG_SELECTOR, twigCallables),
+    vscode.languages.registerCompletionItemProvider(TWIG_SELECTOR, twigComponents, ':', ' ', "'", '"'),
+    vscode.languages.registerDefinitionProvider(TWIG_SELECTOR, twigComponents),
+    vscode.languages.registerHoverProvider(TWIG_SELECTOR, twigComponents),
     vscode.languages.registerDefinitionProvider(SELECTOR, {
       provideDefinition(document, position) {
         const reference = templateReferenceAt(document, position);
@@ -212,6 +221,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           )}${session.index.truncated ? ' (truncated at the configured limit)' : ''}`,
           `  namespaces     ${[...new Set(namespaces)].join(', ') || '(main only)'}`,
           `  read from      ${origin}`,
+          `  Components     ${session.components.status}`,
+          `  Twig callables ${session.loaderPaths.callables === undefined ? 'unavailable; unknown-name checks suspended' :
+            `${session.loaderPaths.callables.filters.entries.length} filters, ${session.loaderPaths.callables.functions.entries.length} functions${session.canCheckCallables ? '' : ' (refresh pending or unsaved project changes)'}`}`,
           `  detected by    ${session.project.evidence.join(', ')}`,
         ].join('\n');
       });
@@ -240,7 +252,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       diagnostics.delete(document.uri);
       return;
     }
-    diagnostics.set(document.uri, buildDiagnostics(session, document));
+    diagnostics.set(document.uri, [...buildDiagnostics(session, document), ...twigCallableDiagnostics(session, document)]);
   };
 
   const refreshAllDiagnostics = (): void => {
@@ -265,6 +277,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       refreshAllDiagnostics();
     }),
+    vscode.workspace.onDidGrantWorkspaceTrust(() => sessions.refreshAll()),
     vscode.workspace.onDidChangeConfiguration(async (event) => {
       if (event.affectsConfiguration('wicker')) {
         await sessions.refreshAll();

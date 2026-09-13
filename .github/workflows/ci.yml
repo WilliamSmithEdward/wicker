@@ -27,8 +27,7 @@ jobs:
       - name: Install
         run: npm ci
 
+      # `check` builds first, because the extension type checks against the
+      # engine's emitted declarations. Without that it fails on a clean clone.
       - name: Check
         run: npm run check
-
-      - name: Build
-        run: npm run build

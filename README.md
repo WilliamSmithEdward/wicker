@@ -82,13 +82,27 @@ npm run check
 
 Built one capability at a time, each finished before the next starts.
 
-1. **The controller and template bridge.** Go to definition, hover, completion,
-   and missing-template diagnostics on every template reference, in both PHP and
-   Twig. Then the reverse direction, and the variables a controller passes made
-   known inside the template it renders.
-2. Routes: completion and navigation for route names and `path()` / `url()`.
-3. Services and the container: autowiring and parameter intelligence.
-4. Translations, forms, and the rest of the Symfony surface.
+**Done.** The controller and template bridge: go to definition, hover,
+completion, and missing-template diagnostics on every template reference from
+both PHP and Twig, with a quick fix that creates the file. Twig syntax
+highlighting with HTML, JavaScript and CSS embedded.
+
+Next, in order:
+
+1. **Twig language intelligence.** Variables a controller passes made known
+   inside the template it renders, and the reverse direction: an open template
+   naming the controllers that render it. Unknown filters and functions checked
+   against the real list from `debug:twig`, which a grammar can only guess at.
+2. **Symfony UX and Twig Components.** `<twig:Button />` resolved to its class
+   and template, with prop completion. This is one feature family covering
+   [Twig Components](https://symfony.com/bundles/ux-twig-component/current/index.html),
+   [Live Components](https://ux.symfony.com/live-component),
+   [UX Toolkit](https://ux.symfony.com/toolkit),
+   [Icons](https://ux.symfony.com/icons) and
+   [CalendarLink](https://ux.symfony.com/calendar-link).
+3. **Routes.** Completion and navigation for route names, `path()` and `url()`.
+4. **Services and the container.** Autowiring and parameter intelligence.
+5. Translations, forms, and the rest of the Symfony surface.
 
 ## License
 

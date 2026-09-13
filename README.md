@@ -5,14 +5,32 @@ templates feel like working in one language instead of two.
 
 ## Status
 
-Early. The intelligence engine is real and tested; the editor integration is not
-built yet. Concretely, what exists today is:
+Early, and working. The first capability, the bridge between a controller and
+the template it renders, is finished and driven from the editor.
+
+In the editor today:
+
+- Go to definition on every template name, from PHP and from Twig
+- Hover naming the resolved file, the reference that reached it, and the
+  variables the controller passes
+- Completion of indexed template names inside the quotes
+- Diagnostics for a template that resolves to nothing, distinguishing a missing
+  file from an unregistered namespace, and staying silent on a name built at
+  runtime
+- A quick fix that creates the missing file, which declines when the namespace
+  is unregistered and there is nowhere correct to put it
+- Template names that resolve coloured as their own semantic token, so the
+  references the extension actually understands are visible in the code
+- Twig syntax highlighting, with HTML, JavaScript and CSS embedded
+
+Underneath it:
 
 - Symfony project discovery from conclusive evidence, with the reasons recorded
 - Twig template reference parsing, covering the `@Namespace` and `@!Namespace`
   forms and rejecting the syntax Symfony 5 removed
-- Namespace resolution from `bin/console debug:twig --format=json` **or** from
-  `config/packages/twig.yaml` alone, so it works with no PHP available
+- Namespace resolution from `bin/console debug:twig --format=json`, remembered
+  so a stopped container does not lose it, falling back to
+  `config/packages/twig.yaml` so it works with no PHP available at all
 - A template index queryable by name and by file, modelling override order
 - Template references found in PHP: `render()` and its siblings, `#[Template]`,
   named arguments, and the context keys passed alongside
@@ -22,9 +40,12 @@ built yet. Concretely, what exists today is:
   back again
 
 Pointed at a real Symfony 8.1 application, that resolves every one of its 34
-template references, from both sides, with no false positives.
+template references, from both sides, with no false positives. The editor
+features are covered by integration tests that drive a real VS Code instance
+against a fixture project.
 
-There is no installable extension yet. See [Roadmap](#roadmap).
+Not yet published to the marketplace. Build it and run it from source with the
+instructions under [Development](#development).
 
 ## Why it exists
 
@@ -78,7 +99,9 @@ npm install
 npm run check
 ```
 
-`check` runs the whole gate: type checking, linting, and tests.
+`check` runs the whole gate: a build first, since the extension type checks
+against the engine's emitted declarations, then type checking, linting and
+tests.
 
 | Command | Purpose |
 | --- | --- |
@@ -87,15 +110,41 @@ npm run check
 | `npm run lint` | ESLint across the repo |
 | `npm test` | Run the test suite once |
 | `npm run test:watch` | Run tests in watch mode |
+| `npm run test:integration -w wicker` | Drive the extension in a real VS Code instance |
+
+### Running it against a project
+
+Build the extension, then open a Symfony project in a window that loads it from
+this checkout:
+
+```bash
+npm run build -w wicker
+code --extensionDevelopmentPath=/path/to/wicker/packages/vscode /path/to/symfony-app
+```
+
+Namespaces registered by bundles are declared in no configuration file, so
+Wicker asks `bin/console debug:twig` for them. When PHP is not on the same
+machine as the editor, say because the application runs in a container, tell it
+how to reach the console in the project's `.vscode/settings.json`:
+
+```json
+{
+  "wicker.console.command": ["docker", "exec", "my-php-1", "php", "bin/console"]
+}
+```
+
+Without that it falls back to `config/packages/twig.yaml`, which resolves the
+namespaces an application declares for itself but not the ones its bundles
+register.
 
 ## Roadmap
 
 Built one capability at a time, each finished before the next starts.
 
 **Done.** The controller and template bridge: go to definition, hover,
-completion, and missing-template diagnostics on every template reference from
-both PHP and Twig, with a quick fix that creates the file. Twig syntax
-highlighting with HTML, JavaScript and CSS embedded.
+completion, missing-template diagnostics and semantic colouring on every
+template reference from both PHP and Twig, with a quick fix that creates the
+file. Twig syntax highlighting with HTML, JavaScript and CSS embedded.
 
 Next, in order:
 

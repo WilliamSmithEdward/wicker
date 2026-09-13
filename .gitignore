@@ -1,0 +1,27 @@
+# Agent working files
+CLAUDE.md
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+out/
+*.tsbuildinfo
+*.vsix
+
+# Test artifacts
+.vscode-test/
+.vscode-test-web/
+coverage/
+*.log
+
+# Local environment
+.env
+.env.local
+.env.*.local
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini

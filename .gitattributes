@@ -1,0 +1,15 @@
+# Normalize all text to LF in the repository and on checkout, matching
+# .editorconfig. Set before the first commit so history never carries CRLF.
+* text=auto eol=lf
+
+# Generated; keep diffs collapsed in review.
+package-lock.json -diff linguist-generated=true
+
+# Binary assets must never be line-ending converted.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.vsix binary

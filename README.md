@@ -44,8 +44,10 @@ template references, from both sides, with no false positives. The editor
 features are covered by integration tests that drive a real VS Code instance
 against a fixture project.
 
-Not yet published to the marketplace. Build it and run it from source with the
-instructions under [Development](#development).
+[Install Wicker from the Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=WilliamSmithE.wicker)
+
+Or build it and run it from source with the instructions under
+[Development](#development).
 
 ## Why it exists
 

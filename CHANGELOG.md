@@ -33,4 +33,5 @@ arguments in PHP; `extends`, `include`, `embed`, `use`, `import`, `from` and the
 The extension ships no third-party runtime code. The Twig lexer, the PHP lexer
 and the YAML reader were written for it.
 
-Not on the marketplace yet. Build and run it from source; see the README.
+Install from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=WilliamSmithE.wicker),
+or from the `.vsix` attached to the release.

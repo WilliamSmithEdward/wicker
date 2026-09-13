@@ -29,6 +29,12 @@
     ["'", "'"],
     ["<", ">"]
   ],
+  "folding": {
+    "markers": {
+      "start": "^\\s*\\{%-?\\s*(apply|autoescape|block|cache|embed|filter|for|guard|if|macro|sandbox|set|types|verbatim|with)\\b(?!.*\\{%-?\\s*end)",
+      "end": "^\\s*\\{%-?\\s*end(apply|autoescape|block|cache|embed|filter|for|guard|if|macro|sandbox|set|types|verbatim|with)\\b"
+    }
+  },
   "indentationRules": {
     "increaseIndentPattern": "<(?!\\?|[^>]*/>)([-_\\.A-Za-z0-9]+)(?=\\s|>)\\b[^>]*>(?!.*</\\1>)|\\{%\\s*(block|embed|filter|for|if|macro|set|spaceless|verbatim|with|apply|autoescape|sandbox)(?!.*end\\1)|\\{#(?!.*#\\})",
     "decreaseIndentPattern": "^\\s*(</[-_\\.A-Za-z0-9]+\\s*>|\\{%\\s*(end(block|embed|filter|for|if|macro|set|spaceless|verbatim|with|apply|autoescape|sandbox)|else|elseif)\\b)"

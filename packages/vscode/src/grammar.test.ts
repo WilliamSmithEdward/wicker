@@ -17,11 +17,25 @@ import * as textmate from 'vscode-textmate';
 
 const SYNTAX_DIR = path.resolve(__dirname, '../syntaxes');
 
+/**
+ * Stands in for VS Code's HTML grammar. It models the two behaviours that
+ * matter here: plain markup, and a script block whose contents are handed to
+ * the JavaScript grammar. That second one is the case the injection exists to
+ * rescue, so the stub has to reproduce it or the test proves nothing.
+ */
 const HTML_STUB: textmate.IRawGrammar = {
   scopeName: 'text.html.basic',
   patterns: [
-    // Just enough to prove Twig is matched before HTML claims the text, and to
-    // show that surrounding markup is handed to the HTML grammar.
+    {
+      begin: '(<)(script)(>)',
+      end: '(</)(script)(>)',
+      contentName: 'source.js',
+      patterns: [{ match: '\\bvar\\b', name: 'storage.type.js' }],
+    },
+    // Modelled as begin/end, not a single match, because that is what the real
+    // HTML grammar does and it is the difference that decides whether an
+    // injection can reach inside the attribute value at all.
+    { begin: '"', end: '"', name: 'string.quoted.double.html' },
     { match: '</?[a-zA-Z][a-zA-Z0-9-]*', name: 'entity.name.tag.html' },
   ],
 } as unknown as textmate.IRawGrammar;
@@ -38,6 +52,9 @@ beforeAll(async () => {
   const twigSource = JSON.parse(
     await readFile(path.join(SYNTAX_DIR, 'twig.tmLanguage.json'), 'utf8'),
   ) as textmate.IRawGrammar;
+  const injectionSource = JSON.parse(
+    await readFile(path.join(SYNTAX_DIR, 'twig-injection.tmLanguage.json'), 'utf8'),
+  ) as textmate.IRawGrammar;
 
   registry = new textmate.Registry({
     onigLib: Promise.resolve({
@@ -48,11 +65,18 @@ beforeAll(async () => {
       if (scopeName === 'text.html.twig') {
         return Promise.resolve(twigSource);
       }
+      if (scopeName === 'twig.injection') {
+        return Promise.resolve(injectionSource);
+      }
       if (scopeName === 'text.html.basic') {
         return Promise.resolve(HTML_STUB);
       }
       return Promise.resolve(null);
     },
+    // Mirrors the extension manifest's injectTo, so the injection is exercised
+    // here exactly as the editor would apply it.
+    getInjections: (scopeName) =>
+      scopeName === 'text.html.twig' ? ['twig.injection'] : undefined,
   });
 
   const loaded = await registry.loadGrammar('text.html.twig');
@@ -187,6 +211,64 @@ describe('HTML alongside Twig', () => {
     const line = '<h1>{{ title }}</h1>';
     expect(hasScope(scopesOf(line, 'title'), 'variable.other.twig')).toBe(true);
     expect(hasScope(scopesOf(line, '<h1'), 'entity.name.tag.html')).toBe(true);
+  });
+});
+
+describe('tag names', () => {
+  it.each([
+    'extends',
+    'block',
+    'endblock',
+    'for',
+    'endfor',
+    'if',
+    'elseif',
+    'else',
+    'endif',
+    'embed',
+    'macro',
+    'apply',
+    'set',
+    'use',
+    'import',
+    'trans',
+    'form_theme',
+  ])('treats %s as a known tag', (tag) => {
+    expect(hasScope(scopesOf(`{% ${tag} x %}`, tag), 'keyword.control.twig')).toBe(true);
+  });
+
+  it('does not treat an unknown tag as a keyword, so a typo reads differently', () => {
+    const scopes = scopesOf('{% fro task in tasks %}', 'fro');
+    expect(hasScope(scopes, 'keyword.control.twig')).toBe(false);
+    expect(hasScope(scopes, 'entity.name.tag.twig')).toBe(true);
+  });
+
+  it('still names a custom tag from a Twig extension', () => {
+    const scopes = scopesOf('{% mycustomtag %}', 'mycustomtag');
+    expect(hasScope(scopes, 'entity.name.tag.twig')).toBe(true);
+  });
+
+  it('only treats the first word as the tag name', () => {
+    // `block` here is a variable being iterated, not a second tag.
+    const scopes = scopesOf('{% for block in blocks %}', 'block in');
+    expect(hasScope(scopes, 'keyword.control.twig')).toBe(false);
+  });
+});
+
+describe('injection into sub-grammars', () => {
+  it('highlights Twig inside an HTML attribute value', () => {
+    const line = '<a href="{{ path(\'task_index\') }}">Tasks</a>';
+    expect(hasScope(scopesOf(line, 'path'), 'support.function.twig')).toBe(true);
+  });
+
+  it('highlights Twig inside a script block', () => {
+    const line = '<script>var n = {{ openCount }};</script>';
+    expect(hasScope(scopesOf(line, 'openCount'), 'variable.other.twig')).toBe(true);
+  });
+
+  it('leaves the surrounding JavaScript to the JavaScript grammar', () => {
+    const line = '<script>var n = {{ openCount }};</script>';
+    expect(hasScope(scopesOf(line, 'var'), 'storage.type.js')).toBe(true);
   });
 });
 

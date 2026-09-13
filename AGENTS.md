@@ -12,7 +12,8 @@ why. This file is the operational detail an agent needs before editing.
 
 Published on the marketplace as `WilliamSmithE.wicker`, source at
 https://github.com/WilliamSmithEdward/wicker. The first capability, the bridge
-between a controller and the template it renders, is finished and shipped. Releases are `vX.Y.Z` for both tag and release title, nothing else in
+between a controller and the template it renders, is finished and shipped.
+Releases are `vX.Y.Z` for both the tag and the release title, nothing else in
 the title.
 
 ### Constraints that are not negotiable

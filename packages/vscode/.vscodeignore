@@ -1,0 +1,19 @@
+# What a published extension contains.
+#
+# Written as "exclude everything, then name what ships" rather than a list of
+# exclusions. A forgotten exclusion ships something by accident and a
+# marketplace version can never be replaced, so the failure mode of the other
+# direction is a missing file that shows up the first time the extension runs.
+
+**
+
+!out/extension.js
+!syntaxes/**
+!language-configuration.json
+!README.md
+!CHANGELOG.md
+!LICENSE
+
+# The bundle is what runs; its source map is 70 KB of no use to anyone who
+# installed rather than cloned.
+out/**/*.map

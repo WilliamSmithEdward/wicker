@@ -13,7 +13,14 @@ export default tseslint.config(
         projectService: {
           // Root-level tooling configs belong to no package tsconfig, so they
           // are linted against the default project rather than left unparsed.
-          allowDefaultProject: ['*.mjs', '*.mts', '*.js', 'packages/*/*.js', 'packages/*/*.mjs'],
+          allowDefaultProject: [
+            '*.mjs',
+            '*.mts',
+            '*.js',
+            'packages/*/*.js',
+            'packages/*/*.mjs',
+            'packages/*/scripts/*.mjs',
+          ],
         },
         tsconfigRootDir: import.meta.dirname,
       },
@@ -48,7 +55,14 @@ export default tseslint.config(
     // type-checked: they sit in the default project, where `import.meta` and
     // CommonJS globals resolve to error types and every type-aware rule
     // reports noise rather than defects.
-    files: ['*.mjs', '*.mts', '*.js', 'packages/*/*.js', 'packages/*/*.mjs'],
+    files: [
+      '*.mjs',
+      '*.mts',
+      '*.js',
+      'packages/*/*.js',
+      'packages/*/*.mjs',
+      'packages/*/scripts/*.mjs',
+    ],
     extends: [tseslint.configs.disableTypeChecked],
     languageOptions: {
       globals: {

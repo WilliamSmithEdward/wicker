@@ -25,3 +25,8 @@ coverage/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Copied in at package time by packages/vscode/scripts/package.mjs
+packages/vscode/README.md
+packages/vscode/CHANGELOG.md
+packages/vscode/LICENSE

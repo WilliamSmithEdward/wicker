@@ -1,0 +1,107 @@
+{
+  "name": "wicker",
+  "displayName": "Wicker: Symfony & Twig Tooling",
+  "description": "Navigate between Symfony controllers and the Twig templates they render.",
+  "version": "0.1.0",
+  "publisher": "WilliamSmithE",
+  "license": "MIT",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/WilliamSmithEdward/wicker.git"
+  },
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "keywords": [
+    "symfony",
+    "twig",
+    "php",
+    "template"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "workspaceContains:**/composer.json"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "twig",
+        "aliases": [
+          "Twig",
+          "twig"
+        ],
+        "extensions": [
+          ".twig"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "configuration": {
+      "title": "Wicker",
+      "properties": {
+        "wicker.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Wicker's Symfony and Twig features."
+        },
+        "wicker.diagnostics.missingTemplate": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "off"
+          ],
+          "default": "error",
+          "description": "How to report a template reference that resolves to no file."
+        },
+        "wicker.templates.extensions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "File suffixes to index as templates. Leave empty to read `file_name_pattern` from `config/packages/twig.yaml`, falling back to `.twig`."
+        },
+        "wicker.index.maxFiles": {
+          "type": "number",
+          "default": 20000,
+          "description": "Upper bound on indexed template files per project."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "wicker.reindex",
+        "title": "Wicker: Rebuild template index"
+      },
+      {
+        "command": "wicker.showProjectInfo",
+        "title": "Wicker: Show detected Symfony project"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node esbuild.js --production",
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "typecheck": "tsc -p tsconfig.json",
+    "test:integration": "npm run compile && vscode-test",
+    "vsix": "node -e \"const {execSync}=require('child_process'),{version}=require('./package.json');require('fs').mkdirSync('dist',{recursive:true});execSync('npx @vscode/vsce package --no-dependencies --out dist/wicker-'+version+'.vsix',{stdio:'inherit'})\""
+  },
+  "dependencies": {
+    "@wicker/core": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/vscode": "1.95.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.1.0",
+    "mocha": "^12.0.1"
+  }
+}

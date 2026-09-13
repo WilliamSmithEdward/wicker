@@ -1,0 +1,14 @@
+{
+  "name": "wicker/fixture-app",
+  "type": "project",
+  "require": {
+    "php": ">=8.2",
+    "symfony/framework-bundle": "8.1.*",
+    "symfony/twig-bundle": "8.1.*"
+  },
+  "autoload": {
+    "psr-4": {
+      "App\\": "src/"
+    }
+  }
+}

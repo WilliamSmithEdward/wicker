@@ -1,0 +1,12 @@
+{% extends 'base.html.twig' %}
+
+{% block body %}
+    <h1>Tasks ({{ openCount }})</h1>
+    <ul>
+        {% for task in tasks %}
+            {% include 'task/_row.html.twig' with { task: task } only %}
+        {% endfor %}
+    </ul>
+    {{ include('@Design/badge.html.twig', { label: 'all' }) }}
+    {% include 'task/_gone.html.twig' %}
+{% endblock %}

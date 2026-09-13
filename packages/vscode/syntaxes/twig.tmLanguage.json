@@ -41,37 +41,41 @@
     },
 
     "twig-statement": {
+      "comment": "Two alternatives rather than one rule that inspects the first word afterwards. The tag name is captured by the opening pattern itself, which is what keeps this free of the \\G anchor: \\G is an Oniguruma feature, and avoiding it means the grammar also runs under a plain regex engine.",
+      "patterns": [
+        { "include": "#twig-statement-known" },
+        { "include": "#twig-statement-unknown" }
+      ]
+    },
+
+    "twig-statement-known": {
+      "comment": "Twig's own tags plus the ones Symfony's bundles add.",
       "name": "meta.tag.twig",
-      "begin": "(\\{%-?)",
+      "begin": "(\\{%-?)\\s*(apply|autoescape|block|cache|deprecated|do|embed|extends|filter|flush|for|from|guard|import|include|macro|sandbox|set|types|use|verbatim|with|elseif|else|if|endapply|endautoescape|endblock|endcache|endembed|endfilter|endfor|endguard|endif|endmacro|endsandbox|endset|endtypes|endverbatim|endwith|trans_default_domain|trans|endtrans|form_theme|stopwatch|endstopwatch)\\b",
       "end": "-?%\\}",
       "beginCaptures": {
-        "1": { "name": "punctuation.definition.tag.begin.twig" }
+        "1": { "name": "punctuation.definition.tag.begin.twig" },
+        "2": { "name": "keyword.control.twig" }
       },
       "endCaptures": {
         "0": { "name": "punctuation.definition.tag.end.twig" }
       },
-      "patterns": [
-        { "include": "#known-tag-name" },
-        { "include": "#unknown-tag-name" },
-        { "include": "#twig-tag-keywords" },
-        { "include": "#expression-body" }
-      ]
+      "patterns": [{ "include": "#twig-tag-keywords" }, { "include": "#expression-body" }]
     },
 
-    "known-tag-name": {
-      "comment": "Anchored with \\G so only the word immediately after {% is treated as the tag name. Twig core tags plus the ones Symfony's bundles add.",
-      "match": "\\G\\s*(apply|autoescape|block|cache|deprecated|do|embed|extends|filter|flush|for|from|guard|import|include|macro|sandbox|set|types|use|verbatim|with|elseif|else|if|endapply|endautoescape|endblock|endcache|endembed|endfilter|endfor|endguard|endif|endmacro|endsandbox|endset|endtypes|endverbatim|endwith|trans_default_domain|trans|endtrans|form_theme|stopwatch|endstopwatch)\\b",
-      "captures": {
-        "1": { "name": "keyword.control.twig" }
-      }
-    },
-
-    "unknown-tag-name": {
+    "twig-statement-unknown": {
       "comment": "A tag this grammar does not know. Scoped as a tag name rather than as a keyword or an error: it is most likely a custom tag from a Twig extension, but it reads differently from a known tag, which is what makes a typo visible.",
-      "match": "\\G\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\b",
-      "captures": {
-        "1": { "name": "entity.name.tag.twig" }
-      }
+      "name": "meta.tag.twig",
+      "begin": "(\\{%-?)\\s*([a-zA-Z_][a-zA-Z0-9_]*)?",
+      "end": "-?%\\}",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.tag.begin.twig" },
+        "2": { "name": "entity.name.tag.twig" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.tag.end.twig" }
+      },
+      "patterns": [{ "include": "#twig-tag-keywords" }, { "include": "#expression-body" }]
     },
 
     "twig-expression": {

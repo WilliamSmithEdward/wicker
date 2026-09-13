@@ -30,3 +30,6 @@ desktop.ini
 packages/vscode/README.md
 packages/vscode/CHANGELOG.md
 packages/vscode/LICENSE
+
+# Written by the integration test when it toggles a workspace setting
+packages/vscode/fixtures/**/.vscode/

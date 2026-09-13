@@ -19,6 +19,7 @@ import {
 
 import { ProcessConsoleRunner } from './console.js';
 import { VsCodeFileSystem } from './fileSystem.js';
+import type { LoaderPathMemory } from './loaderPathMemory.js';
 import { enginePathOf } from './paths.js';
 
 const DEFAULT_EXTENSIONS = ['.twig'];
@@ -48,18 +49,22 @@ export class ProjectSession implements vscode.Disposable {
   /** Fires after the index has been rebuilt. */
   readonly onDidChange = this.changed.event;
 
+  private readonly memory: LoaderPathMemory;
+
   private constructor(
     project: SymfonyProject,
     rootUri: vscode.Uri,
     fileSystem: VsCodeFileSystem,
     index: TwigTemplateIndex,
     loaderPaths: LoaderPathsResolution,
+    memory: LoaderPathMemory,
   ) {
     this.project = project;
     this.rootUri = rootUri;
     this.fileSystem = fileSystem;
     this.templateIndex = index;
     this.loaderPathInfo = loaderPaths;
+    this.memory = memory;
     this.installWatchers();
   }
 
@@ -69,14 +74,24 @@ export class ProjectSession implements vscode.Disposable {
   }
 
   /** Detects a project at or above a workspace folder, and indexes it. */
-  static async create(folder: vscode.WorkspaceFolder): Promise<ProjectSession | undefined> {
+  static async create(
+    folder: vscode.WorkspaceFolder,
+    memory: LoaderPathMemory,
+  ): Promise<ProjectSession | undefined> {
     const fileSystem = new VsCodeFileSystem(folder.uri);
     const project = await discoverSymfonyProject(fileSystem, enginePathOf(folder.uri));
     if (project === undefined) {
       return undefined;
     }
-    const built = await buildIndex(fileSystem, project);
-    return new ProjectSession(project, folder.uri, fileSystem, built.index, built.loaderPaths);
+    const built = await buildIndex(fileSystem, project, memory);
+    return new ProjectSession(
+      project,
+      folder.uri,
+      fileSystem,
+      built.index,
+      built.loaderPaths,
+      memory,
+    );
   }
 
   get index(): TwigTemplateIndex {
@@ -141,7 +156,7 @@ export class ProjectSession implements vscode.Disposable {
       return this.refreshInFlight;
     }
     this.refreshInFlight = (async () => {
-      const built = await buildIndex(this.fileSystem, this.project);
+      const built = await buildIndex(this.fileSystem, this.project, this.memory);
       this.templateIndex = built.index;
       this.loaderPathInfo = built.loaderPaths;
       this.changed.fire();
@@ -206,17 +221,26 @@ export class ProjectSession implements vscode.Disposable {
 async function buildIndex(
   fileSystem: VsCodeFileSystem,
   project: SymfonyProject,
+  memory: LoaderPathMemory,
 ): Promise<{ index: TwigTemplateIndex; loaderPaths: LoaderPathsResolution }> {
   const raw = await fileSystem.readFile(joinProjectPath(project.root, TWIG_CONFIG_PATH));
   const config = parseTwigConfig(raw ?? '');
 
   // twig.yaml only declares the namespaces an application registers for
   // itself. Bundle namespaces such as @Twig exist nowhere in configuration, so
-  // the console is asked first and the configuration is the fallback.
+  // the console is asked first, an earlier console answer is the fallback, and
+  // the configuration is the last resort.
   const loaderPaths = await resolveLoaderPaths(
     ProcessConsoleRunner.create(project.root),
     loaderPathsFromTwigConfig(config),
+    memory.read(project.root),
   );
+
+  // Only a fresh console answer is recorded, so a run with the container down
+  // cannot overwrite a good answer with a worse one.
+  if (loaderPaths.consoleEntries !== undefined) {
+    await memory.write(project.root, loaderPaths.consoleEntries);
+  }
 
   const settings = vscode.workspace.getConfiguration('wicker');
   const configured = settings.get<string[]>('templates.extensions', []);
@@ -241,6 +265,8 @@ export class SessionManager implements vscode.Disposable {
 
   readonly onDidChange = this.changed.event;
 
+  constructor(private readonly memory: LoaderPathMemory) {}
+
   async initialize(): Promise<void> {
     for (const folder of vscode.workspace.workspaceFolders ?? []) {
       await this.addFolder(folder);
@@ -252,7 +278,7 @@ export class SessionManager implements vscode.Disposable {
     if (this.sessions.has(key)) {
       return;
     }
-    const session = await ProjectSession.create(folder);
+    const session = await ProjectSession.create(folder, this.memory);
     if (session === undefined) {
       return;
     }

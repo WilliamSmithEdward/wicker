@@ -26,14 +26,25 @@ export interface ConsoleRunner {
   run(args: readonly string[]): Promise<ConsoleResult>;
 }
 
-/** Where a set of loader paths came from, so the UI can explain itself. */
-export type LoaderPathSource = 'console' | 'config';
+/**
+ * Where a set of loader paths came from, so the UI can explain itself.
+ *
+ * `remembered` is a console answer from an earlier run, reused because the
+ * console could not be reached this time.
+ */
+export type LoaderPathSource = 'console' | 'remembered' | 'config';
 
 export interface LoaderPathsResolution {
   readonly paths: TwigLoaderPaths;
   readonly source: LoaderPathSource;
   /** Present when the console was tried and could not be used. */
   readonly consoleError: string | undefined;
+  /**
+   * What the console said, for the host to remember for next time. Present
+   * only when the console answered, so a host that stores this never
+   * overwrites a good answer with a fallback.
+   */
+  readonly consoleEntries: readonly LoaderPathEntry[] | undefined;
 }
 
 /**
@@ -44,30 +55,44 @@ export interface LoaderPathsResolution {
  * merging costs nothing and keeps a namespace resolvable if a future Symfony
  * version stops reporting one.
  *
- * A console failure is never fatal. The configured paths still resolve the
- * namespaces an application declares for itself, which is most of what its own
- * code references.
+ * A console failure is never fatal. When an earlier answer was remembered it
+ * is used, because namespaces change only when a bundle is installed or
+ * removed: a stale list is almost always still right, while dropping to
+ * configuration alone makes every bundle namespace look unregistered and
+ * turns working code into reported errors. Failing that, the configured paths
+ * still resolve the namespaces an application declares for itself.
+ *
+ * `remembered` is consulted only when the console was tried and failed. A
+ * caller that passes no runner has switched the console off or is in an
+ * untrusted workspace, and in both cases reusing an answer obtained under
+ * different conditions would go behind the user's back.
  */
 export async function resolveLoaderPaths(
   runner: ConsoleRunner | undefined,
   configuredPaths: TwigLoaderPaths,
+  remembered?: readonly LoaderPathEntry[],
 ): Promise<LoaderPathsResolution> {
   if (runner === undefined) {
-    return { paths: configuredPaths, source: 'config', consoleError: undefined };
+    return {
+      paths: configuredPaths,
+      source: 'config',
+      consoleError: undefined,
+      consoleEntries: undefined,
+    };
   }
 
   const result = await runner.run(['debug:twig', '--format=json']);
   if (!result.ok) {
-    return { paths: configuredPaths, source: 'config', consoleError: result.error ?? 'unknown' };
+    return withoutConsole(configuredPaths, remembered, result.error ?? 'unknown');
   }
 
   const payload = parseJsonLoosely(result.stdout);
   if (payload === undefined) {
-    return {
-      paths: configuredPaths,
-      source: 'config',
-      consoleError: 'debug:twig did not return readable JSON',
-    };
+    return withoutConsole(
+      configuredPaths,
+      remembered,
+      'debug:twig did not return readable JSON',
+    );
   }
 
   const fromConsole = TwigLoaderPaths.fromDebugTwigJson(payload);
@@ -76,6 +101,30 @@ export async function resolveLoaderPaths(
     paths: TwigLoaderPaths.fromEntries(merged),
     source: 'console',
     consoleError: undefined,
+    consoleEntries: fromConsole.all(),
+  };
+}
+
+/** The best available answer when the console was asked and did not deliver. */
+function withoutConsole(
+  configuredPaths: TwigLoaderPaths,
+  remembered: readonly LoaderPathEntry[] | undefined,
+  consoleError: string,
+): LoaderPathsResolution {
+  if (remembered === undefined || remembered.length === 0) {
+    return {
+      paths: configuredPaths,
+      source: 'config',
+      consoleError,
+      consoleEntries: undefined,
+    };
+  }
+
+  return {
+    paths: TwigLoaderPaths.fromEntries([...remembered, ...configuredPaths.all()]),
+    source: 'remembered',
+    consoleError,
+    consoleEntries: undefined,
   };
 }
 

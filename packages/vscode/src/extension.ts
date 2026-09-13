@@ -1,6 +1,10 @@
 import * as vscode from 'vscode';
 
-import { parseTemplateName, type IndexedTemplate } from '@wicker/core';
+import {
+  parseTemplateName,
+  type IndexedTemplate,
+  type LoaderPathSource,
+} from '@wicker/core';
 
 import { CreateTemplateActionProvider } from './codeActions.js';
 import {
@@ -13,6 +17,7 @@ import {
   templateReferencesIn,
   type DocumentTemplateReference,
 } from './references.js';
+import { LoaderPathMemory } from './loaderPathMemory.js';
 import {
   SEMANTIC_TOKENS_LEGEND,
   TemplateSemanticTokensProvider,
@@ -26,7 +31,9 @@ const SELECTOR: vscode.DocumentSelector = [
 ];
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  const sessions = new SessionManager();
+  // Workspace-scoped, because the remembered namespaces describe this project
+  // and mean nothing anywhere else.
+  const sessions = new SessionManager(new LoaderPathMemory(context.workspaceState));
   const semanticTokens = new TemplateSemanticTokensProvider(sessions);
   const output = vscode.window.createOutputChannel('Wicker');
   const diagnostics = vscode.languages.createDiagnosticCollection('wicker');
@@ -46,7 +53,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
     const templates = all.reduce((total, session) => total + session.index.fileCount, 0);
-    const viaConsole = all.every((session) => session.loaderPaths.source === 'console');
+    // The weakest source across projects, since the warning has to describe
+    // the project that is worst off rather than the average.
+    const source = weakestSource(all);
 
     // The badge answers "is Wicker working", which is the only thing worth a
     // permanent place in the status bar. The count is detail, and detail
@@ -56,15 +65,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       [
         all.length === 1 ? 'One Symfony project' : `${all.length} Symfony projects`,
         `${plural(templates, 'template')} that a reference can resolve to`,
-        viaConsole
-          ? 'Namespaces from `bin/console debug:twig`'
-          : 'Namespaces from `twig.yaml` only, so bundle namespaces are unknown',
+        NAMESPACE_ORIGIN[source],
         '',
         'Click for detail.',
       ].join('\n\n'),
     );
-    // Warn only when running degraded, and in text as well as colour.
-    status.backgroundColor = viaConsole
+    // Warn only when bundle namespaces are genuinely unknown. A remembered
+    // answer resolves them correctly, so warning about it would train the
+    // user to ignore the colour that matters.
+    status.backgroundColor = source !== 'config'
       ? undefined
       : new vscode.ThemeColor('statusBarItem.warningBackground');
     status.show();
@@ -201,14 +210,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           .filter((name) => name.startsWith('@'))
           .map((name) => name.slice(1, name.indexOf('/')));
         const loaderPaths = session.loaderPaths;
+        const unavailable =
+          loaderPaths.consoleError === undefined
+            ? ''
+            : ` (console unavailable: ${loaderPaths.consoleError})`;
         const origin =
           loaderPaths.source === 'console'
             ? 'bin/console debug:twig'
-            : `config/packages/twig.yaml${
-                loaderPaths.consoleError === undefined
-                  ? ''
-                  : ` (console unavailable: ${loaderPaths.consoleError})`
-              }`;
+            : loaderPaths.source === 'remembered'
+              ? `an earlier bin/console debug:twig, remembered${unavailable}`
+              : `config/packages/twig.yaml${unavailable}`;
 
         return [
           session.project.root,
@@ -399,6 +410,34 @@ function buildDiagnostics(
 /** "1 template", "37 templates". */
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
+/** How the tooltip explains each way the namespaces can have been obtained. */
+const NAMESPACE_ORIGIN: Record<LoaderPathSource, string> = {
+  console: 'Namespaces from `bin/console debug:twig`',
+  remembered:
+    'Namespaces remembered from an earlier run, because the console is not answering now. Bundle namespaces still resolve, but a bundle added since then is unknown.',
+  config: 'Namespaces from `twig.yaml` only, so bundle namespaces are unknown',
+};
+
+/**
+ * The least informed source among the open projects.
+ *
+ * A warning has to describe the project that is worst off. Reporting the best
+ * of them would hide the one actually misbehaving.
+ */
+function weakestSource(sessions: readonly ProjectSession[]): LoaderPathSource {
+  let weakest: LoaderPathSource = 'console';
+  for (const session of sessions) {
+    const source = session.loaderPaths.source;
+    if (source === 'config') {
+      return 'config';
+    }
+    if (source === 'remembered') {
+      weakest = 'remembered';
+    }
+  }
+  return weakest;
 }
 
 function severityFromSettings(): vscode.DiagnosticSeverity | undefined {

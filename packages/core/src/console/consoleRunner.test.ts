@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { loaderPathsFromTwigConfig, parseTwigConfig } from '../project/twigConfig.js';
+import type { LoaderPathEntry } from '../twig/loaderPaths.js';
 import { parseTemplateName, type TwigTemplateName } from '../twig/templateName.js';
 
 import { parseJsonLoosely, resolveLoaderPaths, type ConsoleRunner } from './consoleRunner.js';
@@ -111,6 +112,84 @@ describe('resolveLoaderPaths when the console fails', () => {
     );
     expect(resolved.source).toBe('config');
     expect(resolved.consoleError).toMatch(/readable JSON/);
+  });
+});
+
+describe('resolveLoaderPaths with a remembered answer', () => {
+  /** What a previous successful run would have handed back to be stored. */
+  async function remembered(): Promise<readonly LoaderPathEntry[]> {
+    const good = await resolveLoaderPaths(runner({ ok: true, stdout: CONSOLE_JSON }), CONFIG_PATHS);
+    const entries = good.consoleEntries;
+    if (entries === undefined) {
+      throw new Error('a successful run should offer its entries to be remembered');
+    }
+    return entries;
+  }
+
+  it('keeps resolving bundle namespaces when the console stops answering', async () => {
+    const resolved = await resolveLoaderPaths(
+      runner({ ok: false, error: 'container is not running' }),
+      CONFIG_PATHS,
+      await remembered(),
+    );
+
+    expect(resolved.source).toBe('remembered');
+    // The point of the whole mechanism: this is the lookup that would
+    // otherwise report correct code as an unregistered namespace.
+    expect(resolved.paths.hasNamespace('Twig')).toBe(true);
+    expect(resolved.paths.resolveCandidates(name('@Twig/Exception/error404.html.twig'))).toContain(
+      'templates/bundles/TwigBundle/Exception/error404.html.twig',
+    );
+  });
+
+  it('still reports why the console was not used', async () => {
+    const resolved = await resolveLoaderPaths(
+      runner({ ok: false, error: 'container is not running' }),
+      CONFIG_PATHS,
+      await remembered(),
+    );
+    expect(resolved.consoleError).toBe('container is not running');
+  });
+
+  it('does not offer a reused answer back for storing', async () => {
+    const resolved = await resolveLoaderPaths(
+      runner({ ok: false, error: 'down' }),
+      CONFIG_PATHS,
+      await remembered(),
+    );
+    // Storing this would be harmless here but would let a fallback overwrite
+    // a fresher answer in a host that stored whatever it was given.
+    expect(resolved.consoleEntries).toBeUndefined();
+  });
+
+  it('ignores it when the console was never asked', async () => {
+    // No runner means the console is switched off or the workspace is
+    // untrusted. Reusing an answer obtained under other conditions would go
+    // behind the user's back.
+    const resolved = await resolveLoaderPaths(undefined, CONFIG_PATHS, await remembered());
+    expect(resolved.source).toBe('config');
+    expect(resolved.paths.hasNamespace('Twig')).toBe(false);
+  });
+
+  it('falls back to config when there is nothing remembered', async () => {
+    const resolved = await resolveLoaderPaths(runner({ ok: false, error: 'down' }), CONFIG_PATHS, []);
+    expect(resolved.source).toBe('config');
+  });
+
+  it('prefers a fresh answer over the remembered one', async () => {
+    const withoutMaker = JSON.stringify({
+      loader_paths: { '@Design': ['design'], '(None)': ['templates'] },
+    });
+    const resolved = await resolveLoaderPaths(
+      runner({ ok: true, stdout: withoutMaker }),
+      CONFIG_PATHS,
+      await remembered(),
+    );
+
+    expect(resolved.source).toBe('console');
+    // @Maker was in the remembered answer and is not in this one. A bundle
+    // removed since then must disappear, or the memory would outlive the fact.
+    expect(resolved.paths.hasNamespace('Maker')).toBe(false);
   });
 });
 

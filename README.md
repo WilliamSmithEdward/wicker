@@ -8,13 +8,21 @@ templates feel like working in one language instead of two.
 Early. The intelligence engine is real and tested; the editor integration is not
 built yet. Concretely, what exists today is:
 
+- Symfony project discovery from conclusive evidence, with the reasons recorded
 - Twig template reference parsing, covering the `@Namespace` and `@!Namespace`
   forms and rejecting the syntax Symfony 5 removed
-- Twig loader-path resolution built from `bin/console debug:twig --format=json`,
-  with application overrides ordered ahead of bundle templates
+- Namespace resolution from `bin/console debug:twig --format=json` **or** from
+  `config/packages/twig.yaml` alone, so it works with no PHP available
+- A template index queryable by name and by file, modelling override order
+- Template references found in PHP: `render()` and its siblings, `#[Template]`,
+  named arguments, and the context keys passed alongside
+- Template references found in Twig: `extends`, `include`, `embed`, `use`,
+  `import`, `from`, and the `include()` and `source()` functions
 - `composer.json` parsing with a PSR-4 map that resolves a class to its file and
   back again
-- A filesystem abstraction with real-disk and in-memory implementations
+
+Pointed at a real Symfony 8.1 application, that resolves every one of its 34
+template references, from both sides, with no false positives.
 
 There is no installable extension yet. See [Roadmap](#roadmap).
 

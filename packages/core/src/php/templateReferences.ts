@@ -1,19 +1,21 @@
 /**
  * Finding the places PHP names a Twig template.
  *
- * This is the controller half of the bridge. A Symfony controller refers to its
- * template as a bare string, so without this the editor sees an ordinary string
- * literal and the connection is invisible.
+ * This is the controller half of the bridge. A Symfony controller refers to
+ * its template as a bare string, so without this the editor sees an ordinary
+ * string literal and the connection is invisible.
  *
- * Positions are returned as byte-free character offsets into the source rather
- * than line and column pairs. The editor layer converts them using the
- * document's own line index, which keeps UTF-16 column arithmetic where the
- * document lives instead of duplicating it here.
+ * It walks the token stream from the lexer rather than building a syntax
+ * tree. What is needed here is shallow, a call and its arguments, and a token
+ * walk is enough to get it exactly right while staying small. Broader PHP
+ * features will want a real tree; the lexer is shared either way.
+ *
+ * Positions are returned as character offsets rather than line and column
+ * pairs. The editor layer converts them using the document's own line index,
+ * which keeps UTF-16 arithmetic where the document lives.
  */
 
-// php-parser's runtime exports the constructor both directly and as `.Engine`;
-// the named form is the one its shipped types declare.
-import { Engine } from 'php-parser';
+import { significantTokens, type PhpToken } from './lexer.js';
 
 /** A half-open character range within the scanned source. */
 export interface OffsetRange {
@@ -22,14 +24,12 @@ export interface OffsetRange {
 }
 
 export type TemplateReferenceKind =
-  /** `$this->render(...)` and friends inside a controller. */
   | 'render'
   | 'renderView'
   | 'renderBlock'
   | 'renderBlockView'
   | 'renderForm'
   | 'stream'
-  /** The `#[Template('...')]` attribute on a controller action. */
   | 'template-attribute';
 
 /** Method names that take a template name as their first argument. */
@@ -42,16 +42,11 @@ const RENDER_METHODS: ReadonlyMap<string, TemplateReferenceKind> = new Map([
   ['stream', 'stream'],
 ]);
 
-/**
- * Attribute names that carry a template. Matched on the trailing segment so
- * both `#[Template]` and `#[Bridge\Twig\Attribute\Template]` are recognised.
- */
+/** Matched on the trailing segment, so a fully qualified attribute also counts. */
 const TEMPLATE_ATTRIBUTES: ReadonlySet<string> = new Set(['template']);
 
-/** Named argument that carries the template name, for PHP 8 call sites. */
 const TEMPLATE_ARGUMENT_NAMES: ReadonlySet<string> = new Set(['view', 'template', 'name']);
 
-/** Named argument that carries the context array. */
 const CONTEXT_ARGUMENT_NAMES: ReadonlySet<string> = new Set([
   'parameters',
   'context',
@@ -59,15 +54,15 @@ const CONTEXT_ARGUMENT_NAMES: ReadonlySet<string> = new Set([
   'data',
 ]);
 
+const TYPE_KEYWORDS: ReadonlySet<string> = new Set(['class', 'interface', 'trait', 'enum']);
+
 export interface TemplateReference {
-  /** The template name exactly as written, with escapes already decoded. */
   readonly templateName: string;
   /** Offsets of the name itself, inside the quotes. */
   readonly nameRange: OffsetRange;
   /** Offsets of the whole call or attribute, for code lens placement. */
   readonly range: OffsetRange;
   readonly kind: TemplateReferenceKind;
-  /** Statically known keys of the context array passed alongside. */
   readonly contextKeys: readonly string[];
   /**
    * True when a context argument was present but not a literal array, so the
@@ -76,7 +71,6 @@ export interface TemplateReference {
   readonly contextIsDynamic: boolean;
   /** Receiver variable for a method call, e.g. `this` or `twig`. */
   readonly receiver: string | undefined;
-  /** Fully qualified enclosing class, when the file declares one. */
   readonly className: string | undefined;
   readonly methodName: string | undefined;
 }
@@ -84,303 +78,405 @@ export interface TemplateReference {
 export interface TemplateReferenceScan {
   readonly references: readonly TemplateReference[];
   /**
-   * True when the file could not be parsed at all. Callers should keep any
-   * previous result rather than treating the file as having no references,
-   * because a file is unparseable for most of the time it is being typed.
+   * True when the source could not be read at all. The lexer is forgiving by
+   * design, so this is reserved for a genuine failure rather than for a file
+   * that is merely mid-edit.
    */
   readonly parseFailed: boolean;
 }
 
-const EMPTY_SCAN: TemplateReferenceScan = { references: [], parseFailed: true };
-
-/** Minimal shape of the php-parser nodes this module reads. */
-interface PhpNode {
-  kind: string;
-  loc?: { start: { offset: number }; end: { offset: number } };
-  [key: string]: unknown;
+/** Tracks which class and method the walk is currently inside. */
+interface Scope {
+  readonly className: string | undefined;
+  readonly methodName: string | undefined;
+  /** Brace depth at which this scope was entered. */
+  readonly depth: number;
 }
 
-/**
- * Scans PHP source for every reference to a Twig template.
- *
- * Never throws: a syntax error yields `parseFailed`, and anything unrecognised
- * is skipped rather than guessed at.
- */
 export function scanTemplateReferences(source: string): TemplateReferenceScan {
-  let ast: PhpNode;
+  let tokens: readonly PhpToken[];
   try {
-    const parser = new Engine({
-      parser: { extractDoc: false, suppressErrors: true, version: 805 },
-      ast: { withPositions: true },
-    });
-    ast = parser.parseCode(source, 'scan.php') as unknown as PhpNode;
+    tokens = significantTokens(source);
   } catch {
-    return EMPTY_SCAN;
+    return { references: [], parseFailed: true };
   }
 
   const references: TemplateReference[] = [];
-  walk(ast, { namespace: undefined, className: undefined, methodName: undefined });
-  return { references, parseFailed: false };
 
-  function walk(node: unknown, context: WalkContext): void {
-    if (node === null || typeof node !== 'object') {
-      return;
-    }
-    if (Array.isArray(node)) {
-      for (const child of node) {
-        walk(child, context);
-      }
-      return;
-    }
+  let namespaceName: string | undefined;
+  let depth = 0;
+  const scopes: Scope[] = [];
+  let pendingClass: string | undefined;
+  let pendingMethod: string | undefined;
 
-    const current = node as PhpNode;
-    const nextContext = extendContext(current, context);
+  const currentClass = (): string | undefined => scopes.at(-1)?.className;
+  const currentMethod = (): string | undefined => scopes.at(-1)?.methodName;
 
-    if (current.kind === 'call') {
-      collectFromCall(current, nextContext, references);
-    } else if (current.kind === 'attribute') {
-      collectFromAttribute(current, nextContext, references);
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token === undefined) {
+      continue;
     }
 
-    for (const key of Object.keys(current)) {
-      if (key === 'loc') {
+    if (token.kind === 'punctuation') {
+      if (token.text === '{') {
+        depth += 1;
+        if (pendingClass !== undefined || pendingMethod !== undefined) {
+          scopes.push({
+            className: pendingClass ?? currentClass(),
+            methodName: pendingMethod,
+            depth,
+          });
+          pendingClass = undefined;
+          pendingMethod = undefined;
+        }
         continue;
       }
-      walk(current[key], nextContext);
-    }
-  }
-}
-
-interface WalkContext {
-  namespace: string | undefined;
-  className: string | undefined;
-  methodName: string | undefined;
-}
-
-function extendContext(node: PhpNode, context: WalkContext): WalkContext {
-  switch (node.kind) {
-    case 'namespace': {
-      const name = readIdentifier(node['name']);
-      return { ...context, namespace: name };
-    }
-    case 'class':
-    case 'interface':
-    case 'trait':
-    case 'enum': {
-      const name = readIdentifier(node['name']);
-      if (name === undefined) {
-        return context;
+      if (token.text === '}') {
+        while (scopes.length > 0 && (scopes.at(-1)?.depth ?? 0) >= depth) {
+          scopes.pop();
+        }
+        depth -= 1;
+        continue;
       }
-      const qualified =
-        context.namespace === undefined ? name : `${context.namespace}\\${name}`;
-      return { ...context, className: qualified };
+      if (token.text === ';') {
+        // An abstract or interface method never opens a brace.
+        pendingMethod = undefined;
+        continue;
+      }
     }
-    case 'method':
-    case 'function': {
-      return { ...context, methodName: readIdentifier(node['name']) };
+
+    if (token.kind === 'identifier') {
+      const keyword = token.text.toLowerCase();
+
+      if (keyword === 'namespace') {
+        const name = readQualifiedName(tokens, index + 1);
+        if (name.text.length > 0) {
+          namespaceName = name.text;
+          index = name.nextIndex - 1;
+        }
+        continue;
+      }
+
+      if (TYPE_KEYWORDS.has(keyword)) {
+        const next = tokens[index + 1];
+        // `Foo::class` is not a declaration; a real one is followed by a name.
+        if (next?.kind === 'identifier' && tokens[index - 1]?.text !== '::') {
+          pendingClass =
+            namespaceName === undefined ? next.text : `${namespaceName}\\${next.text}`;
+          index += 1;
+        }
+        continue;
+      }
+
+      if (keyword === 'function') {
+        const next = tokens[index + 1];
+        if (next?.kind === 'identifier') {
+          pendingMethod = next.text;
+          index += 1;
+        }
+        continue;
+      }
     }
-    default:
-      return context;
+
+    // `$receiver->method(` or `$receiver?->method(`
+    if (token.kind === 'variable') {
+      const arrow = tokens[index + 1];
+      const method = tokens[index + 2];
+      const open = tokens[index + 3];
+
+      if (
+        (arrow?.text === '->' || arrow?.text === '?->') &&
+        method?.kind === 'identifier' &&
+        open?.text === '('
+      ) {
+        const kind = RENDER_METHODS.get(method.text.toLowerCase());
+        if (kind !== undefined) {
+          const reference = readCall(tokens, index + 3, {
+            kind,
+            receiver: token.text.slice(1),
+            className: currentClass(),
+            methodName: currentMethod(),
+            rangeStart: token.start,
+          });
+          if (reference !== undefined) {
+            references.push(reference);
+          }
+        }
+      }
+      continue;
+    }
+
+    if (token.kind === 'attribute-open') {
+      const reference = readAttribute(tokens, index, currentClass(), currentMethod());
+      if (reference !== undefined) {
+        references.push(reference);
+      }
+      continue;
+    }
   }
+
+  return { references, parseFailed: false };
 }
 
-function collectFromCall(
-  node: PhpNode,
-  context: WalkContext,
-  into: TemplateReference[],
-): void {
-  const what = node['what'];
-  if (!isNode(what) || (what.kind !== 'propertylookup' && what.kind !== 'nullsafepropertylookup')) {
-    return;
+interface CallContext {
+  readonly kind: TemplateReferenceKind;
+  readonly receiver: string | undefined;
+  readonly className: string | undefined;
+  readonly methodName: string | undefined;
+  readonly rangeStart: number;
+}
+
+/** Reads a call's arguments, starting at the index of its opening paren. */
+function readCall(
+  tokens: readonly PhpToken[],
+  openIndex: number,
+  context: CallContext,
+): TemplateReference | undefined {
+  const closeIndex = findMatching(tokens, openIndex, '(', ')');
+  if (closeIndex === -1) {
+    return undefined;
   }
 
-  const methodName = readIdentifier(what['offset']);
-  if (methodName === undefined) {
-    return;
-  }
-  const kind = RENDER_METHODS.get(methodName.toLowerCase());
-  if (kind === undefined) {
-    return;
+  const args = splitArguments(tokens, openIndex + 1, closeIndex);
+  const templateArg = selectArgument(args, 0, TEMPLATE_ARGUMENT_NAMES);
+  if (templateArg === undefined) {
+    return undefined;
   }
 
-  const args = node['arguments'];
-  if (!Array.isArray(args)) {
-    return;
-  }
-
-  const templateArgument = selectArgument(args, 0, TEMPLATE_ARGUMENT_NAMES);
-  if (templateArgument === undefined) {
-    return;
-  }
-  const literal = readStringLiteral(templateArgument);
+  const literal = readSoleString(tokens, templateArg.start, templateArg.end);
   if (literal === undefined) {
-    return;
+    return undefined;
   }
 
-  const contextArgument = selectArgument(args, 1, CONTEXT_ARGUMENT_NAMES);
-  const contextInfo = readContextKeys(contextArgument);
+  const contextArg = selectArgument(args, 1, CONTEXT_ARGUMENT_NAMES);
+  const contextInfo =
+    contextArg === undefined
+      ? { keys: [], dynamic: false }
+      : readContextKeys(tokens, contextArg.start, contextArg.end);
 
-  const receiverNode = what['what'];
-  const receiver = isNode(receiverNode) && receiverNode.kind === 'variable'
-    ? readIdentifier(receiverNode['name'])
-    : undefined;
+  const closeToken = tokens[closeIndex];
 
-  into.push({
-    templateName: literal.value,
-    nameRange: literal.range,
-    range: rangeOf(node) ?? literal.range,
-    kind,
+  return {
+    templateName: literal.value ?? '',
+    nameRange: { start: literal.contentStart ?? literal.start, end: literal.contentEnd ?? literal.end },
+    range: { start: context.rangeStart, end: closeToken?.end ?? literal.end },
+    kind: context.kind,
     contextKeys: contextInfo.keys,
     contextIsDynamic: contextInfo.dynamic,
-    receiver,
+    receiver: context.receiver,
     className: context.className,
     methodName: context.methodName,
-  });
+  };
 }
 
-function collectFromAttribute(
-  node: PhpNode,
-  context: WalkContext,
-  into: TemplateReference[],
-): void {
-  const rawName = typeof node['name'] === 'string' ? node['name'] : readIdentifier(node['name']);
-  if (rawName === undefined) {
-    return;
+/** Reads `#[Template('...')]`, starting at the index of the `#[`. */
+function readAttribute(
+  tokens: readonly PhpToken[],
+  openIndex: number,
+  className: string | undefined,
+  methodName: string | undefined,
+): TemplateReference | undefined {
+  const closeIndex = findMatching(tokens, openIndex, '[', ']');
+  if (closeIndex === -1) {
+    return undefined;
   }
-  const lastSegment = rawName.split('\\').pop() ?? rawName;
+
+  const name = readQualifiedName(tokens, openIndex + 1);
+  if (name.text.length === 0) {
+    return undefined;
+  }
+  const lastSegment = name.text.split('\\').pop() ?? name.text;
   if (!TEMPLATE_ATTRIBUTES.has(lastSegment.toLowerCase())) {
-    return;
+    return undefined;
   }
 
-  const args = node['args'];
-  if (!Array.isArray(args)) {
-    return;
+  const parenIndex = name.nextIndex;
+  if (tokens[parenIndex]?.text !== '(') {
+    return undefined;
+  }
+  const argsClose = findMatching(tokens, parenIndex, '(', ')');
+  if (argsClose === -1) {
+    return undefined;
   }
 
-  const templateArgument = selectArgument(args, 0, TEMPLATE_ARGUMENT_NAMES);
-  if (templateArgument === undefined) {
-    return;
+  const args = splitArguments(tokens, parenIndex + 1, argsClose);
+  const templateArg = selectArgument(args, 0, TEMPLATE_ARGUMENT_NAMES);
+  if (templateArg === undefined) {
+    return undefined;
   }
-  const literal = readStringLiteral(templateArgument);
+
+  const literal = readSoleString(tokens, templateArg.start, templateArg.end);
   if (literal === undefined) {
-    return;
+    return undefined;
   }
 
-  const contextArgument = selectArgument(args, 1, CONTEXT_ARGUMENT_NAMES);
-  const contextInfo = readContextKeys(contextArgument);
+  const contextArg = selectArgument(args, 1, CONTEXT_ARGUMENT_NAMES);
+  const contextInfo =
+    contextArg === undefined
+      ? { keys: [], dynamic: false }
+      : readContextKeys(tokens, contextArg.start, contextArg.end);
 
-  into.push({
-    templateName: literal.value,
-    nameRange: literal.range,
-    range: rangeOf(node) ?? literal.range,
+  return {
+    templateName: literal.value ?? '',
+    nameRange: { start: literal.contentStart ?? literal.start, end: literal.contentEnd ?? literal.end },
+    range: { start: tokens[openIndex]?.start ?? literal.start, end: tokens[closeIndex]?.end ?? literal.end },
     kind: 'template-attribute',
     contextKeys: contextInfo.keys,
     contextIsDynamic: contextInfo.dynamic,
     receiver: undefined,
-    className: context.className,
-    methodName: context.methodName,
-  });
+    className,
+    // An attribute is written above the method it decorates, so that method
+    // has not been entered yet. Look ahead for it instead.
+    methodName: findDecoratedMethod(tokens, closeIndex + 1) ?? methodName,
+  };
+}
+
+/** Modifiers that may sit between an attribute and the `function` it decorates. */
+const METHOD_MODIFIERS: ReadonlySet<string> = new Set([
+  'public',
+  'protected',
+  'private',
+  'static',
+  'final',
+  'abstract',
+  'readonly',
+]);
+
+/**
+ * The method an attribute decorates, by scanning forward past any modifiers
+ * and any further attribute groups.
+ *
+ * Returns undefined when the attribute decorates something that is not a
+ * method, such as a class or a property, so those do not borrow a name.
+ */
+function findDecoratedMethod(tokens: readonly PhpToken[], start: number): string | undefined {
+  for (let index = start; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token === undefined) {
+      return undefined;
+    }
+
+    if (token.kind === 'attribute-open') {
+      const close = findMatching(tokens, index, '[', ']');
+      if (close === -1) {
+        return undefined;
+      }
+      index = close;
+      continue;
+    }
+
+    if (token.kind === 'identifier') {
+      const keyword = token.text.toLowerCase();
+      if (METHOD_MODIFIERS.has(keyword)) {
+        continue;
+      }
+      if (keyword === 'function') {
+        const name = tokens[index + 1];
+        return name?.kind === 'identifier' ? name.text : undefined;
+      }
+      return undefined;
+    }
+
+    return undefined;
+  }
+  return undefined;
+}
+
+interface Argument {
+  /** Token index of the first token, inclusive. */
+  readonly start: number;
+  /** Token index just past the last token. */
+  readonly end: number;
+  /** Present when written as `name: value`. */
+  readonly name: string | undefined;
+  /** Token index of the value, past any `name:` prefix. */
+  readonly valueStart: number;
+}
+
+/** Splits an argument list at top-level commas. */
+function splitArguments(
+  tokens: readonly PhpToken[],
+  start: number,
+  end: number,
+): readonly Argument[] {
+  const args: Argument[] = [];
+  let depth = 0;
+  let cursor = start;
+
+  const push = (stop: number): void => {
+    if (stop > cursor) {
+      args.push(describeArgument(tokens, cursor, stop));
+    }
+    cursor = stop + 1;
+  };
+
+  for (let index = start; index < end; index += 1) {
+    const text = tokens[index]?.text ?? '';
+    if (text === '(' || text === '[' || text === '{') {
+      depth += 1;
+    } else if (text === ')' || text === ']' || text === '}') {
+      depth -= 1;
+    } else if (text === ',' && depth === 0) {
+      push(index);
+    }
+  }
+  push(end);
+
+  return args;
+}
+
+/** Detects the `name:` prefix of a PHP 8 named argument. */
+function describeArgument(tokens: readonly PhpToken[], start: number, end: number): Argument {
+  const first = tokens[start];
+  const second = tokens[start + 1];
+
+  // `name:` but not `Foo::BAR`, which the lexer emits as a single `::` token.
+  if (first?.kind === 'identifier' && second?.text === ':') {
+    return { start, end, name: first.text, valueStart: start + 2 };
+  }
+  return { start, end, name: undefined, valueStart: start };
 }
 
 /**
  * Picks an argument by position or by name.
  *
- * php-parser represents a positional argument as the value node itself and a
- * named one as a `namedargument` wrapper, so both forms are unwrapped here.
  * A named argument anywhere in the list wins over the positional slot, which
  * is what PHP itself does.
  */
 function selectArgument(
-  args: readonly unknown[],
+  args: readonly Argument[],
   position: number,
   acceptedNames: ReadonlySet<string>,
-): PhpNode | undefined {
+): { start: number; end: number } | undefined {
   for (const arg of args) {
-    if (!isNode(arg) || arg.kind !== 'namedargument') {
-      continue;
-    }
-    const name = typeof arg['name'] === 'string' ? arg['name'] : readIdentifier(arg['name']);
-    if (name !== undefined && acceptedNames.has(name.toLowerCase())) {
-      const value = arg['value'];
-      return isNode(value) ? value : undefined;
+    if (arg.name !== undefined && acceptedNames.has(arg.name.toLowerCase())) {
+      return { start: arg.valueStart, end: arg.end };
     }
   }
 
-  const positional = args.filter((arg) => !(isNode(arg) && arg.kind === 'namedargument'));
+  const positional = args.filter((arg) => arg.name === undefined);
   const candidate = positional[position];
-  return isNode(candidate) ? candidate : undefined;
-}
-
-interface StringLiteral {
-  readonly value: string;
-  readonly range: OffsetRange;
+  return candidate === undefined ? undefined : { start: candidate.valueStart, end: candidate.end };
 }
 
 /**
- * Reads a plain string literal and the offsets of its contents.
+ * The string token that is the whole of a span.
  *
- * The node's own range covers the quotes, so the inner range is derived from
- * the raw text. Interpolated strings are rejected: their value is not known
- * statically and offering navigation from one would be a guess.
+ * Requiring it to be the only token is what rejects `'a' . $b` and
+ * `$template`: a concatenation's leading fragment is not the template name,
+ * and reporting it would be a confident wrong answer.
  */
-function readStringLiteral(node: PhpNode): StringLiteral | undefined {
-  if (node.kind !== 'string') {
+function readSoleString(
+  tokens: readonly PhpToken[],
+  start: number,
+  end: number,
+): PhpToken | undefined {
+  if (end - start !== 1) {
     return undefined;
   }
-  const value = node['value'];
-  const raw = node['raw'];
-  if (typeof value !== 'string' || typeof raw !== 'string') {
-    return undefined;
-  }
-  const outer = rangeOf(node);
-  if (outer === undefined) {
-    return undefined;
-  }
-
-  // A double-quoted string containing an interpolation is parsed as an
-  // `encapsed` node, not a `string`, so reaching here means the text is
-  // literal. Heredoc bodies still arrive as strings whose raw text carries a
-  // multi-character opener, so the delimiter length is measured rather than
-  // assumed to be one quote.
-  const openingLength = measureOpeningDelimiter(raw);
-  if (openingLength === undefined) {
-    return undefined;
-  }
-  const closingLength = measureClosingDelimiter(raw, openingLength);
-
-  return {
-    value,
-    range: {
-      start: outer.start + openingLength,
-      end: Math.max(outer.start + openingLength, outer.end - closingLength),
-    },
-  };
-}
-
-/** Length of a literal's opening delimiter, or undefined if unrecognised. */
-function measureOpeningDelimiter(raw: string): number | undefined {
-  if (raw.startsWith("'") || raw.startsWith('"')) {
-    return 1;
-  }
-  if (raw.startsWith('b"') || raw.startsWith("b'") || raw.startsWith('B"') || raw.startsWith("B'")) {
-    return 2;
-  }
-  // Heredoc and nowdoc openers run to the end of their first line.
-  const heredoc = /^<<<(['"]?)[A-Za-z_][A-Za-z0-9_]*\1\r?\n/.exec(raw);
-  if (heredoc !== null) {
-    return heredoc[0].length;
-  }
-  return undefined;
-}
-
-/** Length of the closing delimiter that matches a measured opener. */
-function measureClosingDelimiter(raw: string, openingLength: number): number {
-  if (raw.startsWith('<<<')) {
-    // The closer is a newline plus the label; derive it from what remains.
-    const closer = /\r?\n[ \t]*[A-Za-z_][A-Za-z0-9_]*$/.exec(raw);
-    return closer === null ? 0 : closer[0].length;
-  }
-  return openingLength === 2 ? 1 : openingLength;
+  const token = tokens[start];
+  return token?.kind === 'string' ? token : undefined;
 }
 
 interface ContextInfo {
@@ -388,82 +484,99 @@ interface ContextInfo {
   readonly dynamic: boolean;
 }
 
-const NO_CONTEXT: ContextInfo = { keys: [], dynamic: false };
-
 /**
  * Reads the statically known keys of a context array.
  *
- * A spread, a variable key, or a non-array argument means the real key set is
- * larger than what is visible, which is recorded so that a later
- * unknown-variable check knows to stay quiet rather than report a false error.
+ * A spread, a computed key, or a non-array argument means the real key set is
+ * larger than what is visible, which is recorded so a later unknown-variable
+ * check stays quiet rather than reporting a false error.
  */
-function readContextKeys(node: PhpNode | undefined): ContextInfo {
-  if (node === undefined) {
-    return NO_CONTEXT;
-  }
-  if (node.kind !== 'array') {
+function readContextKeys(
+  tokens: readonly PhpToken[],
+  start: number,
+  end: number,
+): ContextInfo {
+  const open = tokens[start];
+  if (open?.text !== '[' || findMatching(tokens, start, '[', ']') !== end - 1) {
+    // Not a literal array: `$params`, `array(...)`, a method call, anything.
     return { keys: [], dynamic: true };
   }
 
-  const items = node['items'];
-  if (!Array.isArray(items)) {
-    return { keys: [], dynamic: true };
-  }
-
+  const entries = splitArguments(tokens, start + 1, end - 1);
   const keys: string[] = [];
   let dynamic = false;
-  for (const item of items) {
-    if (!isNode(item)) {
-      continue;
-    }
-    if (item.kind === 'spread' || item['byRef'] === true) {
+
+  for (const entry of entries) {
+    const first = tokens[entry.start];
+    const second = tokens[entry.start + 1];
+
+    if (first?.text === '...') {
       dynamic = true;
       continue;
     }
-    if (item.kind !== 'entry') {
+    if (first?.kind !== 'string' || second?.text !== '=>') {
+      // A computed key, or a list-style entry with no key at all.
       dynamic = true;
       continue;
     }
-    const key = item['key'];
-    if (!isNode(key)) {
-      // A list-style entry with no key cannot name a template variable.
-      dynamic = true;
-      continue;
-    }
-    if (key.kind !== 'string' || typeof key['value'] !== 'string') {
-      dynamic = true;
-      continue;
-    }
-    keys.push(key['value']);
+    keys.push(first.value ?? '');
   }
 
   return { keys, dynamic };
 }
 
-function isNode(value: unknown): value is PhpNode {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    !Array.isArray(value) &&
-    typeof (value as { kind?: unknown }).kind === 'string'
-  );
+/** Reads `Foo\Bar` or `\Foo\Bar`, returning the name and where it ended. */
+function readQualifiedName(
+  tokens: readonly PhpToken[],
+  start: number,
+): { text: string; nextIndex: number } {
+  let index = start;
+  let text = '';
+
+  if (tokens[index]?.text === '\\') {
+    index += 1;
+  }
+
+  while (index < tokens.length) {
+    const token = tokens[index];
+    if (token?.kind !== 'identifier') {
+      break;
+    }
+    text += token.text;
+    index += 1;
+
+    if (tokens[index]?.text === '\\') {
+      text += '\\';
+      index += 1;
+      continue;
+    }
+    break;
+  }
+
+  return { text, nextIndex: index };
 }
 
-/** php-parser stores an identifier as a node with a name, or as a bare string. */
-function readIdentifier(value: unknown): string | undefined {
-  if (typeof value === 'string') {
-    return value;
-  }
-  if (isNode(value) && typeof value['name'] === 'string') {
-    return value['name'];
-  }
-  return undefined;
-}
+/** Index of the bracket closing the one at `openIndex`, or -1. */
+function findMatching(
+  tokens: readonly PhpToken[],
+  openIndex: number,
+  open: string,
+  close: string,
+): number {
+  let depth = 0;
 
-function rangeOf(node: PhpNode): OffsetRange | undefined {
-  const loc = node.loc;
-  if (loc === undefined) {
-    return undefined;
+  for (let index = openIndex; index < tokens.length; index += 1) {
+    const text = tokens[index]?.text ?? '';
+    // `#[` opens an attribute and is closed by `]`, so it counts as a square
+    // bracket here even though the lexer keeps it as its own token.
+    if (text === open || (open === '[' && text === '#[')) {
+      depth += 1;
+    } else if (text === close) {
+      depth -= 1;
+      if (depth === 0) {
+        return index;
+      }
+    }
   }
-  return { start: loc.start.offset, end: loc.end.offset };
+  return -1;
 }

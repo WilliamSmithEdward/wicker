@@ -35,6 +35,16 @@ the template name is navigable, the variables the controller passes are known
 inside the template, and a typo in either direction is an error you see while
 typing rather than at runtime.
 
+## No dependencies
+
+The extension ships no third-party runtime code. Its parsers are its own: a
+Twig lexer, a PHP lexer, and a reader for the subset of YAML that Symfony
+configuration uses. Nothing is bundled that was not written for it.
+
+That is a deliberate constraint rather than a boast. It keeps the supply chain
+empty, keeps the bundle small, and means every behaviour is one the project can
+change. Build tooling is a separate matter and stays conventional.
+
 ## Architecture
 
 Three packages, so the intelligence is not welded to one editor:
@@ -102,7 +112,13 @@ Next, in order:
    [CalendarLink](https://ux.symfony.com/calendar-link).
 3. **Routes.** Completion and navigation for route names, `path()` and `url()`.
 4. **Services and the container.** Autowiring and parameter intelligence.
-5. Translations, forms, and the rest of the Symfony surface.
+5. **PHP as a language, not just as Symfony.** Navigation, completion, hover
+   and diagnostics across a PHP codebase: symbols, types, use statements,
+   inheritance. The PHP lexer written for the template bridge is the
+   foundation; a full parser and symbol index go on top of it. This is large
+   enough to be released in stages alongside the Symfony work rather than
+   after it.
+6. Translations, forms, and the rest of the Symfony surface.
 
 ## License
 

@@ -32,6 +32,19 @@ import { discoverFrontend, type FrontendDiscovery } from './frontendDiscovery.js
 
 const DEFAULT_EXTENSIONS = ['.twig'];
 
+/** Trees that are generated or installed rather than written. */
+const GENERATED_DIRECTORIES = ['var', 'node_modules', '.git'];
+
+/**
+ * How many times a refresh may rebuild before handing back to the debounce.
+ *
+ * One rebuild answers the ordinary case. A second covers a change that landed
+ * while the first was running, which is what an awaited reindex after a
+ * settings change depends on. Beyond that the project is moving faster than it
+ * can be indexed, and looping only burns the editor's one thread.
+ */
+const MAX_REFRESH_PASSES = 3;
+
 /**
  * Whether Wicker's editor features are switched on.
  *
@@ -216,11 +229,22 @@ export class ProjectSession implements vscode.Disposable {
       return this.refreshInFlight;
     }
     this.refreshInFlight = (async () => {
-      while (!this.disposed) {
+      /*
+       * A finished build is always published, even when something changed
+       * while it ran. It used to be discarded and rebuilt from nothing, so on
+       * a project where a build takes seconds the next change almost always
+       * arrived first and the index stayed empty for as long as anyone kept
+       * working.
+       *
+       * Rebuilding immediately is still right for the ordinary case: a caller
+       * that changed a setting and awaits an index reflecting it. The passes
+       * are bounded so a project changing continuously cannot hold the loop,
+       * and past the bound the debounce decides when things have settled.
+       */
+      for (let pass = 0; pass < MAX_REFRESH_PASSES; pass++) {
         const revision = this.refreshRevision;
         const built = await buildIndex(this.fileSystem, this.project, this.memory);
         if (this.disposed) { return; }
-        if (revision !== this.refreshRevision) { continue; }
         this.templateIndex = built.index;
         this.loaderPathInfo = built.loaderPaths;
         this.componentInfo = built.components;
@@ -228,11 +252,14 @@ export class ProjectSession implements vscode.Disposable {
         this.assets = built.assets;
         await this.templateContexts.refresh(built.index);
         if (this.disposed) { return; }
-        if (revision !== this.refreshRevision) { continue; }
-        this.discoveryPending = false;
+        if (revision === this.refreshRevision) {
+          this.discoveryPending = false;
+          this.changed.fire();
+          return;
+        }
         this.changed.fire();
-        return;
       }
+      this.scheduleRefresh();
     })().finally(() => {
       this.refreshInFlight = undefined;
     });
@@ -269,8 +296,24 @@ export class ProjectSession implements vscode.Disposable {
         ['composer.json', 'composer.lock', 'symfony.lock', '.env', '.env.local', '.env.dev', '.env.dev.local'].includes(path));
   }
 
+  /**
+   * The project-relative path of a watched file, unless its churn means
+   * nothing.
+   *
+   * `var` is the loud one: Symfony rewrites its cache while the application
+   * runs. `node_modules` and `.git` move in bulk during an install or a branch
+   * switch. `vendor` is deliberately not here, because bundle templates and
+   * packaged Stimulus controllers live there and are indexed.
+   */
+  private watchedPath(uri: vscode.Uri): string | undefined {
+    if (uri.scheme !== this.rootUri.scheme || uri.authority !== this.rootUri.authority) { return undefined; }
+    const path = this.relativePathOf(enginePathOf(uri));
+    return path !== undefined && !path.split('/').some((part) => GENERATED_DIRECTORIES.includes(part))
+      ? path : undefined;
+  }
+
   private installWatchers(): void {
-    const watch = (pattern: string, onAny: () => void): void => {
+    const watch = (pattern: string, onAny: (uri: vscode.Uri) => void): void => {
       const watcher = vscode.workspace.createFileSystemWatcher(
         new vscode.RelativePattern(this.rootUri, pattern),
       );
@@ -280,9 +323,13 @@ export class ProjectSession implements vscode.Disposable {
     };
 
     // Template files: creation and deletion change what resolves. Edits do not,
-    // so onDidChange is deliberately not wired here.
-    watch('**/*.twig', () => this.scheduleRefresh());
-    watch('**/*.{js,ts}', () => this.scheduleRefresh());
+    // so onDidChange is deliberately not wired here. The URI is examined rather
+    // than discarded, so a generated tree cannot queue a rebuild per file.
+    const refreshForFile = (uri: vscode.Uri): void => {
+      if (this.watchedPath(uri) !== undefined) { this.scheduleRefresh(); }
+    };
+    watch('**/*.twig', refreshForFile);
+    watch('**/*.{js,ts}', refreshForFile);
     const stimulusWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(this.rootUri, '**/controllers.json'));
     this.watchers.push(stimulusWatcher, stimulusWatcher.onDidCreate(() => this.scheduleRefresh()),
       stimulusWatcher.onDidChange(() => this.scheduleRefresh()), stimulusWatcher.onDidDelete(() => this.scheduleRefresh()));

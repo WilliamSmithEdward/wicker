@@ -19,6 +19,7 @@ export { NodeFileSystem } from './fs/nodeFileSystem.js';
 export { stimulusClassProperties, stimulusDeclarationRanges, stimulusIdentifier, stimulusSource, stimulusOutletProperties, stimulusOutletStem, type StimulusController, type StimulusSource, type StimulusMember } from './frontend/stimulus.js';
 export { AssetMap, assetExcluded, assetLogicalPath, assetMapperSettings, type AssetMapperSettings, type AssetRoot, type MappedAsset } from './frontend/assetMap.js';
 export { parseImportMap, type ImportMapEntry } from './frontend/importMap.js';
+export { importSpecifiers, resolveRelativeImport, type ImportSpecifier } from './frontend/imports.js';
 export { resolveOutletReference, outletAccessAt, outletUseRanges, type OutletAccess } from './frontend/outlets.js';
 export { scanFrontend, stimulusHtmlName, type FrontendReference, type FrontendScan } from './frontend/references.js';
 export { routesFromDebug, routeForUrl, endpointActions, type SymfonyRoute, type EndpointAction, type ResponseField } from './frontend/routes.js';

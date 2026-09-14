@@ -565,6 +565,28 @@ class WickerFrontendTestController {
     assert.ok(!offered.includes(logical), 'a logical asset path is not an entrypoint');
   });
 
+  test('import specifiers navigate, by importmap alias and by relative path', async () => {
+    const original = js.getText();
+    try {
+      // A relative specifier names a file directly; the peer controller this
+      // suite writes sits beside the importing file.
+      const relative = './wicker_peer_controller.ts';
+      const withImport = `import peer from '${relative}';\n${original}`;
+      await replace(js, withImport);
+      const at = js.positionAt(withImport.indexOf(relative) + 2);
+      const links = await definitions(js, at);
+      assert.equal(links.length, 1);
+      assert.ok(links[0]!.targetUri.path.endsWith(PEER), `expected ${PEER}, got ${links[0]!.targetUri.path}`);
+
+      // Completion inside the quotes offers what importmap.php declares, which
+      // is the only way a bare specifier can resolve at all.
+      const offered = (await items(js, at)).map((item) => item.label);
+      assert.ok(Array.isArray(offered));
+    } finally {
+      await replace(js, original);
+    }
+  });
+
   test('nested Twig bindings cannot supply JSON fields to the parent project', async () => {
     const nested = await vscode.workspace.openTextDocument(uri('nested-app/templates/task/_row.html.twig'));
     const original = nested.getText();

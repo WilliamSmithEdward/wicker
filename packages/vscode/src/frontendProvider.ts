@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { fetchValueReferences, joinProjectPath, responseAccessAt, scanFrontend, stimulusHtmlName, stimulusSource,
+import { fetchValueReferences, importSpecifiers, joinProjectPath, resolveRelativeImport, responseAccessAt,
+  scanFrontend, stimulusHtmlName, stimulusSource,
   type FrontendReference, type OffsetRange, type ResponseField, type SymfonyRoute } from '@wicker/core';
 import { enginePathOf } from './paths.js';
 import type { ProjectSession, SessionManager } from './session.js';
@@ -139,9 +140,40 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
             label: `JSON response · ${routes[i]!.name}`, kind: vscode.CompletionItemKind.Field }] : []));
         query = { name: access.name, range: access.range, candidates };
       }
+      if (!query && /\.[jt]s$/.test(path)) { query = this.importQuery(session, path, source, offset); }
       if (!query && /\.[jt]s$/.test(path)) { query = await this.outlets.javascript(session, path, source, offset); }
     }
     return this.sessions.sessionFor(document) === session && document.version === version ? query : undefined;
+  }
+
+  /**
+   * Where an import specifier points.
+   *
+   * Nothing bundles these: the browser resolves them against the importmap the
+   * page ships. A relative specifier resolves against the importing file, and
+   * anything else has to be a key of `importmap.php`, which is also the only
+   * way to alias a path and avoid climbing out through `../../..`.
+   */
+  private importQuery(session: ProjectSession, path: string, source: string, offset: number): Query | undefined {
+    const found = importSpecifiers(source).find((entry) => offset >= entry.range.start && offset <= entry.range.end);
+    if (!found) { return undefined; }
+
+    const candidates: Candidate[] = session.assets.importMap
+      .flatMap((entry) => entry.projectPath === undefined ? [] : [{
+        name: entry.specifier, projectPath: entry.projectPath, range: { start: 0, end: 0 },
+        label: `Importmap${entry.entrypoint ? ' entrypoint' : ''} · ${entry.projectPath}`,
+        kind: vscode.CompletionItemKind.Module,
+      }]);
+
+    // A relative specifier names a file directly, so it is navigable without
+    // appearing in the importmap at all.
+    const relative = resolveRelativeImport(path, found.specifier);
+    if (relative !== undefined) {
+      candidates.push({ name: found.specifier, projectPath: relative, range: { start: 0, end: 0 },
+        label: `Relative import · ${relative}`, kind: vscode.CompletionItemKind.File });
+    }
+
+    return { name: found.specifier, range: found.range, candidates };
   }
 
   /**

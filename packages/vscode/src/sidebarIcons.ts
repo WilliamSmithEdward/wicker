@@ -11,7 +11,7 @@ export const SIDEBAR_ICONS = {
   dependencies: 'type-hierarchy-sub', service: 'server', repository: 'database',
   entity: 'symbol-struct', interface: 'symbol-interface', enum: 'symbol-enum',
   class: 'symbol-misc',
-  scripts: 'code-block', javascript: 'code', typescript: 'symbol-type-parameter',
+  scripts: 'file-code', javascript: 'code', typescript: 'symbol-type-parameter',
 } as const;
 
 export function sidebarIcon(name: string): vscode.ThemeIcon | { light: vscode.Uri; dark: vscode.Uri } {

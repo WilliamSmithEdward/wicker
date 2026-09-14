@@ -1,4 +1,5 @@
 import * as assert from 'node:assert/strict';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import * as vscode from 'vscode';
@@ -7,6 +8,7 @@ import { TwigLoaderPaths } from '@wicker/core';
 
 import { LoaderPathMemory } from '../loaderPathMemory.js';
 import { SessionManager } from '../session.js';
+import { SIDEBAR_ICONS } from '../sidebarIcons.js';
 import { isBundleNamespace, ProjectTreeProvider, type SidebarNode } from '../sidebar.js';
 
 const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
@@ -496,6 +498,34 @@ suite('Wicker sidebar', () => {
     }
     assert.equal(provider.getChildren().length, 2);
     assert.equal(await vscode.commands.executeCommand('wicker.revealTemplate'), true);
+  });
+
+  test('every sidebar icon resolves to something that will actually draw', () => {
+    // ThemeIcon accepts any string and renders nothing when the id is wrong,
+    // and a missing SVG fails the same silent way. A typo is therefore
+    // invisible until someone happens to look at that row, so the ids are
+    // checked against the codicon list of the editor running the test.
+    const stylesheet = [
+      path.join(vscode.env.appRoot, 'extensions', 'simple-browser', 'media', 'codicon.css'),
+      path.join(vscode.env.appRoot, 'extensions', 'mermaid-markdown-features', 'chat-webview-out', 'codicon.css'),
+    ].find((file) => fs.existsSync(file));
+    assert.ok(stylesheet, `no codicon.css found under ${vscode.env.appRoot}; this locator needs updating`);
+
+    const codicons = new Set((fs.readFileSync(stylesheet, 'utf8').match(/codicon-[a-z0-9-]+/g) ?? [])
+      .map((name) => name.slice('codicon-'.length)));
+    assert.ok(codicons.size > 100, 'the codicon list should have parsed');
+
+    // The two roles drawn from bundled SVG rather than the codicon font.
+    const bundled = new Set(['template-leaf', 'route-leaf']);
+    const root = vscode.extensions.getExtension('WilliamSmithE.wicker')!.extensionUri;
+
+    const broken = Object.entries(SIDEBAR_ICONS).flatMap(([role, id]) => {
+      if (!bundled.has(id)) { return codicons.has(id) ? [] : [`${role}: no codicon "${id}"`]; }
+      return ['light', 'dark']
+        .filter((theme) => !fs.existsSync(path.join(root.fsPath, 'resources', `${id}-${theme}.svg`)))
+        .map((theme) => `${role}: no resources/${id}-${theme}.svg`);
+    });
+    assert.deepEqual(broken, []);
   });
 
   test('has an empty tree when no Symfony project is detected', () => {

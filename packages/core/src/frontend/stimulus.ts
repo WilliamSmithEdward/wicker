@@ -148,6 +148,48 @@ export function stimulusOutletProperties(identifier: string): readonly string[] 
     `has${stem.charAt(0).toUpperCase()}${stem.slice(1)}Outlet`];
 }
 
+/** `output` becomes `this.outputTarget`, and the plural and presence forms. */
+export function stimulusTargetProperties(name: string): readonly string[] {
+  return [`${name}Target`, `${name}Targets`, `has${capitalize(name)}Target`];
+}
+
+/** `statusUrl` becomes `this.statusUrlValue` and `this.hasStatusUrlValue`. */
+export function stimulusValueProperties(name: string): readonly string[] {
+  return [`${name}Value`, `has${capitalize(name)}Value`];
+}
+
+export interface GeneratedMember {
+  /** The property as written in JavaScript, such as `statusUrlValue`. */
+  readonly name: string;
+  readonly kind: 'target' | 'value' | 'class' | 'outlet';
+  /** The declaration it comes from, for navigation back to the source. */
+  readonly declaration: StimulusMember;
+}
+
+/**
+ * Every property Stimulus generates from a controller's declarations.
+ *
+ * These exist only at runtime: nothing declares `statusUrlValue`, so an editor
+ * reading the file sees an unknown property and a typo in one is invisible
+ * until the page runs. Target and value names are used verbatim, while class
+ * and outlet names are camel-cased, because those two may contain dashes.
+ */
+export function stimulusGeneratedMembers(source: StimulusSource): readonly GeneratedMember[] {
+  const groups: readonly [readonly StimulusMember[], GeneratedMember['kind'], (name: string) => readonly string[]][] = [
+    [source.targets, 'target', stimulusTargetProperties],
+    [source.values, 'value', stimulusValueProperties],
+    [source.classes, 'class', stimulusClassProperties],
+    [source.outlets, 'outlet', stimulusOutletProperties],
+  ];
+  return groups.flatMap(([members, kind, properties]) =>
+    members.flatMap((declaration) => properties(declaration.name)
+      .map((name) => ({ name, kind, declaration }))));
+}
+
+function capitalize(name: string): string {
+  return `${name.charAt(0).toUpperCase()}${name.slice(1)}`;
+}
+
 /**
  * The declared member names in a controller, for an editor to mark.
  *

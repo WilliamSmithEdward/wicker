@@ -3,7 +3,7 @@ import { FrontendIndex } from './index.js';
 import { scanFrontend } from './references.js';
 import { responseAccessAt } from './responseAccess.js';
 import { endpointActions, routeForUrl, routesFromDebug, type SymfonyRoute } from './routes.js';
-import { stimulusClassProperties, stimulusDeclarationRanges, stimulusIdentifier, stimulusSource } from './stimulus.js';
+import { stimulusClassProperties, stimulusDeclarationRanges, stimulusGeneratedMembers, stimulusIdentifier, stimulusSource } from './stimulus.js';
 
 const route: SymfonyRoute = { name: 'api_status', path: '/api/status', methods: 'GET', controller: 'App\\Controller\\StatusController::status', format: '' };
 describe('Stimulus declarations', () => {
@@ -38,6 +38,40 @@ describe('Stimulus declarations', () => {
     expect(stimulusSource('// export default class { fake() {} }').actions).toEqual([]);
     expect(stimulusSource('export default class { [method]() {} }').actions).toEqual([]);
     expect(stimulusSource('export function connect() {}').actions).toEqual([]);
+  });
+});
+
+describe('stimulusGeneratedMembers', () => {
+  const source = `export default class extends Controller {
+    static targets = ['output'];
+    static values = { statusUrl: String };
+    static classes = ['error-state'];
+    static outlets = ['wicker-counter'];
+  }`;
+  const members = stimulusGeneratedMembers(stimulusSource(source));
+  const named = (kind: string): string[] => members.filter((m) => m.kind === kind).map((m) => m.name);
+
+  it('names the properties a target generates', () => {
+    expect(named('target')).toEqual(['outputTarget', 'outputTargets', 'hasOutputTarget']);
+  });
+
+  it('names the properties a value generates', () => {
+    expect(named('value')).toEqual(['statusUrlValue', 'hasStatusUrlValue']);
+  });
+
+  it('camel-cases class and outlet names, which may contain dashes', () => {
+    expect(named('class')).toEqual(['errorStateClass', 'errorStateClasses', 'hasErrorStateClass']);
+    expect(named('outlet')).toContain('wickerCounterOutlet');
+  });
+
+  it('carries each property back to the declaration it came from', () => {
+    const busy = members.find((member) => member.name === 'errorStateClass');
+    expect(busy?.declaration.name).toBe('error-state');
+    expect(source.slice(busy!.declaration.range.start, busy!.declaration.range.end)).toBe('error-state');
+  });
+
+  it('generates nothing for a controller that declares nothing', () => {
+    expect(stimulusGeneratedMembers(stimulusSource('export default class {}'))).toEqual([]);
   });
 });
 

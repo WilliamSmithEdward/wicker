@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { ACTION_OPTIONS, COMMON_EVENTS, EVENT_TARGETS, KEY_FILTERS,
   fetchValueReferences, importSpecifiers, joinProjectPath, resolveRelativeImport, responseAccessAt,
-  scanFrontend, stimulusHtmlName, stimulusSource,
+  scanFrontend, stimulusGeneratedMembers, stimulusHtmlName, stimulusSource,
   type FrontendReference, type OffsetRange, type ResponseField, type SymfonyRoute } from '@wicker/core';
 import { enginePathOf } from './paths.js';
 import type { ProjectSession, SessionManager } from './session.js';
@@ -150,8 +150,48 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       }
       if (!query && /\.[jt]s$/.test(path)) { query = this.importQuery(session, path, source, offset); }
       if (!query && /\.[jt]s$/.test(path)) { query = await this.outlets.javascript(session, path, source, offset); }
+      if (/\.[jt]s$/.test(path)) { query = this.withGeneratedMembers(session, path, source, offset, query); }
     }
     return this.sessions.sessionFor(document) === session && document.version === version ? query : undefined;
+  }
+
+  /**
+   * The properties Stimulus generates, offered where `this.` is being read.
+   *
+   * `statusUrlValue`, `hasBusyClass` and `outputTarget` are declared nowhere:
+   * Stimulus creates them at runtime from `static values`, `classes` and
+   * `targets`. To every other tool they are unknown properties, so a typo in
+   * one is silent until the page runs.
+   *
+   * Added to an existing query rather than replacing it, because the outlet
+   * query answers the same position with better explanations for its own
+   * members and would otherwise be the only kind offered in a controller that
+   * declares both.
+   */
+  private withGeneratedMembers(session: ProjectSession, path: string, source: string,
+    offset: number, query: Query | undefined): Query | undefined {
+    const owned = session.frontend.controllers.some((controller) => controller.projectPath === path &&
+      ownsFrontendPath(this.sessions, session, controller.projectPath));
+    if (!owned) { return query; }
+
+    const info = stimulusSource(source);
+    const access = info.accesses.find((entry) => entry.receiver === undefined &&
+      offset >= entry.range.start && offset <= entry.range.end);
+    if (!access) { return query; }
+
+    const candidates: Candidate[] = stimulusGeneratedMembers(info).map((member) => ({
+      name: member.name, projectPath: path, range: member.declaration.range,
+      label: `Stimulus ${member.kind} · ${member.declaration.name}`,
+      kind: vscode.CompletionItemKind.Property,
+    }));
+    if (!candidates.length) { return query; }
+
+    if (query === undefined) {
+      return { name: access.name, range: access.range, candidates };
+    }
+    query.candidates.push(...candidates.filter((candidate) =>
+      !query.candidates.some((existing) => existing.name === candidate.name)));
+    return query;
   }
 
   /**

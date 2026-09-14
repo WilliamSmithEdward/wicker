@@ -667,6 +667,33 @@ class WickerFrontendTestController {
     }
   });
 
+  test('completes and navigates the properties Stimulus generates', async () => {
+    const original = js.getText();
+    try {
+      const withClasses = jsSource
+        .replace('static targets', "static classes = ['busy'];\n  static targets")
+        .replace('async refresh()', 'use() { this.\n  }\n  async refresh()');
+      await replace(js, withClasses);
+      const caret = js.positionAt(withClasses.indexOf('this.\n') + 5);
+
+      // Declared nowhere: Stimulus creates these at runtime, so no other tool
+      // in the editor knows they exist.
+      const offered = (await items(js, caret)).map((item) => item.label as string);
+      for (const generated of ['outputTarget', 'hasOutputTarget', 'urlValue', 'busyClass', 'hasBusyClass']) {
+        assert.ok(offered.includes(generated), `${generated} should be offered after this.`);
+      }
+
+      // And each one leads back to the declaration it was generated from.
+      const marked = withClasses.replace('this.\n', 'this.busyClass;\n');
+      await replace(js, marked);
+      const links = await definitions(js, js.positionAt(marked.indexOf('this.busyClass') + 7));
+      assert.equal(links.length, 1);
+      assert.equal(js.getText(links[0]!.targetRange), 'busy');
+    } finally {
+      await replace(js, original);
+    }
+  });
+
   test('nested Twig bindings cannot supply JSON fields to the parent project', async () => {
     const nested = await vscode.workspace.openTextDocument(uri('nested-app/templates/task/_row.html.twig'));
     const original = nested.getText();

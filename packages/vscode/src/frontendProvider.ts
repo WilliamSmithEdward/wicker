@@ -1,12 +1,12 @@
 import * as vscode from 'vscode';
 import { ACTION_OPTIONS, COMMON_EVENTS, EVENT_TARGETS, KEY_FILTERS,
-  cssImports, cssUrls, fetchValueReferences, importSpecifiers, joinProjectPath, resolveRelativeImport, responseAccessAt,
-  scanFrontend, stimulusCallbackOwners, stimulusGeneratedMembers, stimulusHtmlName, stimulusSource,
+  cssImports, cssUrls, importSpecifiers, joinProjectPath, resolveRelativeImport, responseAccessAt,
+  stimulusCallbackOwners, stimulusGeneratedMembers, stimulusHtmlName, stimulusSource,
   type FrontendReference, type OffsetRange, type ResponseField, type StimulusMember, type StimulusValue,
   type SymfonyRoute } from '@wicker/core';
 import { enginePathOf } from './paths.js';
 import type { ProjectSession, SessionManager } from './session.js';
-import { frontendIndex, ownsFrontendPath, routeAction, routeConsumers } from './frontendProject.js';
+import { fetchValuesOf, frontendIndex, ownsFrontendPath, routeAction, routeConsumers, scanOf } from './frontendProject.js';
 import { OutletQueries } from './outletQueries.js';
 import type { FrontendTarget as Target, FrontendCandidate as Candidate, FrontendQuery as Query } from './frontendQueries.js';
 
@@ -94,7 +94,7 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
     if (!session || !path) { return undefined; }
     const version = document.version, offset = document.offsetAt(position), source = document.getText();
     const twig = path.endsWith('.twig');
-    const scan = scanFrontend(source, twig);
+    const scan = scanOf(session, path, source, twig);
     const refs = scan.references.filter((ref) => offset >= ref.range.start && offset <= ref.range.end ||
       ref.selector && offset >= ref.selector.range.start && offset <= ref.selector.range.end);
     const ref = refs.at(-1);
@@ -128,7 +128,7 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
         }
       } else { query = await this.stimulusQuery(session, ref, offset); }
     } else {
-      const value = fetchValueReferences(source, scan.scripts).find((entry) => offset >= entry.range.start && offset <= entry.range.end);
+      const value = fetchValuesOf(session, path, source, scan).find((entry) => offset >= entry.range.start && offset <= entry.range.end);
       if (value) {
         const routes = frontendIndex(this.sessions, session).routesForValue(path, value.name, session.frontend.routes, session.frontend.controllers);
         if (routes.length) { query = this.routeQuery(session, routes, source.slice(value.range.start, value.range.end), value.range, true); }

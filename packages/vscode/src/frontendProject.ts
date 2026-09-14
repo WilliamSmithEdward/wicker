@@ -1,5 +1,26 @@
-import { joinProjectPath, type FrontendIndex, type EndpointAction, type EndpointUse, type SymfonyRoute, type PhpTypeDeclaration, type PhpDependency } from '@wicker/core';
+import { fetchValueReferences, joinProjectPath, scanFrontend, type FrontendIndex, type FrontendScan, type EndpointAction, type EndpointUse, type OffsetRange, type SymfonyRoute, type PhpTypeDeclaration, type PhpDependency } from '@wicker/core';
 import { isEnabled, type ProjectSession, type SessionManager } from './session.js';
+
+/**
+ * What the tracker already parsed for exactly this text, or a fresh parse.
+ *
+ * Every tracked file is scanned as it is indexed, and a provider is nearly
+ * always asked about a file in that state, so parsing it again per hover,
+ * completion and definition was repeating work already done. A file the index
+ * does not hold, or a document edited since it was indexed, still parses
+ * directly: the source is compared, not assumed.
+ */
+export function scanOf(session: ProjectSession, path: string, source: string, twig: boolean): FrontendScan {
+  const indexed = session.frontendSources.index.get(path);
+  return indexed?.source === source ? indexed.scan : scanFrontend(source, twig);
+}
+
+/** The `fetch(this.xValue)` sites for this text, reusing the indexed parse. */
+export function fetchValuesOf(session: ProjectSession, path: string, source: string,
+  scan: FrontendScan): readonly { name: string; range: OffsetRange }[] {
+  const indexed = session.frontendSources.index.get(path);
+  return indexed?.source === source ? indexed.fetchValues : fetchValueReferences(source, scan.scripts);
+}
 
 export function ownsFrontendPath(sessions: SessionManager, session: ProjectSession, path: string): boolean {
   return sessions.sessionFor({ uri: session.fileSystem.toUri(joinProjectPath(session.project.root, path)) }) === session;

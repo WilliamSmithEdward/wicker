@@ -1,7 +1,7 @@
-import { scanFrontend, stimulusSource, type FrontendReference, type StimulusSource } from '@wicker/core';
+import { stimulusSource, type FrontendReference, type StimulusSource } from '@wicker/core';
 import * as vscode from 'vscode';
 
-import { ownsFrontendPath } from './frontendProject.js';
+import { ownsFrontendPath, scanOf } from './frontendProject.js';
 import { enginePathOf } from './paths.js';
 import type { ProjectSession, SessionManager } from './session.js';
 
@@ -31,7 +31,7 @@ export class StimulusMemberActionProvider implements vscode.CodeActionProvider {
     if (!session || !path?.endsWith('.twig')) { return []; }
 
     const offset = document.offsetAt(range.start);
-    const reference = scanFrontend(document.getText(), true).references.find((entry) =>
+    const reference = scanOf(session, path, document.getText(), true).references.find((entry) =>
       offset >= entry.range.start && offset <= entry.range.end);
     if (!reference || !ADDABLE.includes(reference.kind) || reference.name.length === 0) { return []; }
 

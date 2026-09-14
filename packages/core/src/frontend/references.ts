@@ -3,12 +3,14 @@ import { tokenizeTwigExpression } from '../twig/expressionLexer.js';
 import { literalTwigString, splitTwigTokens } from '../twig/contextSyntax.js';
 import { lexTwigRegions } from '../twig/twigLexer.js';
 import { javascriptTokens, stringRange } from './javascript.js';
+import type { TwigExpressionToken } from '../twig/expressionLexer.js';
 
 export interface FrontendReference {
-  readonly kind: 'controller' | 'action' | 'target' | 'value' | 'route' | 'url';
+  readonly kind: 'controller' | 'action' | 'target' | 'value' | 'outlet' | 'route' | 'url';
   readonly name: string;
   readonly range: OffsetRange;
   readonly controller?: string;
+  readonly selector?: { readonly name: string; readonly range: OffsetRange };
 }
 export interface StimulusEndpointBinding {
   readonly controller: string;
@@ -46,7 +48,7 @@ export function scanFrontend(source: string, twig: boolean): FrontendScan {
           if (tokens[end]!.value === '(') { depth++; }
           else if (tokens[end]!.value === ')' && --depth === 0) { break; }
         }
-        const args = splitTwigTokens(tokens.slice(i + 2, end), ',');
+        const args = helperArguments(splitTwigTokens(tokens.slice(i + 2, end), ','), helper);
         const first = args[0]?.[0];
         const name = literalTwigString(first);
         if (first === undefined || name === undefined || args[0]?.length !== 1) { continue; }
@@ -70,6 +72,18 @@ export function scanFrontend(source: string, twig: boolean): FrontendScan {
               bindings.push({ controller: name, value, endpoint: { kind: 'route', name: routeName,
                 range: { start: entry[4]!.start + 1, end: entry[4]!.end - 1 } } });
             }
+          }
+        }
+        const outletMap = args[3];
+        if (helper === 'stimulus_controller' && outletMap?.[0]?.value === '{') {
+          for (const entry of splitTwigTokens(outletMap.slice(1, outletMap.at(-1)?.value === '}' ? -1 : undefined), ',')) {
+            const key = entry[0], selector = entry[2];
+            const outlet = key?.kind === 'name' ? key.value : literalTwigString(key);
+            if (!key || outlet === undefined || entry[1]?.value !== ':') { continue; }
+            const selectorName = entry.length === 3 ? literalTwigString(selector) : undefined;
+            references.push({ kind: 'outlet', name: outlet, controller: name,
+              range: key.kind === 'string' ? { start: key.start + 1, end: key.end - 1 } : key,
+              ...(selector && selectorName !== undefined ? { selector: { name: selectorName, range: { start: selector.start + 1, end: selector.end - 1 } } } : {}) });
           }
         }
       }
@@ -118,6 +132,11 @@ export function scanFrontend(source: string, twig: boolean): FrontendScan {
         const controller = attrName.slice(5, -7);
         references.push({ kind: 'controller', name: controller, range: { start: attrStart + 5, end: attrStart + attrName.length - 7 } });
         addWords(references, source, start, stop, 'target', controller);
+      } else if (attrName.startsWith('data-') && attrName.endsWith('-outlet')) {
+        const raw = source.slice(start, stop);
+        references.push({ kind: 'outlet', name: attrName.slice(5, -7),
+          range: { start: attrStart + 5, end: attrStart + attrName.length - 7 },
+          ...(!/[{}]/.test(raw) ? { selector: { name: raw, range: { start, end: stop } } } : {}) });
       } else if (attrName.startsWith('data-') && attrName.endsWith('-value')) {
         // Controller names themselves contain dashes. Resolve the longest registered
         // prefix later; keep this attribute's combined name until then.
@@ -146,6 +165,23 @@ export function scanFrontend(source: string, twig: boolean): FrontendScan {
     }
   }
   return { references, requests, bindings, scripts };
+}
+
+/** Named arguments are reordered to the public helper signature. Filters have
+ * the same explicit arguments: Twig supplies their implicit attributes object. */
+function helperArguments(args: readonly (readonly TwigExpressionToken[])[], helper: string): readonly (readonly TwigExpressionToken[])[] {
+  const names = helper === 'stimulus_controller' ? ['controllerName', 'controllerValues', 'controllerClasses', 'controllerOutlets']
+    : helper === 'stimulus_action' ? ['controllerName', 'actionName', 'eventName', 'parameters']
+      : helper === 'stimulus_target' ? ['controllerName', 'targetNames'] : ['name', 'parameters', 'relative'];
+  const result: (readonly TwigExpressionToken[])[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg[0]?.kind === 'name' && [':', '='].includes(arg[1]?.value ?? '')) {
+      const index = names.indexOf(arg[0].value);
+      if (index >= 0) { result[index] = arg.slice(2); }
+    } else { result[i] = arg; }
+  }
+  return result;
 }
 
 function addWords(result: FrontendReference[], source: string, start: number, end: number,

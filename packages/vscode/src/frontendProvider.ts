@@ -4,13 +4,12 @@ import { fetchValueReferences, joinProjectPath, responseAccessAt, scanFrontend, 
 import { enginePathOf } from './paths.js';
 import type { ProjectSession, SessionManager } from './session.js';
 import { frontendIndex, ownsFrontendPath, routeAction, routeConsumers } from './frontendProject.js';
-
-type Target = { projectPath: string; range: OffsetRange; label: string };
-type Candidate = Target & { name: string; kind: vscode.CompletionItemKind };
-type Query = { range: OffsetRange; name: string; candidates: Candidate[]; routes?: readonly SymfonyRoute[]; targets?: Target[] };
+import { OutletQueries } from './outletQueries.js';
+import type { FrontendTarget as Target, FrontendCandidate as Candidate, FrontendQuery as Query } from './frontendQueries.js';
 
 export class FrontendProvider implements vscode.CompletionItemProvider, vscode.DefinitionProvider, vscode.HoverProvider, vscode.ReferenceProvider {
-  constructor(private readonly sessions: SessionManager) {}
+  private readonly outlets: OutletQueries;
+  constructor(private readonly sessions: SessionManager) { this.outlets = new OutletQueries(sessions); }
 
   async provideCompletionItems(document: vscode.TextDocument, position: vscode.Position): Promise<vscode.CompletionItem[] | undefined> {
     const query = await this.query(document, position);
@@ -18,6 +17,7 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       const item = new vscode.CompletionItem(candidate.name, candidate.kind);
       item.range = rangeOf(document, query.range);
       item.detail = candidate.label;
+      if (candidate.documentation) { item.documentation = outletDocumentation(candidate.documentation); }
       return item;
     });
   }
@@ -43,10 +43,12 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
     const query = await this.query(document, position);
     if (!query) { return undefined; }
     const candidates = query.candidates.filter((candidate) => candidate.name === query.name);
-    if (!candidates.length && !query.routes?.length) { return undefined; }
+    if (!candidates.length && !query.routes?.length && !query.documentation) { return undefined; }
     const content = new vscode.MarkdownString();
     content.appendText(query.routes?.map((route) => `${route.methods} ${route.path}\n${route.name}\n${route.controller}`).join('\n\n') ??
       candidates.map((candidate) => `${candidate.label}\n${candidate.projectPath}`).join('\n\n'));
+    const explanation = query.documentation ?? candidates.find((candidate) => candidate.documentation)?.documentation;
+    if (explanation) { content.appendMarkdown(`${content.value ? '\n\n' : ''}${outletDocumentation(explanation).value}`); }
     if (query.routes?.length) {
       const session = this.sessions.sessionFor(document)!;
       for (const route of query.routes) {
@@ -63,9 +65,10 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
     const session = this.sessions.sessionFor(document), version = document.version;
     if (!session) { return undefined; }
     const query = await this.query(document, position);
-    if (!query?.routes?.length) { return undefined; }
-    const targets: Target[] = query.routes.flatMap((route) => routeConsumers(this.sessions, session, route).map((use) => ({ ...use, label: '' })));
-    if (context.includeDeclaration) { targets.push(...query.candidates.filter((candidate) => candidate.name === query.name)); }
+    if (!query || !query.routes?.length && !query.outlet) { return undefined; }
+    const targets: Target[] = query.outlet ? this.outlets.references(session, query.outlet)
+      : query.routes!.flatMap((route) => routeConsumers(this.sessions, session, route).map((use) => ({ ...use, label: '' })));
+    if (context.includeDeclaration) { targets.push(...query.declarations ?? query.candidates.filter((candidate) => candidate.name === query.name)); }
     const locations = new Map<string, vscode.Location>();
     for (const target of targets) {
       try {
@@ -85,7 +88,8 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
     const version = document.version, offset = document.offsetAt(position), source = document.getText();
     const twig = path.endsWith('.twig');
     const scan = scanFrontend(source, twig);
-    const refs = scan.references.filter((ref) => offset >= ref.range.start && offset <= ref.range.end);
+    const refs = scan.references.filter((ref) => offset >= ref.range.start && offset <= ref.range.end ||
+      ref.selector && offset >= ref.selector.range.start && offset <= ref.selector.range.end);
     const ref = refs.at(-1);
     let query: Query | undefined;
     if (path.endsWith('.php')) {
@@ -102,7 +106,13 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       const route = frontendIndex(this.sessions, session).resolve(ref, session.frontend.routes);
       if (route) { query = this.routeQuery(session, [route], ref.name, ref.range, true); }
     } else if (ref && twig) {
-      query = await this.stimulusQuery(session, ref, offset);
+      if (ref.kind === 'outlet') {
+        query = await this.outlets.twig(session, ref, offset);
+        if (query && !ref.controller && offset < query.range.start) {
+          const name = query.outlet!.controller;
+          query = await this.stimulusQuery(session, { kind: 'controller', name, range: { start: ref.range.start, end: ref.range.start + name.length } }, offset);
+        }
+      } else { query = await this.stimulusQuery(session, ref, offset); }
     } else {
       const value = fetchValueReferences(source, scan.scripts).find((entry) => offset >= entry.range.start && offset <= entry.range.end);
       if (value) {
@@ -127,6 +137,7 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
             label: `JSON response · ${routes[i]!.name}`, kind: vscode.CompletionItemKind.Field }] : []));
         query = { name: access.name, range: access.range, candidates };
       }
+      if (!query && /\.[jt]s$/.test(path)) { query = await this.outlets.javascript(session, path, source, offset); }
     }
     return this.sessions.sessionFor(document) === session && document.version === version ? query : undefined;
   }
@@ -181,3 +192,11 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
   }
 }
 function rangeOf(document: vscode.TextDocument, range: OffsetRange): vscode.Range { return new vscode.Range(document.positionAt(range.start), document.positionAt(range.end)); }
+function outletDocumentation(text: string): vscode.MarkdownString {
+  const content = new vscode.MarkdownString(); content.appendText(text);
+  // appendText escapes source names safely, but turns spaces into nonbreaking
+  // spaces. Let explanatory paragraphs wrap in a narrow hover or suggest panel.
+  content.value = content.value.replaceAll('&nbsp;', ' ');
+  content.appendMarkdown('\n\n[Stimulus outlet reference](https://stimulus.hotwired.dev/reference/outlets)');
+  return content;
+}

@@ -427,20 +427,24 @@ preference and distinct icons for templates, routes and project types.
 
 Next, in order:
 
-1. **Symfony UX, Twig Components and Stimulus.** Build these capabilities in
-   separate steps. Component and direct Stimulus navigation/completion are
-   implemented; deepen Live Component and frontend workflows through real use.
-   This part of the roadmap covers
+1. **Stimulus and AssetMapper: complete coverage with low cognitive load.**
+   The next sprint covers outlets, the rest of the Stimulus editing experience,
+   mapped assets/importmaps and contextual explanations and repairs. Help a
+   developer new to these tools understand and change an existing page through
+   its actual connections. See the [sprint scope](docs/sprint-stimulus-assetmapper.md)
+   for the coverage checklist, delivery order and live walkthrough criteria.
+2. **Symfony UX and Live Components.** Deepen component workflows through real
+   use. This part of the roadmap covers
    [Twig Components](https://symfony.com/bundles/ux-twig-component/current/index.html),
    [Live Components](https://ux.symfony.com/live-component),
    [StimulusBundle](https://symfony.com/bundles/StimulusBundle/current/index.html),
    [UX Toolkit](https://ux.symfony.com/toolkit),
    [Icons](https://ux.symfony.com/icons) and
    [CalendarLink](https://ux.symfony.com/calendar-link).
-2. **Routes and response contracts.** Extend the initial route and API connections
+3. **Routes and response contracts.** Extend the initial route and API connections
    with parameter assistance and additional explicitly traceable response shapes.
-3. **Services and the container.** Autowiring and parameter intelligence.
-4. Translations, forms, and the rest of the Symfony surface.
+4. **Services and the container.** Autowiring and parameter intelligence.
+5. Translations, forms, and the rest of the Symfony surface.
 
 ### Not planned: PHP as a general language
 

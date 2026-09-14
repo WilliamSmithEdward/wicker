@@ -72,6 +72,16 @@ Deliver one capability at a time; a roadmap entry is planned support, not a
 claim that the feature has shipped. General PHP language support remains out
 of scope as described below.
 
+The next sprint after v0.4.0 is full Stimulus and AssetMapper coverage and
+ergonomics, explicitly including outlets. Its user-facing goal is to make an
+existing project understandable and pleasant for someone who has never used
+these tools, with minimal cognitive load. See
+[the sprint scope](docs/sprint-stimulus-assetmapper.md) for coverage, delivery
+order and completion criteria. Teach connections in context with concise
+explanations, real project navigation and concrete repair edits. Finish the
+coverage audit before calling this sprint complete; basic name completion alone
+does not meet the goal.
+
 ### Constraints that are not negotiable
 
 **The extension ships no third-party runtime code.** Not a preference, a
@@ -314,6 +324,19 @@ from its index parameter instead of a constructor. Twig files use a leaf icon;
 Twig routes use a leaf with a route arrow. Expand templates/wicker/stimulus.html.twig
 to open its associated wicker_api_controller.js, or find it under
 WickerTourController → Scripts through the included tour template.
+
+The current outlet development increment is demonstrated in
+`templates/wicker/outlets.html.twig`, included on `/wicker`. Its
+`controllerOutlets` key and selector open the declaring
+`assets/controllers/wicker_outlet_controller.js` and receiving
+`assets/controllers/wicker_counter_controller.js`. In the sender, complete
+after `this.`, hover `hasWickerCounterOutlet`, navigate `increment`, and use Find
+All References on the static outlet name. The page's Add one button calls the
+counter beside the sender; Reset counter returns it to zero. Temporarily change
+the selector to `#missing`, save and reload to exercise the presence guard;
+undo and save afterward. `WickerOutletControllerTest` checks the rendered
+binding and that the counter is outside the sender's scope. Remaining outlet
+and AssetMapper scope is tracked in `docs/sprint-stimulus-assetmapper.md`.
 
 The first `test:integration` run downloads a VS Code build into
 `packages/vscode/.vscode-test/`, so it takes minutes rather than seconds. That

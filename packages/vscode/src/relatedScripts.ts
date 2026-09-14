@@ -1,4 +1,4 @@
-import { typescriptSourceForJavascript, type FrontendIndex } from '@wicker/core';
+import { resolveOutletReference, typescriptSourceForJavascript, type FrontendIndex } from '@wicker/core';
 import type { ProjectSession, SessionManager } from './session.js';
 import { frontendIndex, ownsFrontendPath, routeAction } from './frontendProject.js';
 
@@ -43,7 +43,12 @@ function scriptsFromTemplates(sessions: SessionManager, session: ProjectSession,
     const file = index.get(template.projectPath);
     if (!file) { continue; }
     for (const ref of file.scan.references) {
-      const controllerName = ref.kind === 'controller' ? ref.name : ref.controller;
+      const outlet = resolveOutletReference(ref, session.frontend.controllers);
+      const controllerName = ref.kind === 'controller' ? ref.name : outlet?.controller ?? ref.controller;
+      const target = outlet && session.frontend.controllers.find((controller) => controller.name === outlet.name);
+      if (target && ownsFrontendPath(sessions, session, target.projectPath)) {
+        result.push({ projectPath: target.projectPath, reason: `Outlet ${outlet.controller} → ${outlet.name} in ${name}` });
+      }
       const matches = session.frontend.controllers.filter((controller) => controller.name === controllerName ||
         !controllerName && ref.kind === 'value' && ref.name.startsWith(`${controller.name}-`));
       // A raw data-value prefix can match two identifiers. Keep only the longest.

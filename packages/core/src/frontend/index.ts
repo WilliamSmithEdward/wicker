@@ -5,7 +5,7 @@ import { lexTwigRegions } from '../twig/twigLexer.js';
 import { javascriptTokens } from './javascript.js';
 import { scanFrontend, stimulusHtmlName, type FrontendReference, type FrontendScan } from './references.js';
 import { endpointActions, routeForUrl, type EndpointAction, type SymfonyRoute } from './routes.js';
-import type { StimulusController } from './stimulus.js';
+import { stimulusSource, type StimulusController, type StimulusSource } from './stimulus.js';
 
 export interface FrontendFile {
   readonly projectPath: string;
@@ -14,6 +14,7 @@ export interface FrontendFile {
   readonly actions: readonly EndpointAction[];
   readonly types: readonly PhpTypeDeclaration[];
   readonly templateReferences: readonly TwigTemplateReference[];
+  readonly stimulus?: StimulusSource;
 }
 export interface EndpointUse { readonly projectPath: string; readonly range: OffsetRange; readonly via?: string }
 
@@ -24,7 +25,8 @@ export class FrontendIndex {
       ? scanFrontend(source, projectPath.endsWith('.twig')) : { references: [], requests: [], bindings: [], scripts: [] },
     actions: projectPath.endsWith('.php') ? endpointActions(source) : [],
     types: projectPath.endsWith('.php') ? phpTypeDeclarations(source) : [],
-    templateReferences: projectPath.endsWith('.twig') ? activeTemplateReferences(source) : [] });
+    templateReferences: projectPath.endsWith('.twig') ? activeTemplateReferences(source) : [],
+    ...(/\.[jt]s$/.test(projectPath) ? { stimulus: stimulusSource(source) } : {}) });
   }
   remove(projectPath: string): void { this.files.delete(projectPath); }
   sourcePaths(): string[] { return [...this.files.keys()]; }

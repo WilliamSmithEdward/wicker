@@ -596,6 +596,37 @@ class WickerFrontendTestController {
     }
   });
 
+  test('reports imports the browser could not resolve, and only those', async () => {
+    const original = js.getText();
+    const messages = async (): Promise<string[]> => {
+      await eventually(() => vscode.languages.getDiagnostics(js.uri).length > 0);
+      return vscode.languages.getDiagnostics(js.uri).map((entry) => entry.message);
+    };
+    try {
+      await replace(js, [
+        `import a from './wicker_peer_controller.ts';`,   // relative, exists
+        `import b from '#fixture/peer';`,                 // importmap alias
+        `import c from '@hotwired/stimulus';`,            // importmap package
+        `import d from './gone.js';`,                     // relative, no such asset
+        `import e from './wicker_peer_controller';`,      // no file extension
+        `import f from 'never-declared';`,                // in no importmap entry
+        original,
+      ].join('\n'));
+
+      const found = await messages();
+      // Named individually: the point is which ones are quiet, not the count.
+      assert.ok(found.some((text) => text.includes('./gone.js')), 'a missing relative target');
+      assert.ok(found.some((text) => text.includes('no file extension')), 'an extension-less relative import');
+      assert.ok(found.some((text) => text.includes('never-declared')), 'a bare specifier in no entry');
+
+      for (const quiet of ['./wicker_peer_controller.ts', '#fixture/peer', '@hotwired/stimulus']) {
+        assert.ok(!found.some((text) => text.includes(`"${quiet}"`)), `${quiet} resolves and must not be reported`);
+      }
+    } finally {
+      await replace(js, original);
+    }
+  });
+
   test('nested Twig bindings cannot supply JSON fields to the parent project', async () => {
     const nested = await vscode.workspace.openTextDocument(uri('nested-app/templates/task/_row.html.twig'));
     const original = nested.getText();

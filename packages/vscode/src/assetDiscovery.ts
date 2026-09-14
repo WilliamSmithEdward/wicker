@@ -6,12 +6,18 @@ export interface AssetDiscovery {
   readonly map: AssetMap;
   /** Entries of `importmap.php`, which is where a `#` alias is declared. */
   readonly importMap: readonly ImportMapEntry[];
+  /**
+   * Whether `importmap.php` was there to read. An absent file and a file
+   * declaring nothing both produce no entries, and only one of them makes a
+   * bare specifier worth reporting.
+   */
+  readonly importMapFound: boolean;
   readonly settings: AssetMapperSettings | undefined;
   readonly status: string;
 }
 
 const UNAVAILABLE: AssetDiscovery = {
-  map: AssetMap.empty(), importMap: [], settings: undefined,
+  map: AssetMap.empty(), importMap: [], importMapFound: false, settings: undefined,
   status: 'unavailable; console required for asset paths',
 };
 
@@ -29,9 +35,11 @@ export async function discoverAssets(
   root: string,
   runner: ConsoleRunner | undefined,
 ): Promise<AssetDiscovery> {
-  const importMap = parseImportMap(await fileSystem.readFile(joinProjectPath(root, 'importmap.php')) ?? '');
+  const source = await fileSystem.readFile(joinProjectPath(root, 'importmap.php'));
+  const importMap = parseImportMap(source ?? '');
+  const importMapFound = source !== undefined;
   if (!runner) {
-    return { ...UNAVAILABLE, importMap };
+    return { ...UNAVAILABLE, importMap, importMapFound };
   }
 
   const [config, directory] = await Promise.all([
@@ -43,17 +51,17 @@ export async function discoverAssets(
     ? object(parseJsonLoosely(directory.stdout))?.['kernel.project_dir']
     : undefined;
   if (!config.ok || typeof runtimeRoot !== 'string') {
-    return { ...UNAVAILABLE, importMap, status: `unavailable; ${config.error ?? 'the project directory could not be read'}` };
+    return { ...UNAVAILABLE, importMap, importMapFound, status: `unavailable; ${config.error ?? 'the project directory could not be read'}` };
   }
 
   const settings = assetMapperSettings(parseJsonLoosely(config.stdout), runtimeRoot);
   if (!settings) {
-    return { ...UNAVAILABLE, importMap, status: 'unavailable; the asset mapper configuration could not be read' };
+    return { ...UNAVAILABLE, importMap, importMapFound, status: 'unavailable; the asset mapper configuration could not be read' };
   }
 
   const map = await AssetMap.build(fileSystem, root, settings);
   return {
-    map, importMap, settings,
+    map, importMap, importMapFound, settings,
     status: `${map.size} assets from ${settings.roots.length} configured ${settings.roots.length === 1 ? 'path' : 'paths'}${
       map.truncated ? ', truncated at the configured limit' : ''}`,
   };

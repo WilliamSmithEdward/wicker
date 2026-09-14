@@ -16,6 +16,7 @@ import {
   templateReferencesIn,
   type DocumentTemplateReference,
 } from './references.js';
+import { missingImportDiagnostics } from './importDiagnostics.js';
 import { LoaderPathMemory } from './loaderPathMemory.js';
 import { RenderedByProvider } from './renderedBy.js';
 import {
@@ -259,7 +260,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Diagnostics.
   const refreshDiagnostics = (document: vscode.TextDocument): void => {
-    if (!isSupported(document) || document.uri.scheme !== 'file') {
+    // Scripts are not "supported" in the template sense, but their imports are
+    // checkable and nothing else in the editor checks them.
+    const script = /\.[jt]s$/.test(document.uri.path);
+    if ((!isSupported(document) && !script) || document.uri.scheme !== 'file') {
       return;
     }
     const session = sessions.sessionFor(document);
@@ -267,7 +271,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       diagnostics.delete(document.uri);
       return;
     }
-    diagnostics.set(document.uri, [...buildDiagnostics(session, document), ...twigCallableDiagnostics(session, document)]);
+    diagnostics.set(document.uri, script
+      ? missingImportDiagnostics(sessions, session, document)
+      : [...buildDiagnostics(session, document), ...twigCallableDiagnostics(session, document)]);
   };
 
   const refreshAllDiagnostics = (): void => {

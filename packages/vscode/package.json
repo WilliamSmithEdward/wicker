@@ -200,6 +200,17 @@
           "default": "warning",
           "description": "How to report unknown Twig filters and functions when fresh, complete project discovery is available."
         },
+        "wicker.diagnostics.missingImport": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "off"
+          ],
+          "default": "warning",
+          "markdownDescription": "How to report a JavaScript import the browser cannot resolve: a relative path outside the asset map, one written without its file extension, or a bare specifier declared in no `importmap.php` entry. Each check is suspended when the discovery it depends on is unavailable."
+        },
         "wicker.console.enabled": {
           "type": "boolean",
           "default": true,

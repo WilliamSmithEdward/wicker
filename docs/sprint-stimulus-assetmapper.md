@@ -100,12 +100,23 @@ editor-driven test exercises it; anything else is named rather than implied.
 | Symfony integration | Helper functions and filters, named and positional arguments, enabled UX controllers | Eager and lazy loading, fuller registration origins |
 | AssetMapper | Configured roots, the asset map, `importmap.php`, `asset()`, `importmap()`, import specifiers, unresolvable-import reporting, a page's stylesheets by every route | The loading chain as a browsable tree, CSS `url()` references, fragments such as `sprite.svg#icon`, the logical-path explanation, repair actions, the array form of `importmap()` |
 
-Ergonomics, step 4, has its first piece. Hover explains a binding in the
-project's own names, saying which method an event calls and in which file,
-which property reads an element, and which declaration a generated property
-came from. The same sentences appear on completion items. Not built: the
-"Explain this connection" action as a command, the create, connect and repair
-edits, and the beginner walkthrough with deliberate mistakes.
+Ergonomics, step 4, is under way. Hover explains a binding in the project's
+own names, saying which method an event calls and in which file, which
+property reads an element, and which declaration a generated property came
+from; the same sentences appear on completion items. A quick fix writes a
+member a binding asks for and the controller does not have, adding a method
+inside the class body or a name to its static list.
+
+The live tour now covers the whole list the outcome asks for. A controller
+owns a target, reads a typed value with a default, applies a logical CSS
+class, calls another controller through an outlet, dispatches an event that
+the first controller listens for, and loads its assets through an importmap
+alias rather than a relative path. A repairs page carries two deliberate
+mistakes, a method and a target that are bound but never declared, both
+chosen because they fail silently and neither can throw.
+
+Not built: the "Explain this connection" action as a command, and the create
+controller and connect outlet edits.
 
 Outstanding against the completion criteria as a whole: no beginner
 walkthrough exists, light and dark themes and keyboard navigation have not

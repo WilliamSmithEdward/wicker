@@ -365,4 +365,30 @@ describe('consumer index', () => {
     index.remove('templates/status.html.twig');
     expect(index.consumers(route, [route], controllers)).toEqual([]);
   });
+
+  // The answers are derived once for every route and reused. An edit has to
+  // discard that, or the index keeps reporting what the file used to say.
+  it('reflects an edited file rather than the answer derived before it', () => {
+    const index = new FrontendIndex();
+    index.update('templates/status.html.twig', `{{ stimulus_controller('status', {url: path('api_status')}) }}`);
+    const controllers = [{ name: 'status', projectPath: 'assets/controllers/status_controller.js' }];
+    expect(index.consumers(route, [route], controllers).map((use) => use.projectPath))
+      .toEqual(['templates/status.html.twig']);
+
+    index.update('templates/status.html.twig', '<p>nothing binds a route now</p>');
+    expect(index.consumers(route, [route], controllers)).toEqual([]);
+
+    index.update('templates/status.html.twig', `{{ stimulus_controller('status', {url: path('api_status')}) }}`);
+    expect(index.consumers(route, [route], controllers).map((use) => use.projectPath))
+      .toEqual(['templates/status.html.twig']);
+  });
+
+  it('answers the same for a route list rebuilt with equal contents', () => {
+    const index = new FrontendIndex();
+    index.update('templates/status.html.twig', `{{ stimulus_controller('status', {url: path('api_status')}) }}`);
+    const controllers = [{ name: 'status', projectPath: 'assets/controllers/status_controller.js' }];
+    expect(index.consumers(route, [route], controllers).length).toBe(1);
+    // A rebuild hands over fresh arrays holding the same routes.
+    expect(index.consumers({ ...route }, [{ ...route }], [...controllers]).length).toBe(1);
+  });
 });

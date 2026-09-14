@@ -39,10 +39,21 @@ export function routesFromDebug(raw: string): readonly SymfonyRoute[] | undefine
 /** Literal URLs only: ambiguous routes, hosts and runtime path parameters must
  * not become an invented connection. Runtime regexes are never executed. */
 export function routeForUrl(routes: readonly SymfonyRoute[], url: string): SymfonyRoute | undefined {
-  if (!url.startsWith('/') || url.startsWith('//')) { return undefined; }
-  const path = url.split(/[?#]/)[0];
+  const path = literalUrlPath(url);
+  if (path === undefined) { return undefined; }
   const matches = routes.filter((route) => !/[{}]/.test(route.path) && route.path === path);
   return matches.length === 1 ? matches[0] : undefined;
+}
+
+/**
+ * The path part of a URL that could name a route, or undefined.
+ *
+ * Shared with the indexed lookup so the two cannot drift on what counts as a
+ * local URL: a scheme-relative `//host/path` is somebody else's server.
+ */
+export function literalUrlPath(url: string): string | undefined {
+  if (!url.startsWith('/') || url.startsWith('//')) { return undefined; }
+  return url.split(/[?#]/)[0];
 }
 
 export function endpointActions(source: string): readonly EndpointAction[] {

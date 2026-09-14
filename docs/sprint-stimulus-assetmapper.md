@@ -90,15 +90,15 @@ editor-driven test exercises it; anything else is named rather than implied.
 | Area | Done | Not implemented |
 | --- | --- | --- |
 | Controllers and scope | Registration origin from `controllers.json` and configured paths, identifiers, navigation | Nested and multiple scopes, connection lifecycle, inheritance. Lifecycle names are recognised only to keep them out of the action list |
-| Actions | Events, shorthand, key filters, window/document targets, options, method resolution | Action parameters (`data-<controller>-<action>-param`), listener ordering |
-| Targets | Declarations, bindings, singular, plural and presence through generated members | Connected and disconnected callbacks are parsed but not navigable |
-| Values | Names, types, defaults, generated members, presence checks | Serialization, change callbacks |
+| Actions | Events, shorthand, key filters, window/document targets, options, method resolution, action parameters explained | Listener ordering |
+| Targets | Declarations, bindings, singular, plural and presence through generated members, connected and disconnected callbacks navigating to their declaration | — |
+| Values | Names, types, defaults, generated members, presence checks, change callbacks navigating to their declaration | Serialization |
 | CSS classes | Declarations, template bindings, generated members | Hover distinguishing a logical name from an ordinary class attribute |
 | Outlets | Declarations, generated properties, callbacks, receiver methods, Twig bindings, references | The five items listed above |
 | Events between controllers | Literal dispatch names, listener completion, navigation to the dispatch | Event detail, bubbling and global listeners, guidance on when an event fits |
 | JavaScript and TypeScript | Generated members alongside built-in completion, original-source navigation through source maps | Declaration snippets |
 | Symfony integration | Helper functions and filters, named and positional arguments, enabled UX controllers | Eager and lazy loading, fuller registration origins |
-| AssetMapper | Configured roots, the asset map, `importmap.php`, `asset()`, `importmap()`, import specifiers, unresolvable-import reporting, a page's stylesheets by every route | The loading chain as a browsable tree, CSS `url()` references, fragments such as `sprite.svg#icon`, the logical-path explanation, repair actions, the array form of `importmap()` |
+| AssetMapper | Configured roots, the asset map, `importmap.php`, `asset()`, `importmap()`, import specifiers, unresolvable-import reporting, a page's stylesheets by every route, `@import` and `url()` navigation, fragments and queries | The loading chain as a browsable tree, the logical-path explanation, asset repair actions, the array form of `importmap()` |
 
 Ergonomics, step 4, is under way. Hover explains a binding in the project's
 own names, saying which method an event calls and in which file, which

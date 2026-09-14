@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.6.0
+
+The connections Stimulus and AssetMapper make by naming convention alone.
+
+### Added
+
+- **Callbacks reach their declaration.** Nothing calls `urlValueChanged()` or
+  `outputTargetConnected()`; Stimulus finds them by name because `url` and
+  `output` are declared. Each now navigates to the declaration that causes it
+  to run, and says that renaming one without the other stops it silently.
+- **Stylesheets navigate.** `@import` and `url()` open what they point at,
+  resolved relative to the stylesheet, with a bare specifier falling back to a
+  logical asset path.
+- **Action parameters are explained.** `data-<controller>-<name>-param` says
+  what it becomes in the handler, `event.params.name`, and that the two names
+  must simply agree because nothing declares them.
+
+### Fixed
+
+- An asset reference addressing part of a file resolves. `icons.svg#pin` names
+  a symbol inside a mapped file and `f.woff2?v=2` busts a cache; matching
+  either literally found nothing and made a working reference look broken.
+
 ## 0.5.0
 
 Stimulus and AssetMapper, and the connections between them.

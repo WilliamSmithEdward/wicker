@@ -941,7 +941,7 @@ class WickerFrontendTestController {
       assert.match(tooltipOf(tree.getTreeItem(imported[0]!)), /imported by app\.js/);
 
       // Step three: a stylesheet's own imports keep going.
-      const deeper = tree.getChildren(imported[0]!);
+      const deeper = tree.getChildren(imported[0]);
       assert.deepEqual(deeper.map((child) => child.kind === 'loaded' ? child.projectPath : ''),
         ['assets/styles/theme.css']);
     } finally {

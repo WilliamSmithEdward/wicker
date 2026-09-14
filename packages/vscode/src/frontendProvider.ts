@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import { ACTION_OPTIONS, COMMON_EVENTS, EVENT_TARGETS, KEY_FILTERS,
   fetchValueReferences, importSpecifiers, joinProjectPath, resolveRelativeImport, responseAccessAt,
   scanFrontend, stimulusGeneratedMembers, stimulusHtmlName, stimulusSource,
-  type FrontendReference, type OffsetRange, type ResponseField, type SymfonyRoute } from '@wicker/core';
+  type FrontendReference, type OffsetRange, type ResponseField, type StimulusMember, type StimulusValue,
+  type SymfonyRoute } from '@wicker/core';
 import { enginePathOf } from './paths.js';
 import type { ProjectSession, SessionManager } from './session.js';
 import { frontendIndex, ownsFrontendPath, routeAction, routeConsumers } from './frontendProject.js';
@@ -183,6 +184,7 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       name: member.name, projectPath: path, range: member.declaration.range,
       label: `Stimulus ${member.kind} · ${member.declaration.name}`,
       kind: vscode.CompletionItemKind.Property,
+      ...documentationFor(member.declaration),
     }));
     if (!candidates.length) { return query; }
 
@@ -322,7 +324,8 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
             : ref.kind === 'class' ? info.classes : info.values;
           candidates.push(...members.map((member) => ({ name: html ? stimulusHtmlName(member.name) : member.name,
             projectPath: controller.projectPath, range: member.range, label: `Stimulus ${ref.kind} · ${controller.name}`,
-            kind: ref.kind === 'action' ? vscode.CompletionItemKind.Method : vscode.CompletionItemKind.Property })));
+            kind: ref.kind === 'action' ? vscode.CompletionItemKind.Method : vscode.CompletionItemKind.Property,
+            ...documentationFor(member) })));
         } catch { /* A registration whose source vanished cannot offer members. */ }
       }
     }
@@ -357,4 +360,20 @@ function descriptorQuery(ref: FrontendReference): Query {
   return { name: ref.name, range: ref.range, candidates: names.map((name) => ({
     name, projectPath: '', range: { start: 0, end: 0 }, label,
     kind: vscode.CompletionItemKind.EnumMember })) };
+}
+
+/**
+ * The type and default of a value declaration, when it has them.
+ *
+ * Stimulus converts the data attribute using the declared type, so the type is
+ * what `this.xValue` actually is, and the default is what it holds when the
+ * template binds nothing. Neither is visible from the template, which is where
+ * the attribute is written.
+ */
+function documentationFor(member: StimulusMember): { documentation?: string } {
+  const { type, defaultText } = member as StimulusValue;
+  if (type === undefined && defaultText === undefined) { return {}; }
+  const parts = [type === undefined ? 'Untyped' : `Type ${type}`];
+  if (defaultText !== undefined) { parts.push(`default ${defaultText}`); }
+  return { documentation: `${parts.join(', ')}.` };
 }

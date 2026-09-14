@@ -41,6 +41,44 @@ describe('Stimulus declarations', () => {
   });
 });
 
+describe('value types and defaults', () => {
+  const values = stimulusSource(`export default class extends Controller {
+    static values = {
+      url: String,
+      itemCount: { type: Number, default: 1 },
+      tags: { type: Array, default: ['a', 'b'] },
+      options: { type: Object, default: { deep: true } },
+      ready: { type: Boolean },
+      computed: someType,
+    };
+  }`).values;
+  const byName = (name: string): typeof values[number] | undefined => values.find((value) => value.name === name);
+
+  it('reads the short form, where the type is named directly', () => {
+    expect(byName('url')).toMatchObject({ type: 'String' });
+    expect(byName('url')?.defaultText).toBeUndefined();
+  });
+
+  it('reads the object form, with both type and default', () => {
+    expect(byName('itemCount')).toMatchObject({ type: 'Number', defaultText: '1' });
+    expect(byName('ready')).toMatchObject({ type: 'Boolean' });
+  });
+
+  it('keeps a structured default whole rather than its first token', () => {
+    expect(byName('tags')).toMatchObject({ type: 'Array', defaultText: "['a', 'b']" });
+    expect(byName('options')).toMatchObject({ type: 'Object', defaultText: '{ deep: true }' });
+  });
+
+  it('claims no type it cannot read literally', () => {
+    expect(byName('computed')?.type).toBeUndefined();
+  });
+
+  it('still finds every declared name', () => {
+    expect(values.map((value) => value.name))
+      .toEqual(['url', 'itemCount', 'tags', 'options', 'ready', 'computed']);
+  });
+});
+
 describe('stimulusGeneratedMembers', () => {
   const source = `export default class extends Controller {
     static targets = ['output'];

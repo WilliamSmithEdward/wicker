@@ -694,6 +694,27 @@ class WickerFrontendTestController {
     }
   });
 
+  test('shows a value type and default where the template binds it', async () => {
+    const original = js.getText();
+    try {
+      await replace(js, jsSource.replace('static values = { url: String, itemCount: Number };',
+        'static values = { url: String, itemCount: { type: Number, default: 5 } };'));
+
+      const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
+        'vscode.executeHoverProvider', page.uri, await at(page,
+          '<div data-wicker-test-item-c§ount-value="3"></div>'));
+      const text = hovers.flatMap((hover) => hover.contents)
+        .map((content) => typeof content === 'string' ? content : content.value).join('\n');
+
+      // The type decides what this.itemCountValue is, and the default is what
+      // it holds when the template binds nothing. Neither is visible here.
+      assert.match(text, /Number/);
+      assert.match(text, /default 5/);
+    } finally {
+      await replace(js, original);
+    }
+  });
+
   test('nested Twig bindings cannot supply JSON fields to the parent project', async () => {
     const nested = await vscode.workspace.openTextDocument(uri('nested-app/templates/task/_row.html.twig'));
     const original = nested.getText();

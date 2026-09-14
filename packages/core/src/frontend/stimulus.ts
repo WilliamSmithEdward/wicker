@@ -1,8 +1,19 @@
 import type { OffsetRange } from '../php/templateReferences.js';
-import { closingToken, javascriptTokens, stringRange } from './javascript.js';
+import { closingToken, javascriptTokens, stringRange, type JsToken } from './javascript.js';
 
 export interface StimulusMember { readonly name: string; readonly range: OffsetRange }
 export interface StimulusAccess extends StimulusMember { readonly receiver?: string }
+export interface StimulusValue extends StimulusMember {
+  /**
+   * `String`, `Number`, `Boolean`, `Array` or `Object` as written.
+   *
+   * Stimulus uses the type to convert the data attribute, so it decides what
+   * `this.xValue` actually is. Absent when the declaration computes it.
+   */
+  readonly type?: string;
+  /** The default as written, when the object form supplies one. */
+  readonly defaultText?: string;
+}
 export interface StimulusDispatch extends StimulusMember {
   /**
    * True when the emitted event is `<identifier>:<name>`.
@@ -18,7 +29,7 @@ export interface StimulusSource {
   readonly range: OffsetRange;
   readonly actions: readonly StimulusMember[];
   readonly targets: readonly StimulusMember[];
-  readonly values: readonly StimulusMember[];
+  readonly values: readonly StimulusValue[];
   readonly outlets: readonly StimulusMember[];
   /** Logical names from `static classes`, not the CSS classes they map to. */
   readonly classes: readonly StimulusMember[];
@@ -29,6 +40,9 @@ export interface StimulusSource {
   readonly accesses: readonly StimulusAccess[];
 }
 export interface StimulusController { readonly name: string; readonly projectPath: string }
+
+/** The only types Stimulus converts a value attribute to. */
+export const VALUE_TYPES: readonly string[] = ['String', 'Number', 'Boolean', 'Array', 'Object'];
 
 export function stimulusIdentifier(relativePath: string): string | undefined {
   if (!/[-_]controller\.[jt]s$/.test(relativePath)) { return undefined; }
@@ -51,7 +65,7 @@ export function stimulusSource(source: string): StimulusSource {
   const open = tokens.findIndex((t, i) => i > klass && t.text === '{');
   const close = closingToken(tokens, open);
   if (close < 0) { return empty; }
-  const actions: StimulusMember[] = [], targets: StimulusMember[] = [], values: StimulusMember[] = [];
+  const actions: StimulusMember[] = [], targets: StimulusMember[] = [], values: StimulusValue[] = [];
   const outlets: StimulusMember[] = [], classes: StimulusMember[] = [], outletCallbacks: StimulusMember[] = [];
   const staticBodies: OffsetRange[] = [];
   let outletsRange: OffsetRange | undefined;
@@ -72,7 +86,8 @@ export function stimulusSource(source: string): StimulusSource {
         }
         if (kind === 'values' && ['name', 'string'].includes(member.kind) && tokens[j + 1]?.text === ':' &&
           ['{', ','].includes(tokens[j - 1]?.text ?? '')) {
-          values.push({ name: member.value ?? member.text, range: member.kind === 'string' ? stringRange(member) : member });
+          values.push({ name: member.value ?? member.text, range: member.kind === 'string' ? stringRange(member) : member,
+            ...valueShape(source, tokens, j + 2, end) });
         }
         if (['{', '[', '('].includes(member.text)) { const nested = closingToken(tokens, j); if (nested >= 0) { j = nested; } }
       }
@@ -217,4 +232,46 @@ export function stimulusDeclarationRanges(source: StimulusSource): readonly Offs
 export function stimulusClassProperties(name: string): readonly string[] {
   const stem = name.replace(/[_-](\w|$)/g, (_, letter: string) => letter.toUpperCase());
   return [`${stem}Class`, `${stem}Classes`, `has${stem.charAt(0).toUpperCase()}${stem.slice(1)}Class`];
+}
+
+/**
+ * The type and default of one value declaration.
+ *
+ * Two forms are legal: `url: String` names only the type, and
+ * `count: { type: Number, default: 1 }` supplies both. The default is taken as
+ * written, since showing the source text says more than a parsed
+ * approximation and cannot misreport it.
+ */
+function valueShape(source: string, tokens: readonly JsToken[], at: number,
+  limit: number): { type?: string; defaultText?: string } {
+  const first = tokens[at];
+  if (first === undefined || at >= limit) { return {}; }
+  if (first.text !== '{') {
+    // A name that is not one of the five constructors is a variable holding
+    // one. Which it holds cannot be read here, so no type is claimed.
+    return VALUE_TYPES.includes(first.text) ? { type: first.text } : {};
+  }
+
+  const close = closingToken(tokens, at);
+  if (close < 0) { return {}; }
+  const shape: { type?: string; defaultText?: string } = {};
+  for (let i = at + 1; i < close; i++) {
+    const key = tokens[i]!;
+    if (key.kind !== 'name' || tokens[i + 1]?.text !== ':') { continue; }
+    const value = tokens[i + 2];
+    if (value === undefined) { break; }
+    if (key.text === 'type' && VALUE_TYPES.includes(value.text)) { shape.type = value.text; }
+    if (key.text === 'default') {
+      // A default may be an array or object literal, so the whole expression
+      // is taken verbatim rather than just its first token.
+      const nested = ['{', '['].includes(value.text) ? closingToken(tokens, i + 2) : -1;
+      shape.defaultText = source.slice(value.start, nested >= 0 ? tokens[nested]!.end : value.end);
+    }
+    if (['{', '[', '('].includes(value.text)) {
+      const nested = closingToken(tokens, i + 2);
+      if (nested >= 0) { i = nested; continue; }
+    }
+    i += 2;
+  }
+  return shape;
 }

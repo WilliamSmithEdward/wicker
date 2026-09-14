@@ -34,6 +34,32 @@ Still to implement for classes: member access through the generated
 logical name against an ordinary class attribute; and the presence check
 before an optional access.
 
+AssetMapper has its foundation and its first editor surface. The configured
+roots, namespaces and exclusions are read from `debug:config` and the map is
+walked here, since Symfony offers no JSON form of it. `importmap.php` is parsed
+with the PHP lexer and read whether or not the console answers. `asset()`
+completes and opens mapped files; `importmap()` completes entrypoints only.
+Import specifiers navigate in JavaScript and TypeScript, relative against the
+importing file and bare against the importmap. Unresolvable imports are
+reported, with each check suspended when its discovery is unavailable.
+
+Four behaviours were probed against the running application rather than
+assumed, and one of them changed the design: `missing_import_mode: strict`
+rejects a relative import that resolves to nothing and one written without a
+file extension, but accepts a bare specifier in no importmap entry, which
+fails in the browser instead. Symfony emits no prefix mappings, so a subpath
+of a declared package is no more resolvable than an invented name. A directory
+prefix entry in `importmap.php` is rejected outright, which is why an alias is
+one entry per file.
+
+Still to implement for AssetMapper: the loading chain from template through
+entrypoint and imports to Stimulus registration; CSS `url()` references and
+fragments such as `sprite.svg#icon`, which the current logical-path lookup
+does not match; the explanation of a logical path against a generated URL and
+of development serving against compiled output; repair actions for a missing
+reference or a missing local importmap entry; and the array form of
+`importmap()`, which is not resolved.
+
 Still to implement for outlets: evidence-backed selector matches/completion,
 a combined declaration-and-binding connect edit, callback insertion, inherited
 declarations and member access through outlet callback parameters/aliases.

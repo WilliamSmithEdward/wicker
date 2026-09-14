@@ -427,12 +427,14 @@ preference and distinct icons for templates, routes and project types.
 
 Next, in order:
 
-1. **Stimulus and AssetMapper: complete coverage with low cognitive load.**
-   The next sprint covers outlets, the rest of the Stimulus editing experience,
-   mapped assets/importmaps and contextual explanations and repairs. Help a
-   developer new to these tools understand and change an existing page through
-   its actual connections. See the [sprint scope](docs/sprint-stimulus-assetmapper.md)
-   for the coverage checklist, delivery order and live walkthrough criteria.
+1. **Stimulus and AssetMapper: the rest of the coverage.** Shipped in 0.5.0:
+   outlets, CSS classes, action descriptors, events between controllers,
+   generated members, value types, mapped assets, importmaps and import
+   navigation, explanations and a first repair. Still open: action parameters,
+   value change callbacks, the loading chain as a browsable tree, CSS `url()`
+   references, and the create and connect edits. The
+   [sprint scope](docs/sprint-stimulus-assetmapper.md) records the status of
+   every row.
 2. **Symfony UX and Live Components.** Deepen component workflows through real
    use. This part of the roadmap covers
    [Twig Components](https://symfony.com/bundles/ux-twig-component/current/index.html),

@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.5.0
+
+Stimulus and AssetMapper, and the connections between them.
+
+### Added
+
+- **AssetMapper.** Configured roots, namespaces and exclusions read from the
+  console and the asset map walked from them. `asset()` completes logical paths
+  and opens the file behind one; `importmap()` completes entrypoints only.
+- **Import specifiers** navigate in JavaScript and TypeScript, relative against
+  the importing file and bare against `importmap.php`, which is where a `#`
+  alias is declared. Unresolvable imports are reported, with each check
+  suspended when the discovery it depends on is unavailable.
+- **Stylesheets beneath a template**, found by whatever route reaches them: a
+  direct `asset()` link, an importmap entrypoint, a Stimulus controller, and
+  the `@import` chain of any stylesheet those lead to.
+- **Stimulus CSS classes** end to end: `static classes`, the
+  `data-<identifier>-<name>-class` attribute and the helper's class argument.
+- **Action descriptors in full.** Events, key filters, `window` and `document`
+  targets and action options all complete, not only the method.
+- **Events between controllers.** `this.dispatch('changed')` is offered to a
+  listener as `<identifier>:changed`, and the composed name opens the dispatch.
+- **Generated members.** `statusUrlValue`, `hasBusyClass` and `outputTarget`
+  complete after `this.` and lead back to the declaration they came from.
+- **Value types and defaults**, shown wherever the value appears.
+- **Outlets**: declarations, generated properties, callbacks, receiver methods,
+  Twig bindings in every helper form, and Find All References across both.
+- **Explanations in the project's own names.** A binding says which method an
+  event calls and in which file. A binding that connects to nothing says which
+  of the three ways it failed, since Stimulus reports none of them.
+- **A quick fix that writes the missing member**, adding a method inside the
+  class body or a name to its static list.
+- Declared Stimulus members are coloured in JavaScript and TypeScript through a
+  themeable `wicker.stimulusMember` colour.
+
+### Fixed
+
+- JSON endpoints appear under their controller in the sidebar. Action rows came
+  from render sites alone, so an action returning JSON had no row at all while
+  its route was listed under API routes.
+- Route icons are decided in one place. The same route could be drawn as a
+  globe in its section and a leaf under its controller, and the leaf claims a
+  template is rendered.
+- The Scripts group has an icon that exists. `code-block` is not a codicon, and
+  `ThemeIcon` draws nothing for an unknown id without reporting a problem.
+
 ## 0.4.0
 
 ### Added

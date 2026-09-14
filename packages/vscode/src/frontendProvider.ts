@@ -109,6 +109,8 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       const routes = session.frontend.routes.filter((route) => route.name === ref.name);
       query = this.routeQuery(session, session.frontend.routes, ref.name, ref.range);
       query.routes = routes;
+    } else if (ref?.kind === 'actionParam') {
+      query = this.actionParamQuery(session, ref);
     } else if (ref && ['event', 'keyFilter', 'eventTarget', 'actionOption'].includes(ref.kind)) {
       query = descriptorQuery(ref);
       if (ref.kind === 'event') { query.candidates.push(...this.dispatchedEvents(session)); }
@@ -156,6 +158,28 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       if (/\.[jt]s$/.test(path)) { query = this.withGeneratedMembers(session, path, source, offset, query); }
     }
     return this.sessions.sessionFor(document) === session && document.version === version ? query : undefined;
+  }
+
+  /**
+   * An action parameter, which declares nothing anywhere.
+   *
+   * Stimulus collects `data-<controller>-<name>-param` onto `event.params`, so
+   * the name is invented in the template and read in the handler with nothing
+   * connecting the two. There is no declaration to navigate to and none to
+   * complete from, so the only honest thing to offer is what it becomes.
+   */
+  private actionParamQuery(session: ProjectSession, ref: FrontendReference): Query | undefined {
+    const controllers = session.frontend.controllers
+      .filter((entry) => ownsFrontendPath(this.sessions, session, entry.projectPath));
+    const controller = controllers.filter((entry) => ref.name.startsWith(`${entry.name}-`))
+      .sort((a, b) => b.name.length - a.name.length)[0];
+    if (!controller) { return undefined; }
+
+    const parameter = ref.name.slice(controller.name.length + 1)
+      .replace(/-(\w)/g, (_, letter: string) => letter.toUpperCase());
+    return { name: ref.name, range: ref.range, candidates: [],
+      documentation: `A handler in ${controller.name} reads this as event.params.${parameter}. `
+        + 'Action parameters are declared nowhere, so the name here and the name in the handler must simply agree.' };
   }
 
   /**

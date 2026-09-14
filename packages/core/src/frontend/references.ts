@@ -11,7 +11,9 @@ export interface FrontendReference {
   /** A logical asset path from `asset()`, or an importmap entrypoint from `importmap()`. */
   | 'asset' | 'entrypoint'
   /** The halves of an action descriptor that are not the controller or method. */
-  | 'event' | 'keyFilter' | 'eventTarget' | 'actionOption';
+  | 'event' | 'keyFilter' | 'eventTarget' | 'actionOption'
+  /** `data-<controller>-<name>-param`, read in a handler as `event.params.<name>`. */
+  | 'actionParam';
   readonly name: string;
   readonly range: OffsetRange;
   readonly controller?: string;
@@ -181,6 +183,12 @@ export function scanFrontend(source: string, twig: boolean): FrontendScan {
         references.push({ kind: 'outlet', name: attrName.slice(5, -7),
           range: { start: attrStart + 5, end: attrStart + attrName.length - 7 },
           ...(!/[{}]/.test(raw) ? { selector: { name: raw, range: { start, end: stop } } } : {}) });
+      } else if (attrName.startsWith('data-') && attrName.endsWith('-param')) {
+        // No declaration exists for these. Stimulus collects them onto
+        // event.params, so the name is invented in the template and read in
+        // the handler, with nothing connecting the two.
+        const combined = attrName.slice(5, -6);
+        references.push({ kind: 'actionParam', name: combined, range: { start: attrStart + 5, end: attrStart + attrName.length - 6 } });
       } else if (attrName.startsWith('data-') && attrName.endsWith('-class')) {
         // Same shape as a value attribute: the controller name may itself
         // contain dashes, so the combined name is kept and the longest

@@ -890,6 +890,19 @@ class WickerFrontendTestController {
     }
   });
 
+  test('explains an action parameter, which declares nothing anywhere', async () => {
+    const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
+      'vscode.executeHoverProvider', page.uri, await at(page,
+        '<button data-wicker-test-item-i§d-param="7"></button>'));
+    const text = hovers.flatMap((hover) => hover.contents)
+      .map((content) => typeof content === 'string' ? content : content.value).join('\n')
+      .replaceAll('\\', '').replaceAll('&nbsp;', ' ');
+
+    // The name is invented in the template and read in the handler, with
+    // nothing connecting the two, so saying what it becomes is all there is.
+    assert.match(text, /event\.params\.itemId/);
+  });
+
   test('nested Twig bindings cannot supply JSON fields to the parent project', async () => {
     const nested = await vscode.workspace.openTextDocument(uri('nested-app/templates/task/_row.html.twig'));
     const original = nested.getText();

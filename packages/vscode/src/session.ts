@@ -384,6 +384,16 @@ export class SessionManager implements vscode.Disposable {
   private readonly sessions = new Map<string, ProjectSession>();
   private readonly changed = new vscode.EventEmitter<void>();
   private readonly renderSitesChanged = new vscode.EventEmitter<void>();
+  private layout = 0;
+
+  /**
+   * What the set of open projects is on.
+   *
+   * Which session owns a file depends on which projects exist, so anything
+   * caching an ownership decision has to notice a folder appearing or going
+   * away. Nested projects make this real rather than theoretical.
+   */
+  get layoutVersion(): number { return this.layout; }
 
   readonly onDidChange = this.changed.event;
   readonly onDidChangeRenderSites = this.renderSitesChanged.event;
@@ -409,6 +419,7 @@ export class SessionManager implements vscode.Disposable {
     session.renderSites.onDidChange(() => this.renderSitesChanged.fire());
     session.frontendSources.onDidChange(() => this.renderSitesChanged.fire());
     this.sessions.set(key, session);
+    this.layout++;
     this.changed.fire();
   }
 
@@ -416,6 +427,7 @@ export class SessionManager implements vscode.Disposable {
     const key = folder.uri.toString();
     this.sessions.get(key)?.dispose();
     if (this.sessions.delete(key)) {
+      this.layout++;
       this.changed.fire();
     }
   }

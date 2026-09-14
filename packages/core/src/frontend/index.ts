@@ -45,6 +45,9 @@ export class FrontendIndex {
   private readonly files = new Map<string, FrontendFile>();
   /** Bumped whenever the file set changes, so a memo can tell it is stale. */
   private revision = 0;
+  /** What the file set is on now. A caller holding a derived copy compares
+   * this to know whether the copy still describes the index. */
+  get version(): number { return this.revision; }
   private routeMemo?: RouteLookups;
   private graphMemo?: GraphLookups;
   private actionMemo?: { revision: number; byMethod: ReadonlyMap<string, readonly FileAction[]> };

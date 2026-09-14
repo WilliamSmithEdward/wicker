@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { ACTION_OPTIONS, COMMON_EVENTS, EVENT_TARGETS, KEY_FILTERS,
-  fetchValueReferences, importSpecifiers, joinProjectPath, resolveRelativeImport, responseAccessAt,
+  cssImports, cssUrls, fetchValueReferences, importSpecifiers, joinProjectPath, resolveRelativeImport, responseAccessAt,
   scanFrontend, stimulusCallbackOwners, stimulusGeneratedMembers, stimulusHtmlName, stimulusSource,
   type FrontendReference, type OffsetRange, type ResponseField, type StimulusMember, type StimulusValue,
   type SymfonyRoute } from '@wicker/core';
@@ -151,10 +151,35 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       }
       if (!query && /\.[jt]s$/.test(path)) { query = this.importQuery(session, path, source, offset); }
       if (!query && /\.[jt]s$/.test(path)) { query = await this.outlets.javascript(session, path, source, offset); }
+      if (!query && path.endsWith('.css')) { query = this.stylesheetQuery(session, path, source, offset); }
       if (!query && /\.[jt]s$/.test(path)) { query = this.callbackQuery(path, source, offset); }
       if (/\.[jt]s$/.test(path)) { query = this.withGeneratedMembers(session, path, source, offset, query); }
     }
     return this.sessions.sessionFor(document) === session && document.version === version ? query : undefined;
+  }
+
+  /**
+   * What a stylesheet points at, through `@import` or `url()`.
+   *
+   * AssetMapper rewrites both to hashed URLs when it serves the sheet, so a
+   * path that resolves to nothing becomes a missing image or font with no
+   * error anywhere. Both are resolved relative to the stylesheet.
+   */
+  private stylesheetQuery(session: ProjectSession, path: string, source: string, offset: number): Query | undefined {
+    const found = [...cssImports(source), ...cssUrls(source)]
+      .find((entry) => offset >= entry.range.start && offset <= entry.range.end);
+    if (!found) { return undefined; }
+
+    const target = resolveRelativeImport(path, found.specifier)
+      // A bare specifier in a stylesheet is a logical asset path rather than a
+      // relative one, which is how a bundled font or icon set is written.
+      ?? session.assets.map.lookup(found.specifier)?.projectPath;
+    if (target === undefined) { return { name: found.specifier, range: found.range, candidates: [] }; }
+
+    return { name: found.specifier, range: found.range, candidates: [{
+      name: found.specifier, projectPath: target.replace(/[?#].*$/, ''), range: { start: 0, end: 0 },
+      label: `Stylesheet reference · ${target}`, kind: vscode.CompletionItemKind.File,
+    }] };
   }
 
   /**

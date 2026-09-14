@@ -46,6 +46,9 @@ const FRONTEND_SELECTOR: vscode.DocumentFilter[] = [
   ...TWIG_SELECTOR,
   { language: 'javascript', scheme: 'file' },
   { language: 'typescript', scheme: 'file' },
+  // Stylesheets reference other assets, and AssetMapper rewrites those paths
+  // when it serves the file, so one that resolves to nothing fails silently.
+  { language: 'css', scheme: 'file' },
 ];
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {

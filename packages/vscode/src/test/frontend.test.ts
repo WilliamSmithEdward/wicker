@@ -865,6 +865,31 @@ class WickerFrontendTestController {
     }
   });
 
+  test('navigates what a stylesheet points at', async () => {
+    const sheet = await vscode.workspace.openTextDocument(uri('assets/styles/app.css'));
+    const original = sheet.getText();
+    try {
+      // AssetMapper rewrites both forms when it serves the file, so a path
+      // resolving to nothing is a missing import or image with no error.
+      const text = `@import './theme.css';\na { background: url('./theme.css#top'); }`;
+      await replace(sheet, text);
+
+      const atImport = await definitions(sheet, sheet.positionAt(text.indexOf('./theme.css') + 3));
+      assert.equal(atImport.length, 1);
+      assert.ok(atImport[0]!.targetUri.path.endsWith('assets/styles/theme.css'));
+
+      // A fragment addresses part of the same file and must not stop it
+      // resolving.
+      const atUrl = await definitions(sheet, sheet.positionAt(text.lastIndexOf('./theme.css') + 3));
+      assert.equal(atUrl.length, 1);
+      assert.ok(atUrl[0]!.targetUri.path.endsWith('assets/styles/theme.css'));
+    } finally {
+      await replace(sheet, original);
+      await vscode.window.showTextDocument(sheet);
+      await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+    }
+  });
+
   test('nested Twig bindings cannot supply JSON fields to the parent project', async () => {
     const nested = await vscode.workspace.openTextDocument(uri('nested-app/templates/task/_row.html.twig'));
     const original = nested.getText();

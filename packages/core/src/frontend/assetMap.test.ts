@@ -121,6 +121,16 @@ describe('AssetMap', () => {
     expect(map.lookup('node_modules/pkg/index.js')).toBeUndefined();
   });
 
+  it('resolves a reference that addresses part of an asset', async () => {
+    // A fragment selects a symbol inside an SVG and a query busts a cache.
+    // Neither changes which file is named, and matching them literally would
+    // make a working reference look broken.
+    const map = await build();
+    expect(map.lookup('styles/app.css#top')?.projectPath).toBe('assets/styles/app.css');
+    expect(map.lookup('styles/app.css?v=2')?.projectPath).toBe('assets/styles/app.css');
+    expect(map.lookup('styles/missing.css#top')).toBeUndefined();
+  });
+
   it('resolves a logical path to its file and back', async () => {
     const map = await build();
     expect(map.lookup('styles/app.css')?.projectPath).toBe('assets/styles/app.css');

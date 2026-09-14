@@ -19,7 +19,7 @@ export { NodeFileSystem } from './fs/nodeFileSystem.js';
 export { VALUE_TYPES, stimulusCallbackOwners, stimulusClassProperties, stimulusDeclarationRanges, stimulusGeneratedMembers, stimulusIdentifier, stimulusSource, stimulusOutletProperties, stimulusOutletStem, stimulusTargetProperties, stimulusValueProperties, type GeneratedMember, type StimulusController, type StimulusSource, type StimulusMember, type StimulusDispatch, type StimulusValue, type CallbackOwner } from './frontend/stimulus.js';
 export { AssetMap, assetExcluded, assetLogicalPath, assetMapperSettings, type AssetMapperSettings, type AssetRoot, type MappedAsset } from './frontend/assetMap.js';
 export { parseImportMap, type ImportMapEntry } from './frontend/importMap.js';
-export { cssImports, type CssImport } from './frontend/cssImports.js';
+export { cssImports, cssUrls, type CssImport } from './frontend/cssImports.js';
 export { importSpecifiers, resolveRelativeImport, type ImportSpecifier } from './frontend/imports.js';
 export { parseActionDescriptor, ACTION_OPTIONS, COMMON_EVENTS, DEFAULT_EVENTS, EVENT_TARGETS, KEY_FILTERS, type ActionDescriptor } from './frontend/actionDescriptor.js';
 export { resolveOutletReference, outletAccessAt, outletUseRanges, type OutletAccess } from './frontend/outlets.js';

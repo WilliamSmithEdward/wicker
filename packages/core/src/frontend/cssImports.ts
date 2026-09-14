@@ -50,3 +50,31 @@ function blankComments(source: string): string {
   }
   return out.join('');
 }
+
+/**
+ * The files a stylesheet references through `url()`.
+ *
+ * AssetMapper rewrites these to hashed URLs when it serves the sheet, so a
+ * path that resolves to nothing is a broken image or font with no error
+ * anywhere. They are resolved relative to the stylesheet, like an import.
+ *
+ * Data URIs and absolute URLs name no project file and are skipped, as is a
+ * computed value such as `url(var(--icon))`.
+ */
+export function cssUrls(source: string): readonly CssImport[] {
+  const found: CssImport[] = [];
+  const commentless = blankComments(source);
+  const statement = /\burl\(\s*(['"]?)([^'")\n]*)\1\s*\)/g;
+
+  let match: RegExpExecArray | null;
+  while ((match = statement.exec(commentless)) !== null) {
+    const specifier = (match[2] ?? '').trim();
+    // A bracket means the value is a function call such as var(--icon), which
+    // names nothing until the browser resolves it.
+    if (specifier.length === 0 || specifier.includes('(') ||
+      /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(specifier)) { continue; }
+    const start = commentless.indexOf(specifier, match.index);
+    found.push({ specifier, range: { start, end: start + specifier.length } });
+  }
+  return found;
+}

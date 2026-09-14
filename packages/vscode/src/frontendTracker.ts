@@ -4,7 +4,17 @@ import type { VsCodeFileSystem } from './fileSystem.js';
 import { enginePathOf } from './paths.js';
 
 const EXCLUDED = new Set(['vendor', 'var', 'node_modules', '.git']);
-const PATTERN = '**/*.{php,twig,js,ts,map}';
+/*
+ * The file kinds this tracker reads. Named once: the glob and the path guard
+ * are both derived from it, and when they were written separately a change to
+ * one silently dropped every file the other still admitted.
+ *
+ * CSS is included because a stylesheet's own @import chain is how most of a
+ * page's styles are reached, and none of those names appear in a template.
+ */
+const EXTENSIONS = ['php', 'twig', 'js', 'ts', 'map', 'css'] as const;
+const PATTERN = `**/*.{${EXTENSIONS.join(',')}}`;
+const TRACKED = new RegExp(String.raw`\.(?:${EXTENSIONS.join('|')})$`);
 
 /** Independent of console discovery: dirty buffers immediately update links and
  * response fields without running PHP on every keystroke. */
@@ -37,7 +47,7 @@ export class FrontendTracker implements vscode.Disposable {
   private path(uri: vscode.Uri): string | undefined {
     if (uri.scheme !== this.rootUri.scheme || uri.authority !== this.rootUri.authority) { return undefined; }
     const path = toProjectPath(this.root, enginePathOf(uri));
-    return path && /\.(?:php|twig|js|ts|map)$/.test(path) && !path.split('/').some((part) => EXCLUDED.has(part)) ? path : undefined;
+    return path && TRACKED.test(path) && !path.split('/').some((part) => EXCLUDED.has(part)) ? path : undefined;
   }
   private update(document: vscode.TextDocument): void {
     const path = this.path(document.uri);

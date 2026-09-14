@@ -726,7 +726,9 @@ class WickerFrontendTestController {
     await sessions.initialize();
     const tree = new ProjectTreeProvider(sessions);
     try {
-      await replace(page, `<link rel="stylesheet" href="{{ asset('styles/app.css') }}">`);
+      // The entrypoint route only: no asset() link, no direct mention of CSS,
+      // which is how a real AssetMapper layout is written.
+      await replace(page, `{{ importmap('app') }}`);
       await eventually(() => true);
 
       const find = (node: SidebarNode | undefined, depth = 0): SidebarNode | undefined => {
@@ -741,9 +743,12 @@ class WickerFrontendTestController {
       assert.ok(template, 'the edited template should appear in the tree');
 
       const styles = tree.getChildren(template).filter((child) => child.kind === 'style');
+      // theme.css is named in no template and no script: it is reached only by
+      // app.css importing it, which is the common shape and the easy one to
+      // miss.
       assert.deepEqual(styles.map((style) => style.kind === 'style' ? style.projectPath : ''),
-        ['assets/styles/app.css']);
-      assert.match(tooltipOf(tree.getTreeItem(styles[0]!)), /Linked by wicker_frontend_test\.html\.twig/);
+        ['assets/styles/app.css', 'assets/styles/theme.css']);
+      assert.match(tooltipOf(tree.getTreeItem(styles[0]!)), /through the app entrypoint/);
     } finally {
       tree.dispose();
       sessions.dispose();

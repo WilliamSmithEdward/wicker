@@ -1,42 +1,105 @@
+import { cssImports, importSpecifiers, resolveRelativeImport, type FrontendIndex } from '@wicker/core';
+
 import { frontendIndex } from './frontendProject.js';
-import { walkTemplates } from './relatedScripts.js';
+import { templateScripts, walkTemplates } from './relatedScripts.js';
 import type { ProjectSession, SessionManager } from './session.js';
 
 export interface RelatedStyle {
   readonly projectPath: string;
-  /** Which template links it, so a stylesheet from a layout is explainable. */
+  /** How the page reaches it, so a stylesheet from a layout explains itself. */
   readonly reasons: readonly string[];
 }
 
 /**
- * Stylesheets a page links, following its layout and includes.
+ * Stylesheets a page loads, by whatever route reaches them.
  *
- * A template names a stylesheet through `asset('styles/app.css')`, and the
- * link is nearly always in a base layout rather than the page itself. So
- * "which CSS does this page load" is a question nobody can answer by reading
- * the file in front of them, which is exactly the gap worth closing.
+ * CSS arrives several ways and a template usually names none of them:
  *
- * Only literal `asset()` arguments that resolve to a mapped `.css` file are
- * listed. A computed path names nothing checkable, and a path outside the
- * asset map is not served, so neither is claimed.
+ *     base.html.twig  asset('styles/app.css')            a direct link
+ *     base.html.twig  importmap('app')  -> app.js        -> './styles/app.css'
+ *     page.html.twig  data-controller   -> foo_controller.js -> './foo.css'
+ *                     any of those css  -> @import       -> more css
+ *
+ * So rather than enumerate routes, this seeds from everything a template
+ * reaches and expands transitively: a script leads to its imports, a
+ * stylesheet to the stylesheets it imports. Adding another way for a file to
+ * be associated with a page makes its CSS reachable without changing anything
+ * here.
  */
 export function templateStyles(sessions: SessionManager, session: ProjectSession,
   names: readonly string[]): readonly RelatedStyle[] {
   const index = frontendIndex(sessions, session);
-  const found = new Map<string, Set<string>>();
+  const seeds = new Map<string, string>();
 
   walkTemplates(session, index, names, (file, name) => {
     for (const ref of file.scan.references) {
-      if (ref.kind !== 'asset' || !ref.name.toLowerCase().endsWith('.css')) { continue; }
-      const asset = session.assets.map.lookup(ref.name);
-      if (!asset) { continue; }
-      let reasons = found.get(asset.projectPath);
-      if (!reasons) { reasons = new Set(); found.set(asset.projectPath, reasons); }
-      reasons.add(`Linked by ${name}`);
+      if (ref.kind === 'asset') {
+        const asset = session.assets.map.lookup(ref.name);
+        if (asset) { seeds.set(asset.projectPath, `Linked by ${name}`); }
+      }
+      if (ref.kind === 'entrypoint') {
+        const entry = session.assets.importMap.find((candidate) => candidate.specifier === ref.name);
+        if (entry?.projectPath !== undefined) {
+          seeds.set(entry.projectPath, `Loaded by ${name} through the ${ref.name} entrypoint`);
+        }
+      }
     }
   });
+
+  // Everything already associated with the page: Stimulus controllers bound in
+  // its markup, route consumers, and whatever else that list grows to cover.
+  for (const script of templateScripts(sessions, session, names)) {
+    seeds.set(script.projectPath, script.reasons[0] ?? 'Associated script');
+  }
+
+  const found = new Map<string, Set<string>>();
+  for (const [seed, reason] of seeds) {
+    for (const stylesheet of stylesheetsFrom(session, index, seed)) {
+      let reasons = found.get(stylesheet);
+      if (!reasons) { reasons = new Set(); found.set(stylesheet, reasons); }
+      reasons.add(reason);
+    }
+  }
 
   return [...found.entries()]
     .map(([projectPath, reasons]) => ({ projectPath, reasons: [...reasons].sort() }))
     .sort((left, right) => left.projectPath.localeCompare(right.projectPath));
+}
+
+/**
+ * Stylesheets reachable from one file, following imports of both kinds.
+ *
+ * A seed may itself be a stylesheet, in which case it counts and its own
+ * `@import`s are followed too.
+ */
+function stylesheetsFrom(session: ProjectSession, index: FrontendIndex, seed: string): string[] {
+  const queue = [seed], visited = new Set<string>();
+  const stylesheets: string[] = [];
+
+  for (let at = 0; at < queue.length; at++) {
+    const path = queue[at]!;
+    if (visited.has(path)) { continue; }
+    visited.add(path);
+
+    if (isStylesheet(path)) { stylesheets.push(path); }
+
+    const source = index.get(path)?.source;
+    if (source === undefined) { continue; }
+
+    const specifiers = isStylesheet(path)
+      ? cssImports(source).map((entry) => entry.specifier)
+      : importSpecifiers(source).map((entry) => entry.specifier);
+
+    for (const specifier of specifiers) {
+      const target = resolveRelativeImport(path, specifier)
+        ?? session.assets.importMap.find((candidate) => candidate.specifier === specifier)?.projectPath;
+      if (target !== undefined && !visited.has(target)) { queue.push(target); }
+    }
+  }
+
+  return stylesheets;
+}
+
+function isStylesheet(path: string): boolean {
+  return path.toLowerCase().endsWith('.css');
 }

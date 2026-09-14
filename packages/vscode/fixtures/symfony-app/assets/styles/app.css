@@ -1,4 +1,6 @@
-/* Linked from a template through asset(), for the sidebar's Styles rows. */
+/* Linked from a template through asset(), and imports the rest. */
+@import './theme.css';
+
 body {
     margin: 0;
 }

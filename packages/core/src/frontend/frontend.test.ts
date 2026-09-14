@@ -383,6 +383,22 @@ describe('consumer index', () => {
       .toEqual(['templates/status.html.twig']);
   });
 
+  // The parsed structures come to several times the text, so an index with no
+  // ceiling is a way for one enormous project to take the editor down with it.
+  it('stops retaining once it is holding too much', () => {
+    const index = new FrontendIndex();
+    const chunk = 'x'.repeat(4 * 1024 * 1024);
+    for (let i = 0; i < 9; i += 1) { index.update(`assets/big_${i}.css`, chunk); }
+    expect(index.all().length).toBeLessThan(9);
+  });
+
+  it('counts a replaced file once rather than every time it is written', () => {
+    const index = new FrontendIndex();
+    const chunk = 'x'.repeat(8 * 1024 * 1024);
+    for (let i = 0; i < 10; i += 1) { index.update('assets/one.css', chunk); }
+    expect(index.all().length).toBe(1);
+  });
+
   it('answers the same for a route list rebuilt with equal contents', () => {
     const index = new FrontendIndex();
     index.update('templates/status.html.twig', `{{ stimulus_controller('status', {url: path('api_status')}) }}`);

@@ -45,6 +45,7 @@ interface GraphLookups {
 
 export class FrontendIndex {
   private readonly files = new Map<string, FrontendFile>();
+  private sourceSize = 0;
   /** Bumped whenever the file set changes, so a memo can tell it is stale. */
   private revision = 0;
   /** What the file set is on now. A caller holding a derived copy compares
@@ -55,6 +56,15 @@ export class FrontendIndex {
   private actionMemo?: { revision: number; byMethod: ReadonlyMap<string, readonly FileAction[]> };
 
   update(projectPath: string, source: string): void {
+    const held = this.files.get(projectPath)?.source.length ?? 0;
+    // Bound what the index retains. The parsed structures come to several
+    // times the text they came from, so the text is what is worth measuring,
+    // and a project this large is past the point where holding all of it in
+    // the editor's process is the right thing to do.
+    if (this.sourceSize - held + source.length > MAX_RETAINED_BYTES) {
+      this.remove(projectPath);
+      return;
+    }
     const scan = /\.(?:twig|js|ts)$/.test(projectPath)
       ? scanFrontend(source, projectPath.endsWith('.twig'))
       : { references: [], requests: [], bindings: [], scripts: [] };
@@ -64,17 +74,26 @@ export class FrontendIndex {
       templateReferences: projectPath.endsWith('.twig') ? activeTemplateReferences(source) : [],
       fetchValues: fetchValueReferences(source, scan.scripts),
       ...(/\.[jt]s$/.test(projectPath) ? { stimulus: stimulusSource(source) } : {}) });
+    this.sourceSize += source.length - held;
     this.revision++;
   }
   remove(projectPath: string): void {
-    if (this.files.delete(projectPath)) { this.revision++; }
+    const found = this.files.get(projectPath);
+    if (found === undefined) { return; }
+    this.sourceSize -= found.source.length;
+    this.files.delete(projectPath);
+    this.revision++;
   }
   sourcePaths(): string[] { return [...this.files.keys()]; }
   all(): readonly FrontendFile[] { return [...this.files.values()]; }
   get(projectPath: string): FrontendFile | undefined { return this.files.get(projectPath); }
   filtered(owns: (path: string) => boolean): FrontendIndex {
     const result = new FrontendIndex();
-    for (const [path, file] of this.files) { if (owns(path)) { result.files.set(path, file); } }
+    for (const [path, file] of this.files) {
+      if (!owns(path)) { continue; }
+      result.files.set(path, file);
+      result.sourceSize += file.source.length;
+    }
     return result;
   }
 
@@ -218,6 +237,14 @@ export class FrontendIndex {
     return graph;
   }
 }
+
+/**
+ * Source text the index will hold, in total.
+ *
+ * Matches the bound the template context index keeps, so the two cannot
+ * disagree about how much of a project belongs in memory.
+ */
+const MAX_RETAINED_BYTES = 32 * 1024 * 1024;
 
 export interface FileAction { readonly projectPath: string; readonly action: EndpointAction }
 

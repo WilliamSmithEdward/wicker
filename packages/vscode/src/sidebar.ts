@@ -1,9 +1,12 @@
 import * as vscode from 'vscode';
 
-import { joinProjectPath, parseTemplateName, type LoaderPathEntry, type LoaderPathSource, type RenderingController, type RenderSite } from '@wicker/core';
+import { joinProjectPath, parseTemplateName, type LoaderPathEntry, type LoaderPathSource, type RenderingController, type RenderSite, type SymfonyRoute } from '@wicker/core';
 
 import { enginePathOf } from './paths.js';
 import type { ProjectSession, SessionManager } from './session.js';
+import { apiRoutes, compareRoutePaths, controllerDependencies, routeAction, routeConsumers, templateRoutes } from './frontendProject.js';
+import { dependencyKind, sidebarIcon, SIDEBAR_ICONS as icons } from './sidebarIcons.js';
+import { controllerScripts, templateScripts, type RelatedScript } from './relatedScripts.js';
 
 const SHOW_BUNDLES_KEY = 'wicker.sidebar.showBundleTemplates';
 type WarningReason = 'namespaces' | 'indexLimit';
@@ -13,11 +16,23 @@ type ControllerNode = ControllerIdentity & (
   | { readonly kind: 'controllerMethod'; readonly methodName: string }
   | { readonly kind: 'controllerTemplate'; readonly methodName: string; readonly name: string }
 );
+type ScriptOwner =
+  | (ControllerIdentity & { readonly kind: 'controllerScripts' })
+  | Extract<ControllerNode, { kind: 'controllerTemplate' }>
+  | { readonly kind: 'template'; readonly root: vscode.Uri; readonly name: string }
+  | { readonly kind: 'routeTemplate'; readonly root: vscode.Uri; readonly name: string; readonly section: 'api' | 'templateRoutes'; readonly templateName: string };
 
 export type SidebarNode =
   | { readonly kind: 'project'; readonly root: vscode.Uri }
-  | { readonly kind: 'section'; readonly root: vscode.Uri; readonly section: 'controllers' | 'templates' }
+  | { readonly kind: 'section'; readonly root: vscode.Uri; readonly section: 'controllers' | 'templates' | 'api' | 'templateRoutes' }
+  | { readonly kind: 'route'; readonly root: vscode.Uri; readonly name: string; readonly section: 'api' | 'templateRoutes' }
+  | { readonly kind: 'routeConsumer'; readonly root: vscode.Uri; readonly name: string; readonly section: 'api' | 'templateRoutes'; readonly projectPath: string; readonly offset: number }
+  | { readonly kind: 'routeTemplate'; readonly root: vscode.Uri; readonly name: string; readonly section: 'api' | 'templateRoutes'; readonly templateName: string }
   | ControllerNode
+  | (ControllerIdentity & { readonly kind: 'controllerDependencies' })
+  | (ControllerIdentity & { readonly kind: 'controllerDependency'; readonly typeName: string })
+  | (ControllerIdentity & { readonly kind: 'controllerScripts' })
+  | { readonly kind: 'script'; readonly root: vscode.Uri; readonly projectPath: string; readonly parent: ScriptOwner }
   | { readonly kind: 'warning'; readonly root: vscode.Uri; readonly reason: WarningReason }
   | { readonly kind: 'action'; readonly root: vscode.Uri; readonly reason: WarningReason; readonly action: 'retry' | 'settings' }
   | { readonly kind: 'namespace'; readonly root: vscode.Uri; readonly namespace: string }
@@ -101,8 +116,29 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       return [
         ...warningReasons(session).map((reason) => ({ kind: 'warning' as const, root: node.root, reason })),
         { kind: 'section', root: node.root, section: 'controllers' },
+        ...(templateRoutes(this.sessions, session).length ? [{ kind: 'section' as const, root: node.root, section: 'templateRoutes' as const }] : []),
+        ...(apiRoutes(this.sessions, session).length ? [{ kind: 'section' as const, root: node.root, section: 'api' as const }] : []),
         { kind: 'section', root: node.root, section: 'templates' },
       ];
+    }
+    if (node.kind === 'section' && (node.section === 'api' || node.section === 'templateRoutes')) {
+      const section = node.section;
+      const routes = section === 'api' ? apiRoutes(this.sessions, session) : templateRoutes(this.sessions, session);
+      return routes.map((route) => ({ kind: 'route', root: node.root, name: route.name, section }));
+    }
+    if (node.kind === 'route') {
+      const route = session.frontend.routes.find((route) => route.name === node.name);
+      return !route ? [] : [
+        ...(routeAction(this.sessions, session, route)?.action.templates ?? []).map((templateName) => ({
+          kind: 'routeTemplate' as const, root: node.root, name: node.name, section: node.section, templateName })),
+        ...routeConsumers(this.sessions, session, route).map((use) => ({ kind: 'routeConsumer' as const,
+          root: node.root, name: node.name, section: node.section, projectPath: use.projectPath, offset: use.range.start })),
+      ];
+    }
+    if (isScriptOwner(node)) {
+      return scriptsForOwner(this.sessions, session, node).map((script) => ({
+        kind: 'script', root: node.root, projectPath: script.projectPath, parent: node,
+      }));
     }
     if (node.kind === 'section' && node.section === 'controllers') {
       return controllersInProject(this.sessions, session).map(({ projectPath, className }) => ({
@@ -112,12 +148,26 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     if (node.kind === 'controller' || node.kind === 'controllerMethod') {
       const sites = controllerSites(this.sessions, session, node);
       if (node.kind === 'controller') {
-        return [...new Set(sites.map((site) => site.methodName!))].map((methodName) => ({
-          ...node, kind: 'controllerMethod', methodName,
+        const actions = [...new Set(sites.map((site) => site.methodName!))].map((methodName) => ({
+          methodName, route: controllerRoutes(this.sessions, session, { ...node, methodName })[0],
         }));
+        actions.sort((left, right) => left.route && right.route ? compareRoutePaths(left.route, right.route) :
+          left.route ? -1 : right.route ? 1 : 0);
+        return [
+          ...actions.map(({ methodName }) => ({ ...node, kind: 'controllerMethod' as const, methodName })),
+          ...(controllerDependencies(this.sessions, session, node).length
+            ? [{ ...node, kind: 'controllerDependencies' as const }] : []),
+          ...(controllerScripts(this.sessions, session, node).length
+            ? [{ ...node, kind: 'controllerScripts' as const }] : []),
+        ];
       }
       return [...new Set(sites.map((site) => site.templateName))].map((name) => ({
         ...node, kind: 'controllerTemplate', name,
+      }));
+    }
+    if (node.kind === 'controllerDependencies') {
+      return controllerDependencies(this.sessions, session, node).map((dependency) => ({
+        ...node, kind: 'controllerDependency', typeName: dependency.declaration.name,
       }));
     }
     if (node.kind === 'section' && node.section === 'templates') {
@@ -167,6 +217,9 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
   }
 
   getParent(node: SidebarNode): SidebarNode | undefined {
+    if (node.kind === 'script') { return node.parent; }
+    if (node.kind === 'route') { return { kind: 'section', root: node.root, section: node.section }; }
+    if (node.kind === 'routeConsumer' || node.kind === 'routeTemplate') { return { kind: 'route', root: node.root, name: node.name, section: node.section }; }
     if (node.kind === 'project') {
       return undefined;
     }
@@ -176,7 +229,10 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     if (node.kind === 'namespace' || node.kind === 'controller') {
       return { kind: 'section', root: node.root, section: node.kind === 'namespace' ? 'templates' : 'controllers' };
     }
-    if (node.kind === 'controllerMethod') {
+    if (node.kind === 'controllerDependency') {
+      return { kind: 'controllerDependencies', root: node.root, projectPath: node.projectPath, className: node.className };
+    }
+    if (node.kind === 'controllerMethod' || node.kind === 'controllerDependencies' || node.kind === 'controllerScripts') {
       return { kind: 'controller', root: node.root, projectPath: node.projectPath, className: node.className };
     }
     if (node.kind === 'controllerTemplate') {
@@ -220,6 +276,71 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
   }
 
   private describe(node: SidebarNode, session: ProjectSession): vscode.TreeItem {
+    if (node.kind === 'controllerScripts') {
+      const item = new vscode.TreeItem('Scripts', this.getChildren(node).length
+        ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
+      item.iconPath = new vscode.ThemeIcon(icons.scripts);
+      item.tooltip = 'Scripts associated through rendered templates, Stimulus bindings or route consumers.';
+      return item;
+    }
+    if (node.kind === 'script') {
+      const script = scriptsForOwner(this.sessions, session, node.parent).find((entry) => entry.projectPath === node.projectPath);
+      const item = new vscode.TreeItem(basename(node.projectPath));
+      item.description = node.projectPath.slice(0, node.projectPath.lastIndexOf('/'));
+      item.iconPath = new vscode.ThemeIcon(scriptIcon(node.projectPath));
+      item.tooltip = `${node.projectPath}\n\n${script?.reasons.join('\n') ?? ''}${script?.generatedPaths.length
+        ? `\n\nTypeScript source for:\n${script.generatedPaths.join('\n')}` : ''}`;
+      item.resourceUri = session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath));
+      if (script) { item.command = { command: 'wicker.openRelatedScript', title: 'Open associated script', arguments: [node] }; }
+      return item;
+    }
+    if (node.kind === 'controllerDependencies' || node.kind === 'controllerDependency') {
+      const dependencies = controllerDependencies(this.sessions, session, node);
+      if (node.kind === 'controllerDependencies') {
+        const item = new vscode.TreeItem('Dependencies', dependencies.length
+          ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
+        item.iconPath = new vscode.ThemeIcon(icons.dependencies);
+        item.tooltip = 'Project types declared on this controller’s parameters and properties. Select one to open its declaration.';
+        return item;
+      }
+      const dependency = dependencies.find((entry) => entry.declaration.name === node.typeName);
+      const shortName = node.typeName.split('\\').at(-1)!;
+      const duplicate = dependencies.filter((entry) => entry.declaration.name.split('\\').at(-1) === shortName).length > 1;
+      const item = new vscode.TreeItem(duplicate ? node.typeName : shortName);
+      if (!dependency) { return item; }
+      item.iconPath = new vscode.ThemeIcon(icons[dependencyKind(dependency.declaration)]);
+      item.description = [...new Set(dependency.uses.map((use) => use.variable))].join(', ');
+      item.tooltip = `${node.typeName}\n${dependency.projectPath}\n\nDeclared on:\n${[...new Set(dependency.uses.map((use) =>
+        use.methodName ? `${use.methodName}() — ${use.variable}` : `Property ${use.variable}`))].join('\n')}\n\nOpen type declaration.`;
+      item.resourceUri = session.fileSystem.toUri(joinProjectPath(session.project.root, dependency.projectPath));
+      item.command = { command: 'wicker.openControllerDependency', title: 'Open dependency', arguments: [node] };
+      return item;
+    }
+    if (node.kind === 'section' && (node.section === 'api' || node.section === 'templateRoutes')) {
+      const api = node.section === 'api';
+      const item = new vscode.TreeItem(api ? 'API routes' : 'Template routes', vscode.TreeItemCollapsibleState.Collapsed);
+      item.iconPath = new vscode.ThemeIcon(api ? icons.apiRoutes : icons.templateRoutes);
+      item.tooltip = api ? 'JSON endpoints and routes explicitly fetched by JavaScript. Expand a route to find its consumers and rendered templates.' :
+        'Routes whose controller actions render Twig HTML. Select a route to open its PHP action, or expand it to browse rendered templates and references.';
+      return item;
+    }
+    if (node.kind === 'route' || node.kind === 'routeConsumer' || node.kind === 'routeTemplate') {
+      const route = session.frontend.routes.find((route) => route.name === node.name);
+      const action = route && routeAction(this.sessions, session, route)?.action;
+      const routeIcon = route?.format === 'json' || action?.json ? icons.jsonRoute :
+        action?.templates.length ? icons.templateRoute : icons.route;
+      const label = node.kind === 'route' ? `${route?.methods ?? ''} ${route?.path ?? node.name}` :
+        node.kind === 'routeTemplate' ? node.templateName : node.projectPath;
+      const item = new vscode.TreeItem(label, (node.kind === 'route' || node.kind === 'routeTemplate') && this.getChildren(node).length
+        ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
+      item.iconPath = sidebarIcon(node.kind === 'route' ? routeIcon : node.kind === 'routeTemplate' ? icons.template :
+        /\.[jt]s$/.test(node.projectPath) ? scriptIcon(node.projectPath) : node.projectPath.endsWith('.twig') ? icons.template : icons.consumer);
+      item.description = node.kind === 'route' ? node.name : node.kind === 'routeTemplate' ? 'Renders' : 'Consumer';
+      item.tooltip = node.kind === 'route' ? `${route?.controller ?? node.name}\nOpen the endpoint action. Expand to explore its connections.` :
+        node.kind === 'routeTemplate' ? `HTML rendered by ${node.name}` : `Explicit reference to ${node.name}\n${node.projectPath}`;
+      item.command = { command: 'wicker.openEndpoint', title: 'Open endpoint connection', arguments: [node] };
+      return item;
+    }
     if (node.kind === 'section') {
       const controllers = node.section === 'controllers';
       const count = controllers ? controllersInProject(this.sessions, session).length :
@@ -227,7 +348,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
           .map((name) => session.lookup(name)?.projectPath)).size;
       const item = new vscode.TreeItem(controllers ? 'Controllers' : 'Templates',
         controllers && count === 0 ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Expanded);
-      item.iconPath = new vscode.ThemeIcon(controllers ? 'symbol-class' : 'files');
+      item.iconPath = new vscode.ThemeIcon(controllers ? icons.controllers : icons.templates);
       item.description = String(count);
       item.tooltip = controllers
         ? 'Controllers with literal render calls or #[Template] attributes. Expand a controller to browse its actions and templates.'
@@ -238,13 +359,24 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       const sites = controllerSites(this.sessions, session, node);
       const controller = node.kind === 'controller';
       const template = node.kind === 'controllerTemplate';
-      const item = new vscode.TreeItem(template ? node.name : controller ? node.className.split('\\').at(-1)! : `${node.methodName}()`,
-        template || sites.length === 0 ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Collapsed);
-      item.iconPath = new vscode.ThemeIcon(template ? 'file-code' : controller ? 'symbol-class' : 'symbol-method');
+      const routes = node.kind === 'controllerMethod' ? controllerRoutes(this.sessions, session, node) : [];
+      const routeLabels = [...new Set(routes.map((route) => `${route.methods} ${route.path}`))];
+      const templateNames = [...new Set(sites.map((site) => site.templateName))];
+      const item = new vscode.TreeItem(template ? node.name : controller ? node.className.split('\\').at(-1)! :
+        routeLabels.length ? routeLabels.join(' · ') : `${node.methodName}()`,
+        (template ? this.getChildren(node).length === 0 : sites.length === 0) ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Collapsed);
+      const actionIcon = routes.some((route) => route.format === 'json' || routeAction(this.sessions, session, route)?.action.json)
+        ? icons.jsonRoute : routes.length ? icons.templateRoute : icons.method;
+      item.iconPath = sidebarIcon(template ? icons.template : controller ? icons.controller : actionIcon);
       item.tooltip = `${node.className}${controller ? '' : `::${node.methodName}()`}\n${node.projectPath}`;
       if (!template) {
-        item.description = String(new Set(sites.map((site) => controller ? site.methodName : site.templateName)).size);
-        item.tooltip += controller ? '\nOpen controller file.' : '\nOpen the first render call or #[Template] attribute. Actions follow source order.';
+        item.description = controller ? String(new Set(sites.map((site) => site.methodName)).size) :
+          routes.length ? `${node.methodName}()` : templateNames.join(', ');
+        if (routes.length) {
+          item.tooltip += `\n\nRoutes:\n${routes.map((route) => `${route.methods} ${route.path} (${route.name})`).join('\n')}`;
+        }
+        if (!controller && templateNames.length) { item.tooltip += `\n\nRenders:\n${templateNames.join('\n')}`; }
+        item.tooltip += controller ? '\nOpen controller file.' : '\nOpen the first render call or #[Template] attribute.';
         item.resourceUri = session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath));
       } else {
         const resolved = session.lookup(node.name);
@@ -272,7 +404,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       const visibleFiles = new Set(session.index.allNames()
         .filter((name) => this.isNamespaceVisible(session, namespaceOf(name)))
         .map((name) => session.lookup(name)?.projectPath)).size;
-      item.iconPath = new vscode.ThemeIcon('project');
+      item.iconPath = new vscode.ThemeIcon(icons.project);
       item.tooltip = `${session.project.root}\n${counted(session.index.fileCount, 'file')}, ${counted(session.index.nameCount, 'template name')}`;
       const source = NAMESPACE_SOURCES[session.loaderPaths.source];
       item.tooltip += `\nNamespaces: ${source.label}\n${source.detail}`;
@@ -315,7 +447,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
         ? vscode.TreeItemCollapsibleState.None
         : vscode.TreeItemCollapsibleState.Collapsed);
       item.description = String(names.length);
-      item.iconPath = new vscode.ThemeIcon('symbol-namespace');
+      item.iconPath = new vscode.ThemeIcon(icons.namespace);
       const directories = session.loaderPaths.paths.all().find((entry) =>
         namespaceKey(entry.namespace, entry.forcesBundleTemplate) === node.namespace,
       )?.directories ?? [];
@@ -329,14 +461,15 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       const count = namesInGroup(session, node.namespace)
         .filter((name) => templatePath(name).startsWith(`${node.path}/`)).length;
       const item = new vscode.TreeItem(basename(node.path), vscode.TreeItemCollapsibleState.Collapsed);
-      item.iconPath = new vscode.ThemeIcon('folder');
+      item.iconPath = new vscode.ThemeIcon(icons.folder);
       item.description = String(count);
       item.tooltip = `${node.namespace ? `${node.namespace}/` : ''}${node.path}/\n${counted(count, 'template name')}`;
       return item;
     }
     const template = session.lookup(node.name);
-    const item = new vscode.TreeItem(basename(templatePath(node.name)));
-    item.iconPath = new vscode.ThemeIcon('file-code');
+    const item = new vscode.TreeItem(basename(templatePath(node.name)), this.getChildren(node).length
+      ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
+    item.iconPath = sidebarIcon(icons.template);
     if (template !== undefined) {
       item.resourceUri = session.uriFor(template);
       item.tooltip = `${node.name}\n${template.projectPath}`;
@@ -378,6 +511,8 @@ export class WickerSidebar implements vscode.Disposable {
     this.subscriptions = [
       this.provider, this.view,
       vscode.commands.registerCommand('wicker.openController', (node: SidebarNode) => this.openController(node)),
+      vscode.commands.registerCommand('wicker.openControllerDependency', (node: SidebarNode) => this.openControllerDependency(node)),
+      vscode.commands.registerCommand('wicker.openRelatedScript', (node: SidebarNode) => this.openRelatedScript(node)),
       vscode.commands.registerCommand('wicker.openSettings', () =>
         vscode.commands.executeCommand('workbench.action.openSettings', '@ext:WilliamSmithE.wicker')),
       vscode.commands.registerCommand('wicker.retryProject', async (node: SidebarNode) => {
@@ -411,6 +546,7 @@ export class WickerSidebar implements vscode.Disposable {
         }
       }),
       vscode.commands.registerCommand('wicker.revealTemplate', () => this.revealActiveTemplate()),
+      vscode.commands.registerCommand('wicker.openEndpoint', (node: SidebarNode) => this.openEndpoint(node)),
       vscode.commands.registerCommand('wicker.showBundleTemplates', () => this.setShowBundleTemplates(true)),
       vscode.commands.registerCommand('wicker.hideBundleTemplates', () => this.setShowBundleTemplates(false)),
       vscode.window.onDidChangeActiveTextEditor(() => this.updateRevealContext()),
@@ -423,6 +559,25 @@ export class WickerSidebar implements vscode.Disposable {
   finishLoading(): void {
     this.view.message = '';
     this.provider.refresh();
+  }
+  private async openEndpoint(node: SidebarNode): Promise<void> {
+    if (!node || !['route', 'routeConsumer', 'routeTemplate'].includes(node.kind)) { return; }
+    const session = this.sessions.sessionFor({ uri: node.root });
+    if (!session || (node.kind !== 'route' && node.kind !== 'routeConsumer' && node.kind !== 'routeTemplate')) { return; }
+    const route = session.frontend.routes.find((route) => route.name === node.name);
+    if (!route) { return; }
+    const action = routeAction(this.sessions, session, route);
+    const use = node.kind === 'routeConsumer' ? routeConsumers(this.sessions, session, route).find((use) => use.projectPath === node.projectPath && use.range.start === node.offset) : undefined;
+    const template = node.kind === 'routeTemplate' ? session.lookup(node.templateName) : undefined;
+    const path = node.kind === 'route' ? action?.projectPath : node.kind === 'routeConsumer' ? use?.projectPath : template?.projectPath;
+    if (!path) { return; }
+    const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, path));
+    if (this.sessions.sessionFor({ uri }) !== session) { return; }
+    const doc = await vscode.workspace.openTextDocument(uri);
+    const range = node.kind === 'route' ? routeAction(this.sessions, session, route)?.action.range : use?.range;
+    if (this.sessions.sessionFor({ uri }) !== session) { return; }
+    await vscode.window.showTextDocument(doc, { preview: true,
+      ...(range ? { selection: new vscode.Range(doc.positionAt(range.start), doc.positionAt(range.end)) } : {}) });
   }
 
   private async openController(node: SidebarNode): Promise<void> {
@@ -454,6 +609,36 @@ export class WickerSidebar implements vscode.Disposable {
         selection: new vscode.Range(document.positionAt(site.nameRange.start), document.positionAt(site.nameRange.end)),
       } : {}),
     });
+  }
+
+  private async openControllerDependency(node: SidebarNode): Promise<void> {
+    if (node?.kind !== 'controllerDependency') { return; }
+    const session = this.sessions.sessionFor({ uri: node.root });
+    if (!session || session.fileSystem.toUri(session.project.root).toString() !== node.root.toString()) { return; }
+    const resolve = (): ReturnType<typeof controllerDependencies>[number] | undefined =>
+      controllerDependencies(this.sessions, session, node).find((entry) => entry.declaration.name === node.typeName);
+    const target = resolve();
+    if (!target) { return; }
+    const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, target.projectPath));
+    const document = await vscode.workspace.openTextDocument(uri);
+    const current = resolve();
+    if (!current || current.projectPath !== target.projectPath || this.sessions.sessionFor({ uri }) !== session) { return; }
+    await vscode.window.showTextDocument(document, { preview: true,
+      selection: new vscode.Range(document.positionAt(current.declaration.range.start), document.positionAt(current.declaration.range.end)) });
+  }
+
+  private async openRelatedScript(node: SidebarNode): Promise<void> {
+    if (node?.kind !== 'script') { return; }
+    const session = this.sessions.sessionFor({ uri: node.root });
+    if (!session || session.fileSystem.toUri(session.project.root).toString() !== node.root.toString()) { return; }
+    const connected = (): boolean => scriptsForOwner(this.sessions, session, node.parent).some((entry) => entry.projectPath === node.projectPath);
+    if (!connected()) { return; }
+    const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath));
+    if (this.sessions.sessionFor({ uri }) !== session) { return; }
+    const document = await vscode.workspace.openTextDocument(uri);
+    if (connected() && this.sessions.sessionFor({ uri }) === session) {
+      await vscode.window.showTextDocument(document, { preview: true });
+    }
   }
 
   private sessionForAction(node: SidebarNode): ProjectSession | undefined {
@@ -527,9 +712,14 @@ function namespaceOf(name: string): string {
 
 function nodeId(node: SidebarNode): string {
   return JSON.stringify([node.root.toString(), node.kind,
-    isControllerNode(node) ? [node.projectPath, node.className,
+    node.kind === 'script' ? [nodeId(node.parent), node.projectPath] :
+    node.kind === 'controllerDependencies' || node.kind === 'controllerDependency' || node.kind === 'controllerScripts'
+      ? [node.projectPath, node.className, node.kind === 'controllerDependency' ? node.typeName : '']
+    : isControllerNode(node) ? [node.projectPath, node.className,
       node.kind === 'controller' ? '' : node.methodName, node.kind === 'controllerTemplate' ? node.name : '']
       : node.kind === 'section' ? node.section
+      : node.kind === 'route' ? [node.section, node.name] : node.kind === 'routeConsumer' ? [node.section, node.name, node.projectPath, node.offset]
+      : node.kind === 'routeTemplate' ? [node.section, node.name, node.templateName]
       : node.kind === 'warning' ? node.reason : node.kind === 'action' ? [node.reason, node.action]
       : node.kind === 'folder' ? [node.namespace, node.path]
       : node.kind === 'namespace' ? node.namespace : node.kind === 'template' ? node.name : '']);
@@ -538,6 +728,22 @@ function nodeId(node: SidebarNode): string {
 function isControllerNode(node: SidebarNode): node is ControllerNode {
   return node?.kind === 'controller' || node?.kind === 'controllerMethod' || node?.kind === 'controllerTemplate';
 }
+
+function isScriptOwner(node: SidebarNode): node is ScriptOwner {
+  return ['controllerScripts', 'controllerTemplate', 'template', 'routeTemplate'].includes(node.kind);
+}
+
+function scriptsForOwner(sessions: SessionManager, session: ProjectSession, node: ScriptOwner): readonly RelatedScript[] {
+  if (node.kind === 'controllerScripts') { return controllerScripts(sessions, session, node); }
+  if (node.kind === 'controllerTemplate' && !controllerSites(sessions, session, node).length) { return []; }
+  if (node.kind === 'routeTemplate') {
+    const route = session.frontend.routes.find((route) => route.name === node.name);
+    if (!route || !routeAction(sessions, session, route)?.action.templates.includes(node.templateName)) { return []; }
+  }
+  return templateScripts(sessions, session, [node.kind === 'routeTemplate' ? node.templateName : node.name]);
+}
+
+function scriptIcon(path: string): string { return path.endsWith('.ts') ? icons.typescript : icons.javascript; }
 
 function controllersInProject(sessions: SessionManager, session: ProjectSession): readonly RenderingController[] {
   return session.renderSites.index.controllers().filter((controller) => sessions.sessionFor({
@@ -550,6 +756,15 @@ function controllerSites(sessions: SessionManager, session: ProjectSession, node
     entry.projectPath === node.projectPath && entry.className === node.className);
   return controller?.sites.filter((site) => node.kind === 'controller' ||
     (site.methodName === node.methodName && (node.kind !== 'controllerTemplate' || site.templateName === node.name))) ?? [];
+}
+
+function controllerRoutes(sessions: SessionManager, session: ProjectSession,
+  node: ControllerIdentity & { readonly methodName: string }): readonly SymfonyRoute[] {
+  return session.frontend.routes.filter((route) => {
+    const target = routeAction(sessions, session, route);
+    return target?.projectPath === node.projectPath && target.action.className === node.className &&
+      target.action.methodName === node.methodName;
+  }).sort(compareRoutePaths);
 }
 
 function warningReasons(session: ProjectSession): WarningReason[] {

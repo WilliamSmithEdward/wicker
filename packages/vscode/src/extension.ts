@@ -27,8 +27,9 @@ import { WickerSidebar, type SidebarNode } from './sidebar.js';
 import { TwigVariableProvider } from './twigVariables.js';
 import { TwigCallableProvider, twigCallableDiagnostics } from './twigCallables.js';
 import { TwigComponentProvider } from './twigComponents.js';
+import { FrontendProvider } from './frontendProvider.js';
 
-const TWIG_SELECTOR: vscode.DocumentSelector = [
+const TWIG_SELECTOR: vscode.DocumentFilter[] = [
   { language: 'twig', scheme: 'file' },
   { pattern: '**/*.twig', scheme: 'file' },
 ];
@@ -37,6 +38,11 @@ const SELECTOR: vscode.DocumentSelector = [
   { language: 'php', scheme: 'file' },
   { language: 'twig', scheme: 'file' },
   { pattern: '**/*.twig', scheme: 'file' },
+];
+const FRONTEND_SELECTOR: vscode.DocumentFilter[] = [
+  ...TWIG_SELECTOR,
+  { language: 'javascript', scheme: 'file' },
+  { language: 'typescript', scheme: 'file' },
 ];
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -48,6 +54,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const twigVariables = new TwigVariableProvider(sessions);
   const twigCallables = new TwigCallableProvider(sessions);
   const twigComponents = new TwigComponentProvider(sessions);
+  const frontend = new FrontendProvider(sessions);
   const sidebar = new WickerSidebar(sessions, context.workspaceState);
   const output = vscode.window.createOutputChannel('Wicker');
   const diagnostics = vscode.languages.createDiagnosticCollection('wicker');
@@ -75,6 +82,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
 
   context.subscriptions.push(
+    vscode.languages.registerCompletionItemProvider(FRONTEND_SELECTOR, frontend, '"', "'", '#', ' ', '.', '-'),
+    vscode.languages.registerDefinitionProvider(FRONTEND_SELECTOR, frontend),
+    vscode.languages.registerHoverProvider([...FRONTEND_SELECTOR, { language: 'php', scheme: 'file' }], frontend),
+    vscode.languages.registerReferenceProvider([...FRONTEND_SELECTOR, { language: 'php', scheme: 'file' }], frontend),
     vscode.languages.registerCodeLensProvider(
       TWIG_SELECTOR,
       renderedBy,
@@ -222,6 +233,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           `  namespaces     ${[...new Set(namespaces)].join(', ') || '(main only)'}`,
           `  read from      ${origin}`,
           `  Components     ${session.components.status}`,
+          `  Stimulus       ${session.frontend.stimulusStatus}`,
+          `  Routes         ${session.frontend.routesStatus}`,
           `  Twig callables ${session.loaderPaths.callables === undefined ? 'unavailable; unknown-name checks suspended' :
             `${session.loaderPaths.callables.filters.entries.length} filters, ${session.loaderPaths.callables.functions.entries.length} functions${session.canCheckCallables ? '' : ' (refresh pending or unsaved project changes)'}`}`,
           `  detected by    ${session.project.evidence.join(', ')}`,

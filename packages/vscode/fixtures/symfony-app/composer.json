@@ -5,6 +5,7 @@
     "php": ">=8.2",
     "symfony/framework-bundle": "8.1.*",
     "symfony/twig-bundle": "8.1.*",
+    "symfony/stimulus-bundle": "^3.4",
     "symfony/ux-twig-component": "^3.4"
   },
   "autoload": {

@@ -16,6 +16,11 @@ export {
 } from './fs/fileSystem.js';
 export { InMemoryFileSystem } from './fs/inMemoryFileSystem.js';
 export { NodeFileSystem } from './fs/nodeFileSystem.js';
+export { stimulusIdentifier, stimulusSource, type StimulusController, type StimulusSource, type StimulusMember } from './frontend/stimulus.js';
+export { scanFrontend, stimulusHtmlName, type FrontendReference, type FrontendScan } from './frontend/references.js';
+export { routesFromDebug, routeForUrl, endpointActions, type SymfonyRoute, type EndpointAction, type ResponseField } from './frontend/routes.js';
+export { FrontendIndex, fetchValueReferences, type FrontendFile, type EndpointUse } from './frontend/index.js';
+export { responseAccessAt, type ResponseAccess } from './frontend/responseAccess.js';
 
 export {
   parseJsonLoosely,
@@ -122,3 +127,5 @@ export {
   toPosixPath,
   toProjectPath,
 } from './util/paths.js';
+export { phpTypeDeclarations, type PhpTypeDeclaration, type PhpDependency } from './php/dependencies.js';
+export { typescriptSourceForJavascript } from './frontend/sourceMaps.js';

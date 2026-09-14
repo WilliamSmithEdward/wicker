@@ -154,6 +154,24 @@ defensively. Do not guess registrations from directory conventions. Prop
 suggestions read the registered source's current editor buffer. They cover
 direct declarations, not PHP inheritance or dynamic lifecycle hooks.
 
+**Frontend connections follow explicit source evidence.** StimulusBundle has no
+`debug:stimulus` command. Read `debug:config stimulus --format=json` and
+`debug:container --parameter=kernel.project_dir --format=json`, then map paths
+to project-relative form. Controller identifiers follow its configured folders
+and JS/TS filename conventions; enabled UX controllers use package metadata.
+Routes come from `debug:router --format=json`. Never infer JSON from an `/api`
+prefix or call an endpoint to inspect data. Browser-fetched JSON belongs to JS,
+including inline Twig scripts, not automatically to server-side Twig variables.
+PHP `#[` is one lexer token: any balanced-token reader shared with JS must
+account for it or real attributed controller methods silently disappear.
+
+**Controller dependencies are declared types, not a reconstructed container.**
+The tree resolves direct parameter/property types against owned PHP declarations.
+It must not invent an implementation for an interface or follow another session's
+sources. Namespace roles affect icons only. Associated scripts follow explicit
+Stimulus/template/route links. Prefer TS in the tree only when a local source map
+identifies one existing source; matching JS/TS basenames alone are not proof.
+
 ### Things that have already gone wrong
 
 Each of these cost real time. They are written down so they cost it once.
@@ -274,7 +292,7 @@ colour claims an understanding the extension does not have.
 
 The Wicker sidebar's project tooltip reports Symfony console when it is reachable.
 Healthy projects contain Controllers and Templates sections. Under Controllers,
-expand TaskController, then index(): clicking the action selects its PHP template
+expand TaskController, then its index action (labelled by its route when known): clicking the action selects its PHP template
 name and clicking the template opens Twig. WickerTourController includes both
 render calls and a Template attribute. Unresolved names remain visible with a
 warning; methods without literal template names are omitted. The tree follows
@@ -289,6 +307,13 @@ For Twig Components, open `templates/wicker/components.html.twig` in the demo.
 names after `<twig:`, use Go to Definition on a component or prop, and change a
 prop declaration without saving to verify that completion follows the buffer.
 The examples render on `/wicker`. Undo temporary test edits afterward.
+
+For controller dependencies, expand TaskController → Dependencies: TaskRepository
+and Task should open their declarations. DashboardController's repository comes
+from its index parameter instead of a constructor. Twig files use a leaf icon;
+Twig routes use a leaf with a route arrow. Expand templates/wicker/stimulus.html.twig
+to open its associated wicker_api_controller.js, or find it under
+WickerTourController → Scripts through the included tour template.
 
 The first `test:integration` run downloads a VS Code build into
 `packages/vscode/.vscode-test/`, so it takes minutes rather than seconds. That
@@ -311,8 +336,8 @@ attached to the release, so the marketplace and GitHub serve identical bytes.
 `packages/vscode/.vscodeignore` is written as exclude-everything-then-allow. A
 forgotten exclusion publishes something by accident and a marketplace version
 can never be replaced, while the other direction fails loudly on first run. The
-package should be around 11 files: the bundle, the grammars, the language
-configuration, the icon, and the three documents copied in by
+package should contain only the bundle, the grammars, the language
+configuration, the icon and leaf SVGs, and the three documents copied in by
 `scripts/package.mjs`.
 
 ### Out of scope

@@ -8,6 +8,7 @@ import './twigVariables.test.js';
 import './twigCallables.test.js';
 import './twigContext.test.js';
 import './twigComponents.test.js';
+import './frontend.test.js';
 
 /**
  * These tests drive the real extension inside a real VS Code instance against

@@ -178,11 +178,42 @@ targets. Clicking the controller opens its PHP file; clicking an action selects
 its first render call or `#[Template]` attribute; clicking a resolved target opens
 the Twig file. Unresolved names stay visible with a warning.
 
+Action rows lead with their registered HTTP method and URL, such as
+`GET /dashboard`, with `index()` as secondary detail. When route discovery is
+unavailable, the method name stays visible beside its template targets.
+Hover shows all registered routes and rendered templates for the action. Route
+rows sort by URL path in every section, including under controllers.
+
 This view includes literal template references in classes following the
-`Controller` directory, namespace or class-suffix convention. Actions follow
-source order. Methods without literal template references are omitted, and
+`Controller` directory, namespace or class-suffix convention. Actions without a
+known route follow routed actions, retaining source order. Methods without literal template references are omitted, and
 rendering services outside those conventions remain available through
 **Rendered by** links. Unsaved PHP edits update the tree.
+
+A controller's **Dependencies** branch links project types declared on its
+constructor, method parameters and properties: services, repositories, entities
+and other classes or interfaces. Each type appears once; hover lists the
+parameters and methods that declare it. Imports and aliases resolve to actual
+project declarations, including current unsaved buffers. Interfaces open their
+declaration. Container aliases, inherited dependencies, dynamic service lookups,
+union/intersection types, vendor types and ambiguous declarations are not
+inferred. Service, Repository and Entity namespaces supply distinct role icons;
+other dependencies use their PHP declaration kind.
+
+Expand a Twig file to see its associated **JavaScript and TypeScript files**.
+Controllers collect these in a **Scripts** branch, together with scripts that
+reference their routes. Connections follow registered Stimulus bindings and
+literal Twig includes, embeds and layouts; hover explains each connection.
+Dynamic includes, general asset/import-map entrypoints and arbitrary script
+imports are not followed. Clicking a template still opens Twig, and clicking a
+script opens that file.
+
+When generated JavaScript explicitly links a local source map with one existing
+TypeScript source, the tree prefers that source and merges duplicate script
+entries. Hover retains the generated file path. Independent same-named files,
+multi-source bundles, missing maps and missing sources keep their own identity.
+Both external local `.map` files and inline maps are supported; remote maps are
+not fetched. This preference changes tree navigation, not Stimulus registration.
 
 Under **Templates**, expand **Application** or a named
 namespace to browse collapsible folders, with folders sorted before files and
@@ -314,6 +345,62 @@ Inherited/trait props, dynamic component names, prop type checking, custom
 property hooks and Live Component behavior are not inferred. Classes outside
 the application's Composer PSR-4 mappings still link to their indexed template.
 
+### Stimulus and API connections
+
+In a StimulusBundle project, complete controller names in `data-controller`
+and the `stimulus_controller()`, `stimulus_action()` and `stimulus_target()`
+helpers. Complete action methods, targets and value keys, or Ctrl-click them
+to open their JavaScript/TypeScript declarations. The same navigation works in
+`data-action`, `data-…-target` and `data-…-value` attributes.
+
+Wicker reads `debug:config stimulus` and maps the runtime project root back to
+your workspace, including Docker projects. Local controller identifiers follow
+StimulusBundle's configured directories and filename conventions. Enabled UX
+controllers come from `controllers.json` and their installed package metadata.
+Member suggestions cover direct declarations on a default exported class;
+inherited/computed members and runtime registrations are not inferred.
+
+Routes come from `debug:router --format=json`. In Twig, complete literal route
+names in `path()` and `url()`, then navigate to the application's PHP action.
+In JavaScript, Ctrl-click an unambiguous root-relative `fetch()` URL, or a
+Stimulus URL value supplied by a Twig helper/data attribute, to follow the
+request. When the action renders Twig, Go to Definition also offers its
+template. Hover shows the route, response fields, rendered templates and known
+consumers. Find All References on a route reference or PHP action name opens
+its Twig and JavaScript consumers.
+
+The sidebar's **Template routes** branch lists routes whose actions render Twig
+HTML. Click a URL to open its PHP action, or expand it to open the template.
+The **API routes** branch appears when there are JSON endpoints or
+routes explicitly fetched by JavaScript. Click an endpoint to open its action;
+expand it to browse consumers and rendered templates. A `/api` path prefix
+alone does not claim that an endpoint returns JSON.
+An HTML fragment fetched by JavaScript can appear in both route sections.
+JSON routes use the `{}` object icon. Twig template files use a leaf; routes
+rendering Twig use a leaf with a route arrow, consistently in either section
+and under their controller. The icons include light and dark theme variants.
+
+JSON field completion and navigation follow local awaited assignments:
+
+```javascript
+const response = await fetch(this.statusUrlValue);
+const data = await response.json();
+data.message; // Complete a field or open its PHP declaration.
+```
+
+This works in `.js`, `.ts` and JavaScript inside `<script>` blocks in Twig.
+Fields come from literal arrays returned by `$this->json()` or a directly
+constructed Symfony `JsonResponse`. Nested literal fields are supported;
+multiple return branches expose their shared fields. JSON fetched in the
+browser does not introduce server-side Twig variables.
+
+Dynamic URLs, ambiguous routes, promise chains, cross-function data flow,
+serializer/DTO schemas and external API contracts remain unknown. Wicker does
+not call endpoints to inspect their responses. Application source edits,
+including unsaved changes, update consumer links and declarations; saved PHP
+and configuration changes refresh runtime registrations. Discovery requires a
+trusted workspace and enabled console execution. No new warnings are added.
+
 ## Roadmap
 
 Built one capability at a time, each finished before the next starts.
@@ -333,13 +420,16 @@ Scoped local variables and context propagation through literal includes and
 inheritance, with PHP/Twig sources identified on hover.
 Twig Component name and prop completion, hover and navigation to registered
 classes, templates and directly declared props.
+Stimulus controller/action/target/value assistance, route navigation, API tree
+connections and literal JSON response fields. Controller dependencies and
+associated scripts connect the project tree, with source-map-based TypeScript
+preference and distinct icons for templates, routes and project types.
 
 Next, in order:
 
 1. **Symfony UX, Twig Components and Stimulus.** Build these capabilities in
-   separate steps. Component navigation and prop completion are implemented;
-   next connect Twig's Stimulus references to JavaScript controllers,
-   with navigation and completion for controllers, actions, targets and values.
+   separate steps. Component and direct Stimulus navigation/completion are
+   implemented; deepen Live Component and frontend workflows through real use.
    This part of the roadmap covers
    [Twig Components](https://symfony.com/bundles/ux-twig-component/current/index.html),
    [Live Components](https://ux.symfony.com/live-component),
@@ -347,7 +437,8 @@ Next, in order:
    [UX Toolkit](https://ux.symfony.com/toolkit),
    [Icons](https://ux.symfony.com/icons) and
    [CalendarLink](https://ux.symfony.com/calendar-link).
-2. **Routes.** Completion and navigation for route names, `path()` and `url()`.
+2. **Routes and response contracts.** Extend the initial route and API connections
+   with parameter assistance and additional explicitly traceable response shapes.
 3. **Services and the container.** Autowiring and parameter intelligence.
 4. Translations, forms, and the rest of the Symfony surface.
 

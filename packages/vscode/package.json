@@ -2,7 +2,7 @@
   "name": "wicker",
   "displayName": "Wicker: Symfony & Twig Tooling",
   "description": "Symfony and Twig navigation, variables, filters, functions and components.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "WilliamSmithE",
   "license": "MIT",
   "repository": {
@@ -257,7 +257,7 @@
     "vsix": "npm run build && node scripts/package.mjs"
   },
   "dependencies": {
-    "@wicker/core": "0.3.0"
+    "@wicker/core": "0.4.0"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

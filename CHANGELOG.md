@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+
+- Stimulus controller, action, target and value completion/navigation from Twig
+  helpers and HTML attributes, using the project's runtime configuration and
+  direct JavaScript/TypeScript declarations, including unsaved member edits.
+- Route completion/navigation in Twig, fetch-to-controller/template navigation,
+  Template routes and API routes in the sidebar, and Find All References for
+  explicit Twig/JS consumers.
+- JSON response field completion and declaration navigation in JavaScript and
+  inline Twig scripts, following local awaited fetch/json assignments, literal
+  PHP response arrays and Twig-supplied Stimulus URL values.
+- Controller action rows show their HTTP method and URL first, keeping the PHP
+  method name as secondary detail. Without route discovery, template targets
+  provide context beside the method name.
+- Distinct icons for each tree object type. Twig templates use a leaf, Twig
+  routes use a leaf with a route arrow, and JSON routes use the object icon.
+- Route rows sort by URL path in both route sections and under controllers.
+- Controller dependencies link directly to project services, repositories,
+  entities and other declared types, following unsaved source edits.
+- Associated scripts beneath Twig templates and controllers, connected through
+  Stimulus bindings, literal template relationships and route consumers. Local
+  source maps let the tree prefer TypeScript over its generated JavaScript.
+
 ## 0.3.0
 
 ### Added

@@ -9,6 +9,8 @@ export interface StimulusSource {
   readonly targets: readonly StimulusMember[];
   readonly values: readonly StimulusMember[];
   readonly outlets: readonly StimulusMember[];
+  /** Logical names from `static classes`, not the CSS classes they map to. */
+  readonly classes: readonly StimulusMember[];
   readonly outletsRange?: OffsetRange;
   readonly outletCallbacks: readonly StimulusMember[];
   readonly accesses: readonly StimulusAccess[];
@@ -24,7 +26,7 @@ export function stimulusIdentifier(relativePath: string): string | undefined {
  * declarations and runtime registrations deliberately remain unknown. */
 export function stimulusSource(source: string): StimulusSource {
   const tokens = javascriptTokens(source);
-  const empty = { range: { start: 0, end: 0 }, actions: [], targets: [], values: [], outlets: [], outletCallbacks: [], accesses: [] };
+  const empty = { range: { start: 0, end: 0 }, actions: [], targets: [], values: [], outlets: [], classes: [], outletCallbacks: [], accesses: [] };
   const exported = tokens.findIndex((t, i) => t.text === 'export' && tokens[i + 1]?.text === 'default');
   if (exported < 0) { return empty; }
   let klass = exported + 2;
@@ -37,22 +39,23 @@ export function stimulusSource(source: string): StimulusSource {
   const close = closingToken(tokens, open);
   if (close < 0) { return empty; }
   const actions: StimulusMember[] = [], targets: StimulusMember[] = [], values: StimulusMember[] = [];
-  const outlets: StimulusMember[] = [], outletCallbacks: StimulusMember[] = [];
+  const outlets: StimulusMember[] = [], classes: StimulusMember[] = [], outletCallbacks: StimulusMember[] = [];
   const staticBodies: OffsetRange[] = [];
   let outletsRange: OffsetRange | undefined;
   const lifecycle = new Set(['constructor', 'initialize', 'connect', 'disconnect']);
   for (let i = open + 1; i < close; i++) {
     const t = tokens[i]!;
-    if (t.text === 'static' && ['targets', 'values', 'outlets'].includes(tokens[i + 1]?.text ?? '') && tokens[i + 2]?.text === '=') {
+    if (t.text === 'static' && ['targets', 'values', 'outlets', 'classes'].includes(tokens[i + 1]?.text ?? '') && tokens[i + 2]?.text === '=') {
       const kind = tokens[i + 1]!.text;
       const from = i + 3, end = closingToken(tokens, from);
       if (end < 0) { continue; }
       if (kind === 'outlets' && tokens[from]?.text === '[') { outletsRange = { start: tokens[from].end, end: tokens[end]!.start }; }
       for (let j = from + 1; j < end; j++) {
         const member = tokens[j]!;
-        if (['targets', 'outlets'].includes(kind) && tokens[from]?.text === '[' && member.kind === 'string' && ['[', ','].includes(tokens[j - 1]?.text ?? '') &&
+        if (['targets', 'outlets', 'classes'].includes(kind) && tokens[from]?.text === '[' && member.kind === 'string' && ['[', ','].includes(tokens[j - 1]?.text ?? '') &&
           [',', ']'].includes(tokens[j + 1]?.text ?? '') && member.value) {
-          (kind === 'outlets' ? outlets : targets).push({ name: member.value, range: stringRange(member) });
+          const into = kind === 'outlets' ? outlets : kind === 'classes' ? classes : targets;
+          into.push({ name: member.value, range: stringRange(member) });
         }
         if (kind === 'values' && ['name', 'string'].includes(member.kind) && tokens[j + 1]?.text === ':' &&
           ['{', ','].includes(tokens[j - 1]?.text ?? '')) {
@@ -108,7 +111,7 @@ export function stimulusSource(source: string): StimulusSource {
     }
   }
   return { range: tokens[klass]!, actions, targets, values,
-    outlets, ...(outletsRange ? { outletsRange } : {}), outletCallbacks, accesses };
+    outlets, classes, ...(outletsRange ? { outletsRange } : {}), outletCallbacks, accesses };
 }
 
 /** Stimulus removes namespace separators when generating outlet accessors. */
@@ -133,7 +136,20 @@ export function stimulusOutletProperties(identifier: string): readonly string[] 
  * these claims no more than the source states.
  */
 export function stimulusDeclarationRanges(source: StimulusSource): readonly OffsetRange[] {
-  return [...source.values, ...source.targets, ...source.outlets]
+  return [...source.values, ...source.targets, ...source.outlets, ...source.classes]
     .map((member) => member.range)
     .sort((left, right) => left.start - right.start);
+}
+
+/**
+ * The properties Stimulus generates for a logical CSS class name.
+ *
+ * `static classes = ['loading']` does not declare a CSS class called loading.
+ * It declares a slot the template fills through `data-<identifier>-loading-class`,
+ * read back through these. That indirection is the reason a logical name is
+ * worth telling apart from an ordinary class attribute.
+ */
+export function stimulusClassProperties(name: string): readonly string[] {
+  const stem = name.replace(/[_-](\w|$)/g, (_, letter: string) => letter.toUpperCase());
+  return [`${stem}Class`, `${stem}Classes`, `has${stem.charAt(0).toUpperCase()}${stem.slice(1)}Class`];
 }

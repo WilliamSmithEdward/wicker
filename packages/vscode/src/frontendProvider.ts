@@ -163,7 +163,7 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
         range: { start: 0, end: 0 }, label: `Stimulus controller · ${controller.projectPath}`, kind: vscode.CompletionItemKind.Class })) };
     }
     let controllerName = ref.controller, name = ref.name, range = ref.range, html = false;
-    if (ref.kind === 'value' && controllerName === undefined) {
+    if ((ref.kind === 'value' || ref.kind === 'class') && controllerName === undefined) {
       controllerName = controllers.filter((controller) => name.startsWith(`${controller.name}-`)).sort((a, b) => b.name.length - a.name.length)[0]?.name;
       if (controllerName) {
         if (offset <= range.start + controllerName.length) {
@@ -181,7 +181,8 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
         try {
           const doc = await vscode.workspace.openTextDocument(uri);
           const info = stimulusSource(doc.getText());
-          const members = ref.kind === 'action' ? info.actions : ref.kind === 'target' ? info.targets : info.values;
+          const members = ref.kind === 'action' ? info.actions : ref.kind === 'target' ? info.targets
+            : ref.kind === 'class' ? info.classes : info.values;
           candidates.push(...members.map((member) => ({ name: html ? stimulusHtmlName(member.name) : member.name,
             projectPath: controller.projectPath, range: member.range, label: `Stimulus ${ref.kind} · ${controller.name}`,
             kind: ref.kind === 'action' ? vscode.CompletionItemKind.Method : vscode.CompletionItemKind.Property })));

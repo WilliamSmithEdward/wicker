@@ -16,7 +16,7 @@ export {
 } from './fs/fileSystem.js';
 export { InMemoryFileSystem } from './fs/inMemoryFileSystem.js';
 export { NodeFileSystem } from './fs/nodeFileSystem.js';
-export { stimulusDeclarationRanges, stimulusIdentifier, stimulusSource, stimulusOutletProperties, stimulusOutletStem, type StimulusController, type StimulusSource, type StimulusMember } from './frontend/stimulus.js';
+export { stimulusClassProperties, stimulusDeclarationRanges, stimulusIdentifier, stimulusSource, stimulusOutletProperties, stimulusOutletStem, type StimulusController, type StimulusSource, type StimulusMember } from './frontend/stimulus.js';
 export { resolveOutletReference, outletAccessAt, outletUseRanges, type OutletAccess } from './frontend/outlets.js';
 export { scanFrontend, stimulusHtmlName, type FrontendReference, type FrontendScan } from './frontend/references.js';
 export { routesFromDebug, routeForUrl, endpointActions, type SymfonyRoute, type EndpointAction, type ResponseField } from './frontend/routes.js';

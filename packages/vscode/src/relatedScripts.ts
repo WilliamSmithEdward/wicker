@@ -50,8 +50,8 @@ function scriptsFromTemplates(sessions: SessionManager, session: ProjectSession,
         result.push({ projectPath: target.projectPath, reason: `Outlet ${outlet.controller} → ${outlet.name} in ${name}` });
       }
       const matches = session.frontend.controllers.filter((controller) => controller.name === controllerName ||
-        !controllerName && ref.kind === 'value' && ref.name.startsWith(`${controller.name}-`));
-      // A raw data-value prefix can match two identifiers. Keep only the longest.
+        !controllerName && ['value', 'class'].includes(ref.kind) && ref.name.startsWith(`${controller.name}-`));
+      // A raw data-value or data-class prefix can match two identifiers. Keep only the longest.
       const controller = matches.sort((a, b) => b.name.length - a.name.length)[0];
       if (controller && ownsFrontendPath(sessions, session, controller.projectPath)) {
         result.push({ projectPath: controller.projectPath, reason: `Stimulus ${controller.name} in ${name}` });

@@ -6,7 +6,7 @@ import { javascriptTokens, stringRange } from './javascript.js';
 import type { TwigExpressionToken } from '../twig/expressionLexer.js';
 
 export interface FrontendReference {
-  readonly kind: 'controller' | 'action' | 'target' | 'value' | 'outlet' | 'route' | 'url';
+  readonly kind: 'controller' | 'action' | 'target' | 'value' | 'outlet' | 'class' | 'route' | 'url';
   readonly name: string;
   readonly range: OffsetRange;
   readonly controller?: string;
@@ -74,6 +74,19 @@ export function scanFrontend(source: string, twig: boolean): FrontendScan {
             }
           }
         }
+        // The third argument maps a logical class name to the CSS classes it
+        // stands for. Only the key is a declaration; the value is ordinary CSS
+        // and belongs to the stylesheet, not to Stimulus.
+        const classMap = args[2];
+        if (helper === 'stimulus_controller' && classMap?.[0]?.value === '{') {
+          for (const entry of splitTwigTokens(classMap.slice(1, classMap.at(-1)?.value === '}' ? -1 : undefined), ',')) {
+            const key = entry[0];
+            const logical = key?.kind === 'name' ? key.value : literalTwigString(key);
+            if (!key || logical === undefined || entry[1]?.value !== ':') { continue; }
+            references.push({ kind: 'class', controller: name, name: logical,
+              range: key.kind === 'string' ? { start: key.start + 1, end: key.end - 1 } : key });
+          }
+        }
         const outletMap = args[3];
         if (helper === 'stimulus_controller' && outletMap?.[0]?.value === '{') {
           for (const entry of splitTwigTokens(outletMap.slice(1, outletMap.at(-1)?.value === '}' ? -1 : undefined), ',')) {
@@ -137,6 +150,12 @@ export function scanFrontend(source: string, twig: boolean): FrontendScan {
         references.push({ kind: 'outlet', name: attrName.slice(5, -7),
           range: { start: attrStart + 5, end: attrStart + attrName.length - 7 },
           ...(!/[{}]/.test(raw) ? { selector: { name: raw, range: { start, end: stop } } } : {}) });
+      } else if (attrName.startsWith('data-') && attrName.endsWith('-class')) {
+        // Same shape as a value attribute: the controller name may itself
+        // contain dashes, so the combined name is kept and the longest
+        // registered prefix is resolved later.
+        const combined = attrName.slice(5, -6);
+        references.push({ kind: 'class', name: combined, range: { start: attrStart + 5, end: attrStart + attrName.length - 6 } });
       } else if (attrName.startsWith('data-') && attrName.endsWith('-value')) {
         // Controller names themselves contain dashes. Resolve the longest registered
         // prefix later; keep this attribute's combined name until then.

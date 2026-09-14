@@ -3,7 +3,7 @@ import { FrontendIndex } from './index.js';
 import { scanFrontend } from './references.js';
 import { responseAccessAt } from './responseAccess.js';
 import { endpointActions, routeForUrl, routesFromDebug, type SymfonyRoute } from './routes.js';
-import { stimulusDeclarationRanges, stimulusIdentifier, stimulusSource } from './stimulus.js';
+import { stimulusClassProperties, stimulusDeclarationRanges, stimulusIdentifier, stimulusSource } from './stimulus.js';
 
 const route: SymfonyRoute = { name: 'api_status', path: '/api/status', methods: 'GET', controller: 'App\\Controller\\StatusController::status', format: '' };
 describe('Stimulus declarations', () => {
@@ -47,6 +47,7 @@ export default class extends Controller {
   static values = { statusUrl: String, fragmentUrl: String };
   static targets = ['output'];
   static outlets = ['wicker-counter'];
+  static classes = ['loading', 'error-state'];
   async refresh() { const response = await fetch(this.statusUrlValue); this.outputTarget.textContent = 'x'; }
 }`;
 
@@ -54,9 +55,9 @@ export default class extends Controller {
     return ranges.map((range) => source.slice(range.start, range.end));
   }
 
-  it('marks every declared value, target and outlet', () => {
+  it('marks every declared value, target, outlet and class', () => {
     expect(marked(stimulusDeclarationRanges(stimulusSource(source))))
-      .toEqual(['statusUrl', 'fragmentUrl', 'output', 'wicker-counter']);
+      .toEqual(['statusUrl', 'fragmentUrl', 'output', 'wicker-counter', 'loading', 'error-state']);
   });
 
   it('marks neither the types beside a value nor the accessors generated from it', () => {
@@ -71,6 +72,25 @@ export default class extends Controller {
   it('returns nothing for a file that declares no members', () => {
     expect(stimulusDeclarationRanges(stimulusSource('export default class {}'))).toEqual([]);
   });
+
+  it('keeps each kind of member apart', () => {
+    const info = stimulusSource(source);
+    expect(info.classes.map((member) => member.name)).toEqual(['loading', 'error-state']);
+    expect(info.targets.map((member) => member.name)).toEqual(['output']);
+    expect(info.outlets.map((member) => member.name)).toEqual(['wicker-counter']);
+  });
+});
+
+describe('stimulusClassProperties', () => {
+  it('names the properties a logical class generates', () => {
+    expect(stimulusClassProperties('loading'))
+      .toEqual(['loadingClass', 'loadingClasses', 'hasLoadingClass']);
+  });
+
+  it('camel-cases a hyphenated name the way Stimulus does', () => {
+    expect(stimulusClassProperties('error-state'))
+      .toEqual(['errorStateClass', 'errorStateClasses', 'hasErrorStateClass']);
+  });
 });
 
 describe('Twig/JavaScript frontend references', () => {
@@ -84,6 +104,28 @@ describe('Twig/JavaScript frontend references', () => {
     expect(parsed.bindings[0]).toMatchObject({ controller: 'status', value: 'url', endpoint: { kind: 'route', name: 'api_status' } });
     for (const entry of parsed.references) { expect(source.slice(entry.range.start, entry.range.end)).toBe(entry.name); }
   });
+  it('reads logical CSS class names from the helper and the HTML attribute', () => {
+    const source = `{{ stimulus_controller('slideshow', {}, {loading: 'spinner border', 'error-state': 'red'}) }}
+      <div data-slideshow-loading-class="spinner border"></div>`;
+    const parsed = scanFrontend(source, true);
+    const classes = parsed.references.filter((ref) => ref.kind === 'class');
+    expect(classes.map((ref) => [ref.controller, ref.name]))
+      .toEqual([['slideshow', 'loading'], ['slideshow', 'error-state'], [undefined, 'slideshow-loading']]);
+    for (const entry of classes) { expect(source.slice(entry.range.start, entry.range.end)).toBe(entry.name); }
+  });
+
+  it('treats the mapped CSS as stylesheet content rather than a declaration', () => {
+    // Only the key is a Stimulus name. "spinner border" is ordinary CSS and
+    // claiming it would put the extension's colour on someone else's classes.
+    const parsed = scanFrontend(`{{ stimulus_controller('slideshow', {}, {loading: 'spinner border'}) }}`, true);
+    expect(parsed.references.filter((ref) => ref.name.includes('spinner'))).toEqual([]);
+  });
+
+  it('accepts the class map as a named argument', () => {
+    const parsed = scanFrontend(`{{ stimulus_controller('slideshow', controllerClasses: {loading: 'spinner'}) }}`, true);
+    expect(parsed.references.filter((ref) => ref.kind === 'class').map((ref) => ref.name)).toEqual(['loading']);
+  });
+
   it('handles multiple controllers, action options and target lists', () => {
     const source = `<div data-controller="status other" data-action="click->status#refresh:prevent keydown.enter@window->other#run"
       data-status-target="output status" data-status-url-value="{{ path('api_status') }}"></div>`;

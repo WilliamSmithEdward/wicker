@@ -158,6 +158,18 @@
         }
       }
     ],
+    "colors": [
+      {
+        "id": "wicker.stimulusMember",
+        "description": "Stimulus members a controller declares: value, target and outlet names.",
+        "defaults": {
+          "dark": "#4EC9B0",
+          "light": "#267F99",
+          "highContrast": "#4EC9B0",
+          "highContrastLight": "#267F99"
+        }
+      }
+    ],
     "configuration": {
       "title": "Wicker",
       "properties": {
@@ -179,7 +191,12 @@
         },
         "wicker.diagnostics.unknownCallable": {
           "type": "string",
-          "enum": ["error", "warning", "information", "off"],
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "off"
+          ],
           "default": "warning",
           "description": "How to report unknown Twig filters and functions when fresh, complete project discovery is available."
         },

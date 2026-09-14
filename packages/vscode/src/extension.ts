@@ -22,6 +22,7 @@ import {
   SEMANTIC_TOKENS_LEGEND,
   TemplateSemanticTokensProvider,
 } from './semanticTokens.js';
+import { StimulusMemberDecorator } from './stimulusDecorations.js';
 import { SessionManager, type ProjectSession } from './session.js';
 import { WickerSidebar, type SidebarNode } from './sidebar.js';
 import { TwigVariableProvider } from './twigVariables.js';
@@ -50,6 +51,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // and mean nothing anywhere else.
   const sessions = new SessionManager(new LoaderPathMemory(context.workspaceState));
   const semanticTokens = new TemplateSemanticTokensProvider(sessions);
+  const stimulusMembers = new StimulusMemberDecorator(sessions);
   const renderedBy = new RenderedByProvider(sessions);
   const twigVariables = new TwigVariableProvider(sessions);
   const twigCallables = new TwigCallableProvider(sessions);
@@ -276,7 +278,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument(refreshDiagnostics),
-    vscode.workspace.onDidChangeTextDocument((event) => refreshDiagnostics(event.document)),
+    vscode.workspace.onDidChangeTextDocument((event) => {
+      refreshDiagnostics(event.document);
+      // Only the editors showing this document, so typing in one file does not
+      // reparse every controller open in the window.
+      stimulusMembers.refresh(vscode.window.visibleTextEditors
+        .filter((editor) => editor.document === event.document));
+    }),
+    vscode.window.onDidChangeVisibleTextEditors((editors) => stimulusMembers.refresh(editors)),
     vscode.workspace.onDidCloseTextDocument((document) => {
       forgetDocument(document.uri);
       diagnostics.delete(document.uri);
@@ -297,15 +306,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         refreshAllDiagnostics();
         // Toggling wicker.enable has to refresh colouring as well as diagnostics.
         semanticTokens.refresh();
+        stimulusMembers.refresh();
       }
     }),
     // The index changing can turn a missing template into a found one.
     sessions.onDidChange(() => {
       refreshAllDiagnostics();
       semanticTokens.refresh();
+      stimulusMembers.refresh();
     }),
 
     semanticTokens,
+    stimulusMembers,
     vscode.languages.registerDocumentSemanticTokensProvider(
       SELECTOR,
       semanticTokens,
@@ -320,6 +332,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   refreshAllDiagnostics();
+  // Editors already open when the extension activated get their colour too.
+  stimulusMembers.refresh();
 }
 
 export function deactivate(): void {

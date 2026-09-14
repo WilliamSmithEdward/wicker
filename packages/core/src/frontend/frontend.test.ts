@@ -3,7 +3,7 @@ import { FrontendIndex } from './index.js';
 import { scanFrontend } from './references.js';
 import { responseAccessAt } from './responseAccess.js';
 import { endpointActions, routeForUrl, routesFromDebug, type SymfonyRoute } from './routes.js';
-import { stimulusIdentifier, stimulusSource } from './stimulus.js';
+import { stimulusDeclarationRanges, stimulusIdentifier, stimulusSource } from './stimulus.js';
 
 const route: SymfonyRoute = { name: 'api_status', path: '/api/status', methods: 'GET', controller: 'App\\Controller\\StatusController::status', format: '' };
 describe('Stimulus declarations', () => {
@@ -38,6 +38,38 @@ describe('Stimulus declarations', () => {
     expect(stimulusSource('// export default class { fake() {} }').actions).toEqual([]);
     expect(stimulusSource('export default class { [method]() {} }').actions).toEqual([]);
     expect(stimulusSource('export function connect() {}').actions).toEqual([]);
+  });
+});
+
+describe('stimulusDeclarationRanges', () => {
+  const source = `import { Controller } from '@hotwired/stimulus';
+export default class extends Controller {
+  static values = { statusUrl: String, fragmentUrl: String };
+  static targets = ['output'];
+  static outlets = ['wicker-counter'];
+  async refresh() { const response = await fetch(this.statusUrlValue); this.outputTarget.textContent = 'x'; }
+}`;
+
+  function marked(ranges: readonly { start: number; end: number }[]): string[] {
+    return ranges.map((range) => source.slice(range.start, range.end));
+  }
+
+  it('marks every declared value, target and outlet', () => {
+    expect(marked(stimulusDeclarationRanges(stimulusSource(source))))
+      .toEqual(['statusUrl', 'fragmentUrl', 'output', 'wicker-counter']);
+  });
+
+  it('marks neither the types beside a value nor the accessors generated from it', () => {
+    // The colour says "this name is declared here". String is a type, and
+    // statusUrlValue is a use of the declaration rather than another one.
+    const text = marked(stimulusDeclarationRanges(stimulusSource(source)));
+    expect(text).not.toContain('String');
+    expect(text).not.toContain('statusUrlValue');
+    expect(text).not.toContain('outputTarget');
+  });
+
+  it('returns nothing for a file that declares no members', () => {
+    expect(stimulusDeclarationRanges(stimulusSource('export default class {}'))).toEqual([]);
   });
 });
 

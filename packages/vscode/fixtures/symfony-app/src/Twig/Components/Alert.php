@@ -4,7 +4,7 @@ namespace App\Twig\Components;
 
 use Symfony\UX\TwigComponent\Attribute\AsTwigComponent;
 
-#[AsTwigComponent('Alert')]
+#[AsTwigComponent('Notice')]
 final class Alert
 {
     public string $message = '';

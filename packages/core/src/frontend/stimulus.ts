@@ -27,6 +27,13 @@ export interface StimulusDispatch extends StimulusMember {
 }
 export interface StimulusSource {
   readonly range: OffsetRange;
+  /**
+   * The class body's braces, so an edit can add a member.
+   *
+   * Absent when no controller class was found, which is what tells a caller
+   * there is nowhere to put one.
+   */
+  readonly bodyRange?: OffsetRange;
   readonly actions: readonly StimulusMember[];
   readonly targets: readonly StimulusMember[];
   readonly values: readonly StimulusValue[];
@@ -148,7 +155,8 @@ export function stimulusSource(source: string): StimulusSource {
         : { name: '', range: { start: tokens[i + 3]!.end, end: tokens[i + 3]!.end } }) });
     }
   }
-  return { range: tokens[klass]!, actions, targets, values,
+  return { range: tokens[klass]!, bodyRange: { start: tokens[open]!.start, end: tokens[close]!.end },
+    actions, targets, values,
     outlets, classes, dispatches, ...(outletsRange ? { outletsRange } : {}), outletCallbacks, accesses };
 }
 

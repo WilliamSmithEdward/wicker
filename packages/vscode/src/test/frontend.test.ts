@@ -784,6 +784,34 @@ class WickerFrontendTestController {
       /Sets this\.urlValue/);
   });
 
+  test('offers to write the member a binding is already asking for', async () => {
+    const original = js.getText();
+    const fixes = async (marked: string): Promise<vscode.CodeAction[]> => {
+      const position = await at(page, marked);
+      return (await vscode.commands.executeCommand<vscode.CodeAction[]>(
+        'vscode.executeCodeActionProvider', page.uri, new vscode.Range(position, position))) ?? [];
+    };
+    try {
+      // A binding to a method that does not exist attaches no listener and
+      // reports nothing, so the page silently does nothing at all.
+      const missing = await fixes('<button data-action="click->wicker-test#save§Draft"></button>');
+      const add = missing.find((action) => action.title === 'Add saveDraft() to this controller');
+      assert.ok(add, `expected an add action, got ${missing.map((a) => a.title).join(', ') || 'none'}`);
+
+      assert.ok(await vscode.workspace.applyEdit(add.edit!));
+      const written = (await vscode.workspace.openTextDocument(uri(JS))).getText();
+      assert.match(written, /saveDraft\(event\) \{/);
+      // Written inside the class, not after it.
+      assert.ok(written.lastIndexOf('saveDraft') < written.lastIndexOf('}'), 'the method belongs inside the class');
+
+      // A binding that already resolves needs no action.
+      const resolved = await fixes('<button data-action="click->wicker-test#refr§esh"></button>');
+      assert.ok(!resolved.some((action) => action.title.startsWith('Add refresh')));
+    } finally {
+      await replace(js, original);
+    }
+  });
+
   test('nested Twig bindings cannot supply JSON fields to the parent project', async () => {
     const nested = await vscode.workspace.openTextDocument(uri('nested-app/templates/task/_row.html.twig'));
     const original = nested.getText();

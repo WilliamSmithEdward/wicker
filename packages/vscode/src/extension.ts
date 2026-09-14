@@ -17,6 +17,7 @@ import {
   type DocumentTemplateReference,
 } from './references.js';
 import { missingImportDiagnostics } from './importDiagnostics.js';
+import { StimulusMemberActionProvider } from './stimulusActions.js';
 import { LoaderPathMemory } from './loaderPathMemory.js';
 import { RenderedByProvider } from './renderedBy.js';
 import {
@@ -334,6 +335,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       SELECTOR,
       new CreateTemplateActionProvider(sessions),
       CreateTemplateActionProvider.metadata,
+    ),
+    vscode.languages.registerCodeActionsProvider(
+      TWIG_SELECTOR,
+      new StimulusMemberActionProvider(sessions),
+      StimulusMemberActionProvider.metadata,
     ),
   );
 

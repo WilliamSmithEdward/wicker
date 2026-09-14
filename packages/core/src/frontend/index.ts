@@ -39,6 +39,8 @@ interface GraphLookups {
    * written without a controller is filed under the empty name. */
   readonly boundRoutes: ReadonlyMap<string, ReadonlyMap<string, ReadonlySet<string>>>;
   readonly consumers: ReadonlyMap<string, readonly EndpointUse[]>;
+  /** Routes some file actually asks for, as opposed to merely links to. */
+  readonly requested: ReadonlySet<string>;
 }
 
 export class FrontendIndex {
@@ -111,6 +113,12 @@ export class FrontendIndex {
   consumers(route: SymfonyRoute, routes: readonly SymfonyRoute[], controllers: readonly StimulusController[]): readonly EndpointUse[] {
     return this.graph(routes, controllers).consumers.get(route.name) ?? [];
   }
+
+  /** Whether any indexed file issues a request for this route, rather than
+   * linking to it. Answered from the same single pass as the consumers. */
+  isRequested(route: SymfonyRoute, routes: readonly SymfonyRoute[], controllers: readonly StimulusController[]): boolean {
+    return this.graph(routes, controllers).requested.has(route.name);
+  }
   resolve(ref: FrontendReference, routes: readonly SymfonyRoute[]): SymfonyRoute | undefined {
     return resolveWith(this.routeLookups(routes), ref);
   }
@@ -178,8 +186,16 @@ export class FrontendIndex {
     // routesForValue, which asks for this same graph. Everything it reads,
     // controllerNames and boundRoutes, is complete by now; only the consumer
     // map is still being written, and nothing in the pass reads it.
+    const requested = new Set<string>();
+    for (const file of this.files.values()) {
+      for (const request of file.scan.requests) {
+        const route = resolveWith(lookups, request);
+        if (route) { requested.add(route.name); }
+      }
+    }
+
     const graph: GraphLookups = { routes, controllers, revision: this.revision, controllerNames, boundRoutes,
-      consumers: new Map() };
+      consumers: new Map(), requested };
     this.graphMemo = graph;
 
     const consumers = graph.consumers as Map<string, EndpointUse[]>;

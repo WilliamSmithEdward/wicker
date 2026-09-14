@@ -33,11 +33,18 @@ export function frontendIndex(sessions: SessionManager, session: ProjectSession)
 
 export function routeAction(sessions: SessionManager, session: ProjectSession, route: SymfonyRoute):
   { projectPath: string; action: EndpointAction } | undefined {
+  return actionIn(frontendIndex(sessions, session), route);
+}
+
+/** The same answer for a caller that already holds the scoped index, so a loop
+ * over routes resolves it once rather than once per route. */
+function actionIn(index: FrontendIndex, route: SymfonyRoute):
+  { projectPath: string; action: EndpointAction } | undefined {
   const [className, methodName = '__invoke'] = route.controller.split('::');
   if (className === undefined) { return undefined; }
   // Ambiguity stays unresolved: two classes of the same name cannot be told
   // apart from the route alone.
-  const matches = frontendIndex(sessions, session).actionsFor(className, methodName);
+  const matches = index.actionsFor(className, methodName);
   return matches.length === 1 ? matches[0] : undefined;
 }
 
@@ -47,16 +54,18 @@ export function routeConsumers(sessions: SessionManager, session: ProjectSession
 
 export function apiRoutes(sessions: SessionManager, session: ProjectSession): readonly SymfonyRoute[] {
   const index = frontendIndex(sessions, session);
-  return session.frontend.routes.filter((route) => {
-    if (route.format === 'json' || routeAction(sessions, session, route)?.action.json) { return true; }
-    return index.all().some((file) => file.scan.requests.some((request) => index.resolve(request, session.frontend.routes)?.name === route.name)) ||
-      index.consumers(route, session.frontend.routes, session.frontend.controllers).some((use) => use.via);
+  const { routes, controllers } = session.frontend;
+  return routes.filter((route) => {
+    if (route.format === 'json' || actionIn(index, route)?.action.json) { return true; }
+    return index.isRequested(route, routes, controllers) ||
+      index.consumers(route, routes, controllers).some((use) => use.via);
   }).sort(compareRoutePaths);
 }
 
 export function templateRoutes(sessions: SessionManager, session: ProjectSession): readonly SymfonyRoute[] {
+  const index = frontendIndex(sessions, session);
   return session.frontend.routes.filter((route) => {
-    const action = routeAction(sessions, session, route)?.action;
+    const action = actionIn(index, route)?.action;
     return action && action.templates.length > 0 && !action.json && route.format !== 'json';
   }).sort(compareRoutePaths);
 }

@@ -126,6 +126,24 @@ describe('Twig/JavaScript frontend references', () => {
     expect(parsed.references.filter((ref) => ref.kind === 'class').map((ref) => ref.name)).toEqual(['loading']);
   });
 
+  it('reads the event half of an action descriptor, which nothing else checks', () => {
+    const source = `<div data-action="keydown.enter@window->search#submit:prevent click->cart#add"></div>`;
+    const parsed = scanFrontend(source, true);
+    expect(parsed.references.map((ref) => [ref.kind, ref.name])).toEqual([
+      ['event', 'keydown'], ['keyFilter', 'enter'], ['eventTarget', 'window'],
+      ['actionOption', 'prevent'], ['controller', 'search'], ['action', 'submit'],
+      ['event', 'click'], ['controller', 'cart'], ['action', 'add'],
+    ]);
+    for (const entry of parsed.references) { expect(source.slice(entry.range.start, entry.range.end)).toBe(entry.name); }
+  });
+
+  it('reports no event for a descriptor relying on the element default', () => {
+    // `<button data-action="cart#add">` binds click without naming it, so
+    // there is no event text to point at.
+    const parsed = scanFrontend('<button data-action="cart#add"></button>', true);
+    expect(parsed.references.map((ref) => ref.kind)).toEqual(['controller', 'action']);
+  });
+
   it('reads logical asset paths and importmap entrypoints', () => {
     const source = `<link rel="stylesheet" href="{{ asset('styles/app.css') }}">
       {{ importmap('app') }}`;

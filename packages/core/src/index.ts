@@ -20,6 +20,7 @@ export { stimulusClassProperties, stimulusDeclarationRanges, stimulusIdentifier,
 export { AssetMap, assetExcluded, assetLogicalPath, assetMapperSettings, type AssetMapperSettings, type AssetRoot, type MappedAsset } from './frontend/assetMap.js';
 export { parseImportMap, type ImportMapEntry } from './frontend/importMap.js';
 export { importSpecifiers, resolveRelativeImport, type ImportSpecifier } from './frontend/imports.js';
+export { parseActionDescriptor, ACTION_OPTIONS, COMMON_EVENTS, DEFAULT_EVENTS, EVENT_TARGETS, KEY_FILTERS, type ActionDescriptor } from './frontend/actionDescriptor.js';
 export { resolveOutletReference, outletAccessAt, outletUseRanges, type OutletAccess } from './frontend/outlets.js';
 export { scanFrontend, stimulusHtmlName, type FrontendReference, type FrontendScan } from './frontend/references.js';
 export { routesFromDebug, routeForUrl, endpointActions, type SymfonyRoute, type EndpointAction, type ResponseField } from './frontend/routes.js';

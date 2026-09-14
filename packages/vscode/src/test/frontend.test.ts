@@ -627,6 +627,25 @@ class WickerFrontendTestController {
     }
   });
 
+  test('completes every part of an action descriptor, not just the method', async () => {
+    const offers = async (marked: string): Promise<string[]> =>
+      (await items(page, await at(page, marked))).map((item) => item.label as string);
+
+    assert.ok((await offers('<button data-action="§->wicker-test#refresh"></button>')).includes('click'),
+      'the event position should offer DOM events');
+    assert.ok((await offers('<button data-action="keydown.§->wicker-test#refresh"></button>')).includes('enter'),
+      'the key filter position should offer filters');
+    assert.ok((await offers('<button data-action="scroll@§->wicker-test#refresh"></button>')).includes('window'),
+      'the target position should offer window and document');
+    assert.ok((await offers('<button data-action="click->wicker-test#refresh:§"></button>')).includes('prevent'),
+      'the option position should offer action options');
+
+    // The method position still resolves against the controller rather than
+    // being taken over by the descriptor vocabularies.
+    assert.ok((await offers('<button data-action="click->wicker-test#§"></button>')).includes('refresh'),
+      'the method position should still offer controller actions');
+  });
+
   test('nested Twig bindings cannot supply JSON fields to the parent project', async () => {
     const nested = await vscode.workspace.openTextDocument(uri('nested-app/templates/task/_row.html.twig'));
     const original = nested.getText();

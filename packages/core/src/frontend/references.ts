@@ -1,3 +1,4 @@
+import { parseActionDescriptor } from './actionDescriptor.js';
 import type { OffsetRange } from '../php/templateReferences.js';
 import { tokenizeTwigExpression } from '../twig/expressionLexer.js';
 import { literalTwigString, splitTwigTokens } from '../twig/contextSyntax.js';
@@ -8,7 +9,9 @@ import type { TwigExpressionToken } from '../twig/expressionLexer.js';
 export interface FrontendReference {
   readonly kind: 'controller' | 'action' | 'target' | 'value' | 'outlet' | 'class' | 'route' | 'url'
   /** A logical asset path from `asset()`, or an importmap entrypoint from `importmap()`. */
-  | 'asset' | 'entrypoint';
+  | 'asset' | 'entrypoint'
+  /** The halves of an action descriptor that are not the controller or method. */
+  | 'event' | 'keyFilter' | 'eventTarget' | 'actionOption';
   readonly name: string;
   readonly range: OffsetRange;
   readonly controller?: string;
@@ -140,6 +143,15 @@ export function scanFrontend(source: string, twig: boolean): FrontendScan {
           const from = text.includes('->') ? text.indexOf('->') + 2 : 0;
           const hash = text.indexOf('#', from);
           const controller = text.slice(from, hash < 0 ? undefined : hash);
+          // The halves that are not the controller or method. Pushed first so
+          // the method stays last, which is where an empty name marks the
+          // editing position. None of these ranges overlap.
+          const descriptor = parseActionDescriptor(text, offset);
+          if (descriptor.event) { references.push({ kind: 'event', ...descriptor.event }); }
+          if (descriptor.keyFilter) { references.push({ kind: 'keyFilter', ...descriptor.keyFilter }); }
+          if (descriptor.eventTarget) { references.push({ kind: 'eventTarget', ...descriptor.eventTarget }); }
+          for (const option of descriptor.options) { references.push({ kind: 'actionOption', ...option }); }
+
           references.push({ kind: 'controller', name: controller, range: { start: offset + from, end: offset + (hash < 0 ? text.length : hash) } });
           if (hash >= 0) {
             const action = text.slice(hash + 1).split(':')[0]!;

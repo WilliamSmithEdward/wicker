@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { fetchValueReferences, importSpecifiers, joinProjectPath, resolveRelativeImport, responseAccessAt,
+import { ACTION_OPTIONS, COMMON_EVENTS, EVENT_TARGETS, KEY_FILTERS,
+  fetchValueReferences, importSpecifiers, joinProjectPath, resolveRelativeImport, responseAccessAt,
   scanFrontend, stimulusHtmlName, stimulusSource,
   type FrontendReference, type OffsetRange, type ResponseField, type SymfonyRoute } from '@wicker/core';
 import { enginePathOf } from './paths.js';
@@ -27,7 +28,11 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
     if (!session) { return undefined; }
     const query = await this.query(document, position);
     if (!query) { return undefined; }
-    const matches = [...query.candidates.filter((candidate) => candidate.name === query.name), ...query.targets ?? []];
+    // An empty path marks a candidate that exists only to be completed: an
+    // event name or an action option is Stimulus vocabulary, not a project
+    // symbol, so there is nowhere to go.
+    const matches = [...query.candidates.filter((candidate) => candidate.name === query.name && candidate.projectPath !== ''),
+      ...query.targets ?? []];
     const links: vscode.LocationLink[] = [];
     for (const target of matches) {
       const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, target.projectPath));
@@ -103,6 +108,8 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       const routes = session.frontend.routes.filter((route) => route.name === ref.name);
       query = this.routeQuery(session, session.frontend.routes, ref.name, ref.range);
       query.routes = routes;
+    } else if (ref && ['event', 'keyFilter', 'eventTarget', 'actionOption'].includes(ref.kind)) {
+      query = descriptorQuery(ref);
     } else if (ref?.kind === 'asset' || ref?.kind === 'entrypoint') {
       query = this.assetQuery(session, ref);
     } else if (ref?.kind === 'url') {
@@ -260,4 +267,24 @@ function outletDocumentation(text: string): vscode.MarkdownString {
   content.value = content.value.replaceAll('&nbsp;', ' ');
   content.appendMarkdown('\n\n[Stimulus outlet reference](https://stimulus.hotwired.dev/reference/outlets)');
   return content;
+}
+
+/**
+ * Completion for the half of an action descriptor that names no project symbol.
+ *
+ * These are Stimulus's own vocabularies and cannot be discovered from a
+ * project, so they are listed. An empty project path marks them as
+ * completion-only: there is nowhere for navigation to go.
+ *
+ * Events are offered but never warned about. Any DOM event is legal, and so is
+ * any name a controller dispatches, so an unrecognised one is not a mistake.
+ */
+function descriptorQuery(ref: FrontendReference): Query {
+  const [names, label] = ref.kind === 'event' ? [COMMON_EVENTS, 'DOM event']
+    : ref.kind === 'keyFilter' ? [KEY_FILTERS, 'Stimulus key filter']
+      : ref.kind === 'eventTarget' ? [EVENT_TARGETS, 'Global listener target']
+        : [ACTION_OPTIONS, 'Stimulus action option'];
+  return { name: ref.name, range: ref.range, candidates: names.map((name) => ({
+    name, projectPath: '', range: { start: 0, end: 0 }, label,
+    kind: vscode.CompletionItemKind.EnumMember })) };
 }

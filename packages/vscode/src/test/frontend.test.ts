@@ -812,6 +812,34 @@ class WickerFrontendTestController {
     }
   });
 
+  test('explains a binding that connects to nothing', async () => {
+    const hoverText = async (marked: string): Promise<string> => {
+      const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
+        'vscode.executeHoverProvider', page.uri, await at(page, marked));
+      return hovers.flatMap((hover) => hover.contents)
+        .map((content) => typeof content === 'string' ? content : content.value).join('\n')
+        .replaceAll('\\', '').replaceAll('&nbsp;', ' ');
+    };
+
+    // Stimulus reports none of this. An unknown method, target or controller
+    // all fail the same silent way, so naming which one it is is the whole
+    // value.
+    assert.match(await hoverText('<button data-action="click->wicker-test#save§Draft"></button>'),
+      /declares no saveDraft\(\) method.*attaches no listener/s);
+
+    assert.match(await hoverText('<output data-wicker-test-target="dr§aft"></output>'),
+      /does not declare "draft" in static targets/);
+
+    assert.match(await hoverText('<div data-controller="no-such-con§troller"></div>'),
+      /No controller named "no-such-controller" is registered/);
+
+    // A binding that does resolve must keep explaining what it connects to,
+    // not why it failed.
+    const working = await hoverText('<button data-action="click->wicker-test#refr§esh"></button>');
+    assert.match(working, /calls refresh\(\)/);
+    assert.ok(!/declares no/.test(working));
+  });
+
   test('nested Twig bindings cannot supply JSON fields to the parent project', async () => {
     const nested = await vscode.workspace.openTextDocument(uri('nested-app/templates/task/_row.html.twig'));
     const original = nested.getText();

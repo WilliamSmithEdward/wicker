@@ -301,8 +301,13 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
   private async stimulusQuery(session: ProjectSession, ref: FrontendReference, offset: number): Promise<Query> {
     const controllers = session.frontend.controllers.filter((controller) => ownsFrontendPath(this.sessions, session, controller.projectPath));
     if (ref.kind === 'controller') {
-      return { name: ref.name, range: ref.range, candidates: controllers.map((controller) => ({ ...controller,
+      const query: Query = { name: ref.name, range: ref.range, candidates: controllers.map((controller) => ({ ...controller,
         range: { start: 0, end: 0 }, label: `Stimulus controller · ${controller.projectPath}`, kind: vscode.CompletionItemKind.Class })) };
+      // An unregistered name looks exactly like a registered one in the markup,
+      // and Stimulus says nothing either way.
+      const reason = controllers.some((entry) => entry.name === ref.name)
+        ? undefined : unresolvedReason('controller', undefined, undefined, ref.name);
+      return ref.name.length > 0 && reason ? { ...query, documentation: reason } : query;
     }
     let controllerName = ref.controller, name = ref.name, range = ref.range, html = false;
     if ((ref.kind === 'value' || ref.kind === 'class') && controllerName === undefined) {
@@ -332,7 +337,13 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
         } catch { /* A registration whose source vanished cannot offer members. */ }
       }
     }
-    return { name, range, candidates };
+    // A binding that resolves explains itself through the member it found.
+    // One that does not would otherwise say nothing at all, which is the case
+    // a reader most needs explained.
+    const unresolved = name.length > 0 && !candidates.some((candidate) => candidate.name === name)
+      ? unresolvedReason(ref.kind, controllerName, controller?.projectPath, name)
+      : undefined;
+    return { name, range, candidates, ...(unresolved ? { documentation: unresolved } : {}) };
   }
 }
 function rangeOf(document: vscode.TextDocument, range: OffsetRange): vscode.Range { return new vscode.Range(document.positionAt(range.start), document.positionAt(range.end)); }
@@ -412,4 +423,39 @@ function typeNote(member: StimulusMember): string[] {
   const parts = [type === undefined ? 'Untyped' : `Type ${type}`];
   if (defaultText !== undefined) { parts.push(`default ${defaultText}`); }
   return [`${parts.join(', ')}.`];
+}
+
+/**
+ * Why a binding connects to nothing.
+ *
+ * Stimulus reports none of this. An unknown controller, an unknown method and
+ * an unknown target all fail the same way: nothing is attached, nothing is
+ * logged, and the element simply does not respond. Saying which of the three
+ * it is turns a silent page into a fixable one.
+ */
+function unresolvedReason(kind: FrontendReference['kind'], controller: string | undefined,
+  projectPath: string | undefined, name: string): string | undefined {
+  if (controller === undefined) {
+    return kind === 'controller'
+      ? `No controller named "${name}" is registered in this project, so Stimulus connects nothing to this element.`
+      : undefined;
+  }
+  if (projectPath === undefined) {
+    return `"${controller}" is registered but its source could not be read, so its members cannot be checked.`;
+  }
+
+  const file = projectPath.slice(projectPath.lastIndexOf('/') + 1);
+  if (kind === 'action') {
+    return `${file} declares no ${name}() method, so Stimulus attaches no listener and this element does nothing.`;
+  }
+  if (kind === 'target') {
+    return `${file} does not declare "${name}" in static targets, so the controller cannot reach this element.`;
+  }
+  if (kind === 'value') {
+    return `${file} does not declare "${name}" in static values, so this attribute is ignored.`;
+  }
+  if (kind === 'class') {
+    return `${file} does not declare "${name}" in static classes, so these class names are never applied.`;
+  }
+  return undefined;
 }

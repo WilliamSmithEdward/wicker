@@ -756,6 +756,34 @@ class WickerFrontendTestController {
     }
   });
 
+  test('explains a binding in the project\'s own names', async () => {
+    const hoverText = async (marked: string): Promise<string> => {
+      const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
+        'vscode.executeHoverProvider', page.uri, await at(page, marked));
+      // Markdown as rendered: appendText escapes parentheses and underscores,
+      // and the reader never sees those backslashes.
+      return hovers.flatMap((hover) => hover.contents)
+        .map((content) => typeof content === 'string' ? content : content.value).join('\n')
+        .replaceAll('\\', '').replaceAll('&nbsp;', ' ');
+    };
+
+    // The sentence the sprint asks for: each half of a binding names the
+    // other, so the connection reads without opening the file.
+    assert.match(await hoverText('<button data-action="click->wicker-test#refr§esh"></button>'),
+      /A click on this element calls refresh\(\) in wicker_test_controller\.js/);
+
+    // An element's default event is not named in the descriptor, so the
+    // sentence must not invent one.
+    assert.match(await hoverText('<button data-action="wicker-test#refr§esh"></button>'),
+      /default event calls refresh\(\)/);
+
+    assert.match(await hoverText('<output data-wicker-test-target="out§put"></output>'),
+      /reads this element as this\.outputTarget/);
+
+    assert.match(await hoverText(`{{ stimulus_controller('wicker-test', {u§rl: 'x'}) }}`),
+      /Sets this\.urlValue/);
+  });
+
   test('nested Twig bindings cannot supply JSON fields to the parent project', async () => {
     const nested = await vscode.workspace.openTextDocument(uri('nested-app/templates/task/_row.html.twig'));
     const original = nested.getText();

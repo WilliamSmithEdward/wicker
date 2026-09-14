@@ -16,6 +16,14 @@ export interface FrontendReference {
   readonly range: OffsetRange;
   readonly controller?: string;
   readonly selector?: { readonly name: string; readonly range: OffsetRange };
+  /**
+   * For an action, the event named in the same descriptor.
+   *
+   * Carried here because an explanation of the binding needs both halves at
+   * once, and the two are separate references by the time anything reads them.
+   * Absent when the descriptor relies on the element's default event.
+   */
+  readonly event?: string;
 }
 export interface StimulusEndpointBinding {
   readonly controller: string;
@@ -66,7 +74,11 @@ export function scanFrontend(source: string, twig: boolean): FrontendScan {
         const second = args[1]?.[0];
         const secondName = literalTwigString(second);
         if (second && secondName !== undefined && args[1]?.length === 1 && ['stimulus_action', 'stimulus_target'].includes(helper)) {
-          addWords(references, source, second.start + 1, second.end - 1, helper === 'stimulus_action' ? 'action' : 'target', name);
+          // The helper spells the event as its own argument rather than inside
+          // a descriptor, so it is picked up here instead.
+          const eventName = helper === 'stimulus_action' ? literalTwigString(args[2]?.[0]) : undefined;
+          addWords(references, source, second.start + 1, second.end - 1,
+            helper === 'stimulus_action' ? 'action' : 'target', name, eventName);
         }
         if (helper === 'stimulus_controller' && second?.value === '{') {
           for (const entry of splitTwigTokens(args[1]!.slice(1, args[1]!.at(-1)?.value === '}' ? -1 : undefined), ',')) {
@@ -156,7 +168,8 @@ export function scanFrontend(source: string, twig: boolean): FrontendScan {
           if (hash >= 0) {
             const action = text.slice(hash + 1).split(':')[0]!;
             references.push({ kind: 'action', controller, name: action,
-              range: { start: offset + hash + 1, end: offset + hash + 1 + action.length } });
+              range: { start: offset + hash + 1, end: offset + hash + 1 + action.length },
+              ...(descriptor.event && descriptor.event.name ? { event: descriptor.event.name } : {}) });
           }
         }
       } else if (attrName.startsWith('data-') && attrName.endsWith('-target')) {
@@ -222,12 +235,12 @@ function helperArguments(args: readonly (readonly TwigExpressionToken[])[], help
 }
 
 function addWords(result: FrontendReference[], source: string, start: number, end: number,
-  kind: FrontendReference['kind'], controller?: string): void {
+  kind: FrontendReference['kind'], controller?: string, event?: string): void {
   const text = source.slice(start, end);
   if (/[{}]/.test(text)) { return; }
+  const extra = { ...(controller === undefined ? {} : { controller }), ...(event === undefined ? {} : { event }) };
   for (const word of text.matchAll(/[^\s]+|^$/g)) {
-    result.push({ kind, name: word[0], range: { start: start + word.index, end: start + word.index + word[0].length },
-      ...(controller === undefined ? {} : { controller }) });
+    result.push({ kind, name: word[0], range: { start: start + word.index, end: start + word.index + word[0].length }, ...extra });
   }
   // A space after an existing item starts another controller or target.
   if (/\s$/.test(text)) { result.push({ kind, name: '', range: { start: end, end }, ...(controller === undefined ? {} : { controller }) }); }

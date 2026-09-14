@@ -21,6 +21,19 @@ disabled Wicker and nested-project isolation. The live app includes
 `wicker_counter_controller.js`; `/wicker` renders a sender and a separate counter.
 Its functional test checks that the selector points outside the sender's scope.
 
+CSS classes are implemented for declarations and bindings. `static classes`
+entries are parsed, coloured in JavaScript and TypeScript, and completed and
+navigated from both `data-<identifier>-<name>-class` and the helper's
+`controllerClasses` argument, positional or named. A template binding links
+back to the declaring controller in associated scripts. Only the logical name
+is treated as a declaration; the CSS it maps to is stylesheet content.
+
+Still to implement for classes: member access through the generated
+`<name>Class`, `<name>Classes` and `has<Name>Class` properties, which
+`stimulusClassProperties` names but nothing yet reads; hover explaining a
+logical name against an ordinary class attribute; and the presence check
+before an optional access.
+
 Still to implement for outlets: evidence-backed selector matches/completion,
 a combined declaration-and-binding connect edit, callback insertion, inherited
 declarations and member access through outlet callback parameters/aliases.

@@ -580,8 +580,17 @@ class WickerFrontendTestController {
 
       // Completion inside the quotes offers what importmap.php declares, which
       // is the only way a bare specifier can resolve at all.
-      const offered = (await items(js, at)).map((item) => item.label);
-      assert.ok(Array.isArray(offered));
+      assert.ok((await items(js, at)).some((item) => item.label === '#fixture/peer'),
+        'the importmap alias should be offered inside an import');
+
+      // And the alias itself navigates. This is the form that replaces the
+      // relative climb, so it has to reach the same file.
+      const alias = '#fixture/peer';
+      const withAlias = `import peer from '${alias}';\n${original}`;
+      await replace(js, withAlias);
+      const aliasLinks = await definitions(js, js.positionAt(withAlias.indexOf(alias) + 2));
+      assert.equal(aliasLinks.length, 1);
+      assert.ok(aliasLinks[0]!.targetUri.path.endsWith(PEER), `expected ${PEER}, got ${aliasLinks[0]!.targetUri.path}`);
     } finally {
       await replace(js, original);
     }

@@ -148,7 +148,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     if (node.kind === 'controller' || node.kind === 'controllerMethod') {
       const sites = controllerSites(this.sessions, session, node);
       if (node.kind === 'controller') {
-        const actions = [...new Set(sites.map((site) => site.methodName!))].map((methodName) => ({
+        const actions = controllerActionMethods(this.sessions, session, node).map((methodName) => ({
           methodName, route: controllerRoutes(this.sessions, session, { ...node, methodName })[0],
         }));
         actions.sort((left, right) => left.route && right.route ? compareRoutePaths(left.route, right.route) :
@@ -326,14 +326,12 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     }
     if (node.kind === 'route' || node.kind === 'routeConsumer' || node.kind === 'routeTemplate') {
       const route = session.frontend.routes.find((route) => route.name === node.name);
-      const action = route && routeAction(this.sessions, session, route)?.action;
-      const routeIcon = route?.format === 'json' || action?.json ? icons.jsonRoute :
-        action?.templates.length ? icons.templateRoute : icons.route;
+      const rowIcon = route ? routeIcon(this.sessions, session, route) : icons.route;
       const label = node.kind === 'route' ? `${route?.methods ?? ''} ${route?.path ?? node.name}` :
         node.kind === 'routeTemplate' ? node.templateName : node.projectPath;
       const item = new vscode.TreeItem(label, (node.kind === 'route' || node.kind === 'routeTemplate') && this.getChildren(node).length
         ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
-      item.iconPath = sidebarIcon(node.kind === 'route' ? routeIcon : node.kind === 'routeTemplate' ? icons.template :
+      item.iconPath = sidebarIcon(node.kind === 'route' ? rowIcon : node.kind === 'routeTemplate' ? icons.template :
         /\.[jt]s$/.test(node.projectPath) ? scriptIcon(node.projectPath) : node.projectPath.endsWith('.twig') ? icons.template : icons.consumer);
       item.description = node.kind === 'route' ? node.name : node.kind === 'routeTemplate' ? 'Renders' : 'Consumer';
       item.tooltip = node.kind === 'route' ? `${route?.controller ?? node.name}\nOpen the endpoint action. Expand to explore its connections.` :
@@ -365,8 +363,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       const item = new vscode.TreeItem(template ? node.name : controller ? node.className.split('\\').at(-1)! :
         routeLabels.length ? routeLabels.join(' · ') : `${node.methodName}()`,
         (template ? this.getChildren(node).length === 0 : sites.length === 0) ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Collapsed);
-      const actionIcon = routes.some((route) => route.format === 'json' || routeAction(this.sessions, session, route)?.action.json)
-        ? icons.jsonRoute : routes.length ? icons.templateRoute : icons.method;
+      const actionIcon = actionRouteIcon(routes.map((route) => routeIcon(this.sessions, session, route)));
       item.iconPath = sidebarIcon(template ? icons.template : controller ? icons.controller : actionIcon);
       item.tooltip = `${node.className}${controller ? '' : `::${node.methodName}()`}\n${node.projectPath}`;
       if (!template) {
@@ -765,6 +762,46 @@ function controllerRoutes(sessions: SessionManager, session: ProjectSession,
     return target?.projectPath === node.projectPath && target.action.className === node.className &&
       target.action.methodName === node.methodName;
   }).sort(compareRoutePaths);
+}
+
+/**
+ * Every action that deserves a row under a controller.
+ *
+ * Render sites alone are not enough: an action returning JSON names no
+ * template, so it produces no site and would be missing from the tree entirely
+ * even though its route is listed under API routes. An endpoint is an action
+ * whether or not it renders anything.
+ */
+function controllerActionMethods(sessions: SessionManager, session: ProjectSession,
+  node: ControllerNode): readonly string[] {
+  const rendering = controllerSites(sessions, session, node).map((site) => site.methodName!);
+  const routed = session.frontend.routes.flatMap((route) => {
+    const target = routeAction(sessions, session, route);
+    return target?.projectPath === node.projectPath && target.action.className === node.className
+      ? [target.action.methodName] : [];
+  });
+  return [...new Set([...rendering, ...routed])];
+}
+
+/**
+ * The icon for a route, decided by what the route actually does.
+ *
+ * Shared by the route sections and the rows under a controller, because the
+ * same route appearing in both places must not be drawn two different ways.
+ * The leaf icon claims a template is rendered, so it must never land on an
+ * endpoint that renders nothing.
+ */
+function routeIcon(sessions: SessionManager, session: ProjectSession, route: SymfonyRoute): string {
+  const action = routeAction(sessions, session, route)?.action;
+  if (route.format === 'json' || action?.json) { return icons.jsonRoute; }
+  return action?.templates.length ? icons.templateRoute : icons.route;
+}
+
+/** One icon for an action that may carry several routes, by strongest claim. */
+function actionRouteIcon(routes: readonly string[]): string {
+  if (!routes.length) { return icons.method; }
+  if (routes.includes(icons.jsonRoute)) { return icons.jsonRoute; }
+  return routes.includes(icons.templateRoute) ? icons.templateRoute : icons.route;
 }
 
 function warningReasons(session: ProjectSession): WarningReason[] {

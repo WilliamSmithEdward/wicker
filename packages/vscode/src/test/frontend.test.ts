@@ -7,6 +7,7 @@ import { ProjectTreeProvider } from '../sidebar.js';
 
 const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
 const JS = 'assets/controllers/wicker_test_controller.js';
+const PEER = 'assets/controllers/wicker_peer_controller.ts';
 const PHP = 'src/Controller/WickerFrontendTestController.php';
 const TWIG = 'templates/wicker_frontend_test.html.twig';
 const routes = {
@@ -42,6 +43,10 @@ const pageSource = `<div {{ stimulus_controller('wicker-test', {url: path('wicke
   <output data-wicker-test-target="output"></output>
 </div>
 <script>async function fragment() { const response = await fetch('/_wicker-test/fragment'); return response.text(); }</script>`;
+const peerSource = `export default class { increment(): void {} reset(): void {} }`;
+const outletSource = jsSource.replace('static targets', "static outlets = ['wicker-peer'];\n  static targets");
+const outletPage = `<div {{ stimulus_controller('wicker-test', controllerOutlets: {'wicker-peer': '#peer'}) }}></div>
+<output id="peer" {{ stimulus_controller('wicker-peer') }}></output>`;
 const uri = (file: string): vscode.Uri => vscode.Uri.file(path.join(ROOT, file));
 async function replace(doc: vscode.TextDocument, source: string): Promise<void> {
   const edit = new vscode.WorkspaceEdit(); edit.replace(doc.uri, new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)), source);
@@ -68,12 +73,12 @@ async function eventually(check: () => Promise<boolean> | boolean): Promise<void
 suite('Stimulus and API connections', () => {
   const settings = vscode.workspace.getConfiguration('wicker');
   let previousCommand: string[] | undefined, previousConsole: boolean | undefined;
-  let page: vscode.TextDocument, js: vscode.TextDocument, php: vscode.TextDocument;
+  let page: vscode.TextDocument, js: vscode.TextDocument, php: vscode.TextDocument, peer: vscode.TextDocument;
   suiteSetup(async () => {
     await vscode.extensions.getExtension('WilliamSmithE.wicker')!.activate();
     previousCommand = settings.inspect<string[]>('console.command')?.workspaceValue;
     previousConsole = settings.inspect<boolean>('console.enabled')?.workspaceValue;
-    for (const [file, source] of [[TWIG, pageSource], [JS, jsSource], [PHP, phpSource]]) {
+    for (const [file, source] of [[TWIG, pageSource], [JS, jsSource], [PHP, phpSource], [PEER, peerSource]]) {
       await vscode.workspace.fs.writeFile(uri(file!), Buffer.from(source!));
     }
     await settings.update('console.command', [process.env['npm_node_execpath'] ?? 'node', '-e', CONSOLE, '--'], vscode.ConfigurationTarget.Workspace);
@@ -82,10 +87,11 @@ suite('Stimulus and API connections', () => {
     page = await vscode.workspace.openTextDocument(uri(TWIG));
     js = await vscode.workspace.openTextDocument(uri(JS));
     php = await vscode.workspace.openTextDocument(uri(PHP));
+    peer = await vscode.workspace.openTextDocument(uri(PEER));
   });
-  teardown(async () => { await replace(page, pageSource); await replace(js, jsSource); await replace(php, phpSource); });
+  teardown(async () => { await replace(page, pageSource); await replace(js, jsSource); await replace(php, phpSource); await replace(peer, peerSource); });
   suiteTeardown(async () => {
-    for (const doc of [page, js, php]) {
+    for (const doc of [page, js, php, peer]) {
       if (!doc) { continue; }
       await vscode.window.showTextDocument(doc); await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
       await vscode.workspace.fs.delete(doc.uri);
@@ -126,6 +132,116 @@ suite('Stimulus and API connections', () => {
     const result = await items(page, await at(page, `{{ stimulus_action('wicker-test', '§') }}`));
     assert.ok(result.some((item) => item.label === 'reload' && item.detail?.startsWith('Stimulus')));
     assert.ok(!result.some((item) => item.label === 'refresh' && item.detail?.startsWith('Stimulus')));
+  });
+  test('outlet names complete in named, positional, filtered and raw Twig bindings', async () => {
+    await replace(js, outletSource);
+    for (const marked of [
+      `{{ stimulus_controller('wicker-test', controllerOutlets: {'wicker-p§eer': '#peer'}) }}`,
+      `{{ stimulus_controller('wicker-test', {}, {}, {'wicker-p§eer': '#peer'}) }}`,
+      `{{ stimulus_controller('other')|stimulus_controller('wicker-test', controllerOutlets: {'wicker-p§eer': '#peer'}) }}`,
+      `<div data-wicker-test-wicker-p§eer-outlet="#peer">`,
+    ]) {
+      const position = await at(page, marked);
+      const completion = (await items(page, position)).find((item) => item.label === 'wicker-peer' && item.detail?.startsWith('Stimulus outlet'));
+      assert.ok(completion);
+      const range = completion.range instanceof vscode.Range ? completion.range : completion.range!.replacing;
+      assert.equal(page.getText(range), 'wicker-peer');
+      const links = await definitions(page, position);
+      assert.ok(links.some((link) => link.targetUri.toString() === js.uri.toString() && js.getText(link.targetSelectionRange) === 'wicker-peer'));
+      assert.ok(links.some((link) => link.targetUri.toString() === peer.uri.toString()));
+    }
+  });
+  test('outlet declarations complete registered controllers and navigate to TypeScript', async () => {
+    const position = await at(js, outletSource.replace("'wicker-peer'", "'wicker-p§eer'"));
+    assert.ok((await items(js, position)).some((item) => item.label === 'wicker-peer' && item.detail?.startsWith('Stimulus outlet')));
+    assert.ok((await definitions(js, position)).some((link) => link.targetUri.toString() === peer.uri.toString()));
+  });
+  test('generated outlet properties coexist with ordinary JS and TS completions', async () => {
+    for (const doc of [js, peer]) {
+      const position = await at(doc, `export default class { static outlets = ['wicker-peer']; refresh() {} run() { this.§ } }`);
+      const completions = await items(doc, position);
+      assert.ok(completions.some((item) => item.label === 'hasWickerPeerOutlet' && item.detail?.startsWith('Stimulus outlet')));
+      assert.ok(completions.some((item) => item.label === 'wickerPeerOutletElements' && item.detail?.startsWith('Stimulus outlet')));
+      assert.ok(completions.some((item) => item.label === 'refresh'), 'Built-in JS/TS member completion must still run');
+    }
+  });
+  test('outlet property and callback navigation returns the declaration, and methods reach the receiver', async () => {
+    for (const suffix of ['run() { this.wickerPeerOut§let.increment(); }', 'wickerPeerOutletConn§ected(outlet, element) {}']) {
+      const position = await at(js, outletSource.replace('async refresh()', `${suffix}\n  async refresh()`));
+      const link = (await definitions(js, position)).find((link) => link.targetUri.toString() === js.uri.toString());
+      assert.ok(link);
+      assert.equal(js.getText(link.targetSelectionRange), 'wicker-peer');
+    }
+    const position = await at(js, outletSource.replace('async refresh()', 'run() { this.wickerPeerOutlet.incr§ement(); }\n async refresh()'));
+    assert.ok((await items(js, position)).some((item) => item.label === 'increment' && item.detail?.startsWith('Stimulus outlet method')));
+    const link = (await definitions(js, position)).find((link) => link.targetUri.toString() === peer.uri.toString());
+    assert.ok(link);
+    assert.equal(peer.getText(link.targetSelectionRange), 'increment');
+    await replace(peer, peerSource.replace('increment', 'increase'));
+    const completions = await items(js, position);
+    assert.ok(completions.some((item) => item.label === 'increase' && item.detail?.startsWith('Stimulus outlet method')));
+    assert.ok(!completions.some((item) => item.label === 'increment' && item.detail?.startsWith('Stimulus outlet method')));
+  });
+  test('selector hover explains page-wide controller matching and optional outlet access', async () => {
+    await replace(js, outletSource);
+    const position = await at(page, outletPage.replace('#peer', '#pe§er'));
+    const hovers = await vscode.commands.executeCommand<vscode.Hover[]>('vscode.executeHoverProvider', page.uri, position);
+    const text = hovers?.flatMap((hover) => hover.contents.map((content) => typeof content === 'string' ? content : content.value)).join('\n') ?? '';
+    assert.ok(text.includes('anywhere on the page'), text);
+    assert.ok(text.includes('hasWickerPeerOutlet'));
+    assert.ok(text.includes('https://stimulus.hotwired.dev/reference/outlets'));
+    assert.ok((await definitions(page, position)).some((link) => link.targetUri.toString() === peer.uri.toString()));
+    assert.ok(!(await items(page, position)).some((item) => item.detail?.startsWith('Stimulus outlet')), 'Selector text must not be replaced by an outlet name');
+  });
+  test('outlet Find All References includes Twig bindings and generated accesses and follows unsaved changes', async () => {
+    await replace(page, outletPage);
+    const position = await at(js, outletSource.replace("'wicker-peer'", "'wicker-p§eer'").replace('async refresh()',
+      'run() { if (this.hasWickerPeerOutlet) this.wickerPeerOutlet.increment(); }\n async refresh()'));
+    const references = async (): Promise<vscode.Location[]> => await vscode.commands.executeCommand<vscode.Location[]>('vscode.executeReferenceProvider', js.uri, position) ?? [];
+    await eventually(async () => (await references()).some((ref) => ref.uri.toString() === page.uri.toString()));
+    assert.ok((await references()).some((ref) => ref.uri.toString() === js.uri.toString() && js.getText(ref.range) === 'hasWickerPeerOutlet'));
+    await replace(page, outletPage.replace("'wicker-peer':", "'other':"));
+    await eventually(async () => !(await references()).some((ref) => ref.uri.toString() === page.uri.toString()));
+  });
+  test('turning off Wicker removes outlet completions, definitions, hovers and references', async () => {
+    await replace(js, outletSource);
+    const position = await at(page, outletPage.replace("'wicker-peer':", "'wicker-p§eer':"));
+    const previous = settings.inspect<boolean>('enable')?.workspaceValue;
+    try {
+      await settings.update('enable', false, vscode.ConfigurationTarget.Workspace);
+      await eventually(async () => !(await items(page, position)).some((item) => item.detail?.startsWith('Stimulus outlet')));
+      assert.ok(!(await definitions(page, position)).some((link) => link.targetUri.toString() === peer.uri.toString()));
+      const hovers = await vscode.commands.executeCommand<vscode.Hover[]>('vscode.executeHoverProvider', page.uri, position);
+      assert.ok(!hovers?.some((hover) => hover.contents.some((content) => (typeof content === 'string' ? content : content.value).includes('hasWickerPeerOutlet'))));
+      const refs = await vscode.commands.executeCommand<vscode.Location[]>('vscode.executeReferenceProvider', page.uri, position);
+      assert.ok(!refs?.some((ref) => ref.uri.toString() === js.uri.toString()));
+    } finally { await settings.update('enable', previous, vscode.ConfigurationTarget.Workspace); await vscode.commands.executeCommand('wicker.reindex'); }
+  });
+  test('outlet member navigation disappears when the receiving controller is deleted', async () => {
+    const added = uri('assets/controllers/wicker_outlet_added_controller.ts');
+    try {
+      await vscode.workspace.fs.writeFile(added, Buffer.from('export default class { run(): void {} }'));
+      const position = await at(js, `export default class { static outlets = ['wicker-outlet-added']; connect() { this.wickerOutletAddedOutlet.r§un(); } }`);
+      await eventually(async () => (await definitions(js, position)).some((link) => link.targetUri.toString() === added.toString()));
+      await vscode.workspace.fs.delete(added);
+      await eventually(async () => !(await definitions(js, position)).some((link) => link.targetUri.toString() === added.toString()));
+      assert.ok(!(await items(js, position)).some((item) => item.detail?.startsWith('Stimulus outlet method')));
+    } finally { await deleteDependencyFiles([added]); }
+  });
+  test('outlet references never borrow a nested project binding', async () => {
+    const nested = await vscode.workspace.openTextDocument(uri('nested-app/templates/task/_row.html.twig'));
+    const original = nested.getText();
+    try {
+      await replace(page, '');
+      await replace(nested, outletPage);
+      const position = await at(js, outletSource.replace("'wicker-peer'", "'wicker-p§eer'"));
+      const refs = await vscode.commands.executeCommand<vscode.Location[]>('vscode.executeReferenceProvider', js.uri, position);
+      assert.ok(!refs?.some((ref) => ref.uri.toString() === nested.uri.toString()));
+    } finally {
+      await replace(nested, original);
+      await vscode.window.showTextDocument(nested);
+      await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+    }
   });
   test('route names and literal fetch URLs navigate to the correct PHP action', async () => {
     let links = await definitions(page, await at(page, `{{ path('wicker_test_js§on') }}`));
@@ -171,8 +287,17 @@ suite('Stimulus and API connections', () => {
       const controller = tree.getChildren(controllers).find((node) => node.kind === 'controller' && node.className === 'App\\Controller\\WickerFrontendTestController');
       assert.ok(controller);
       const controllerActions = tree.getChildren(controller).filter((node) => node.kind === 'controllerMethod');
+      // The JSON endpoint renders nothing, so it has no render site. It is
+      // still an action of this controller, and listing its route under API
+      // routes while omitting the action itself leaves the tree disagreeing
+      // with itself about what the controller contains.
       assert.deepEqual(controllerActions.map((node) => tree.getTreeItem(node).label),
-        ['GET /_wicker-test/alpha', 'GET /_wicker-test/fragment', 'GET /_wicker-test/zebra']);
+        ['GET /_wicker-test/alpha', 'GET /_wicker-test/api', 'GET /_wicker-test/fragment', 'GET /_wicker-test/zebra']);
+      // And it carries the icon its route carries in the API section. A leaf
+      // here would claim a template is rendered, which is the one thing this
+      // action does not do.
+      const jsonAction = controllerActions.find((node) => node.kind === 'controllerMethod' && node.methodName === 'data')!;
+      assert.equal((tree.getTreeItem(jsonAction).iconPath as vscode.ThemeIcon).id, 'symbol-object');
       const action = controllerActions.find((node) => node.kind === 'controllerMethod' && node.methodName === 'fragment')!;
       const actionItem = tree.getTreeItem(action);
       assert.equal(actionItem.label, 'GET /_wicker-test/fragment');

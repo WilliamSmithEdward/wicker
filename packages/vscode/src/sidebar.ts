@@ -8,6 +8,7 @@ import { apiRoutes, compareRoutePaths, controllerDependencies, routeAction, rout
 import { dependencyKind, sidebarIcon, SIDEBAR_ICONS as icons } from './sidebarIcons.js';
 import { controllerScripts, templateScripts, type RelatedScript } from './relatedScripts.js';
 import { templateStyles, type RelatedStyle } from './relatedStyles.js';
+import { chainChildren, templateEntrypoints, type ChainEntry } from './loadingChain.js';
 
 const SHOW_BUNDLES_KEY = 'wicker.sidebar.showBundleTemplates';
 type WarningReason = 'namespaces' | 'indexLimit';
@@ -35,6 +36,7 @@ export type SidebarNode =
   | (ControllerIdentity & { readonly kind: 'controllerScripts' })
   | { readonly kind: 'script'; readonly root: vscode.Uri; readonly projectPath: string; readonly parent: ScriptOwner }
   | { readonly kind: 'style'; readonly root: vscode.Uri; readonly projectPath: string; readonly parent: ScriptOwner }
+  | { readonly kind: 'loaded'; readonly root: vscode.Uri; readonly projectPath: string; readonly reason: string; readonly parent: SidebarNode }
   | { readonly kind: 'warning'; readonly root: vscode.Uri; readonly reason: WarningReason }
   | { readonly kind: 'action'; readonly root: vscode.Uri; readonly reason: WarningReason; readonly action: 'retry' | 'settings' }
   | { readonly kind: 'namespace'; readonly root: vscode.Uri; readonly namespace: string }
@@ -137,6 +139,11 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
           root: node.root, name: node.name, section: node.section, projectPath: use.projectPath, offset: use.range.start })),
       ];
     }
+    if (node.kind === 'loaded') {
+      return chainChildren(this.sessions, session, node.projectPath).map((entry) => ({
+        kind: 'loaded' as const, root: node.root, projectPath: entry.projectPath, reason: entry.reason, parent: node,
+      }));
+    }
     if (isScriptOwner(node)) {
       return [
         ...scriptsForOwner(this.sessions, session, node).map((script) => ({
@@ -146,6 +153,11 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
         // layout rather than the page and is the less expected of the two.
         ...stylesForOwner(this.sessions, session, node).map((style) => ({
           kind: 'style' as const, root: node.root, projectPath: style.projectPath, parent: node,
+        })),
+        // The chain the page actually loads, expandable one import at a time.
+        // Flat lists answer what; this answers why.
+        ...entrypointsForOwner(this.sessions, session, node).map((entry) => ({
+          kind: 'loaded' as const, root: node.root, projectPath: entry.projectPath, reason: entry.reason, parent: node,
         })),
       ];
     }
@@ -227,6 +239,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
 
   getParent(node: SidebarNode): SidebarNode | undefined {
     if (node.kind === 'script' || node.kind === 'style') { return node.parent; }
+    if (node.kind === 'loaded') { return node.parent; }
     if (node.kind === 'route') { return { kind: 'section', root: node.root, section: node.section }; }
     if (node.kind === 'routeConsumer' || node.kind === 'routeTemplate') { return { kind: 'route', root: node.root, name: node.name, section: node.section }; }
     if (node.kind === 'project') {
@@ -485,6 +498,21 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       item.tooltip = `${node.namespace ? `${node.namespace}/` : ''}${node.path}/\n${counted(count, 'template name')}`;
       return item;
     }
+    if (node.kind === 'loaded') {
+      const item = new vscode.TreeItem(basename(node.projectPath),
+        chainChildren(this.sessions, session, node.projectPath).length
+          ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
+      item.description = node.projectPath.slice(0, node.projectPath.lastIndexOf('/'));
+      item.iconPath = new vscode.ThemeIcon(node.projectPath.toLowerCase().endsWith('.css')
+        ? icons.stylesheet : scriptIcon(node.projectPath));
+      // The reason is the point of the row: a file this deep in the chain is
+      // named in no template, and "why is this loaded" is the question.
+      item.tooltip = `${node.projectPath}\n\n${node.reason}`;
+      item.resourceUri = session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath));
+      item.command = { command: 'vscode.open', title: 'Open file',
+        arguments: [session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath))] };
+      return item;
+    }
     const template = session.lookup(node.name);
     const item = new vscode.TreeItem(basename(templatePath(node.name)), this.getChildren(node).length
       ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
@@ -731,6 +759,7 @@ function namespaceOf(name: string): string {
 
 function nodeId(node: SidebarNode): string {
   return JSON.stringify([node.root.toString(), node.kind,
+    node.kind === 'loaded' ? [nodeId(node.parent), 'loaded', node.projectPath] :
     node.kind === 'script' || node.kind === 'style' ? [nodeId(node.parent), node.kind, node.projectPath] :
     node.kind === 'controllerDependencies' || node.kind === 'controllerDependency' || node.kind === 'controllerScripts'
       ? [node.projectPath, node.className, node.kind === 'controllerDependency' ? node.typeName : '']
@@ -750,6 +779,17 @@ function isControllerNode(node: SidebarNode): node is ControllerNode {
 
 function isScriptOwner(node: SidebarNode): node is ScriptOwner {
   return ['controllerScripts', 'controllerTemplate', 'template', 'routeTemplate'].includes(node.kind);
+}
+
+/** The entrypoints a template renders, as the head of its loading chain. */
+function entrypointsForOwner(sessions: SessionManager, session: ProjectSession, node: ScriptOwner): readonly ChainEntry[] {
+  if (node.kind === 'controllerScripts') { return []; }
+  if (node.kind === 'controllerTemplate' && !controllerSites(sessions, session, node).length) { return []; }
+  if (node.kind === 'routeTemplate') {
+    const route = session.frontend.routes.find((route) => route.name === node.name);
+    if (!route || !routeAction(sessions, session, route)?.action.templates.includes(node.templateName)) { return []; }
+  }
+  return templateEntrypoints(sessions, session, [node.kind === 'routeTemplate' ? node.templateName : node.name]);
 }
 
 /** Stylesheets for the same owners, from the same template walk as scripts. */

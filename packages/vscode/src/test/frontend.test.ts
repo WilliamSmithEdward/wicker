@@ -903,6 +903,54 @@ class WickerFrontendTestController {
     assert.match(text, /event\.params\.itemId/);
   });
 
+  test('makes the loading chain explorable one import at a time', async () => {
+    const original = page.getText();
+    const memory = new Map<string, unknown>();
+    const sessions = new SessionManager(new LoaderPathMemory({
+      keys: () => [...memory.keys()],
+      get: <T>(key: string, fallback?: T): T | undefined => (memory.get(key) as T | undefined) ?? fallback,
+      update: (key, value) => { memory.set(key, value); return Promise.resolve(); },
+    }));
+    await sessions.initialize();
+    const tree = new ProjectTreeProvider(sessions);
+    try {
+      await replace(page, `{{ importmap('app') }}`);
+      await eventually(() => true);
+
+      const find = (node: SidebarNode | undefined, depth = 0): SidebarNode | undefined => {
+        for (const child of tree.getChildren(node)) {
+          if (child.kind === 'template' && child.name === 'wicker_frontend_test.html.twig') { return child; }
+          const found = depth < 6 ? find(child, depth + 1) : undefined;
+          if (found) { return found; }
+        }
+        return undefined;
+      };
+      const template = find(undefined);
+      assert.ok(template);
+
+      // Step one: the entrypoint the template names.
+      const entry = tree.getChildren(template).find((child) =>
+        child.kind === 'loaded' && child.projectPath === 'assets/app.js');
+      assert.ok(entry, 'the entrypoint should head the chain');
+      assert.match(tooltipOf(tree.getTreeItem(entry)), /importmap\('app'\)/);
+
+      // Step two: what that file imports, named in no template.
+      const imported = tree.getChildren(entry);
+      assert.deepEqual(imported.map((child) => child.kind === 'loaded' ? child.projectPath : ''),
+        ['assets/styles/app.css']);
+      assert.match(tooltipOf(tree.getTreeItem(imported[0]!)), /imported by app\.js/);
+
+      // Step three: a stylesheet's own imports keep going.
+      const deeper = tree.getChildren(imported[0]!);
+      assert.deepEqual(deeper.map((child) => child.kind === 'loaded' ? child.projectPath : ''),
+        ['assets/styles/theme.css']);
+    } finally {
+      tree.dispose();
+      sessions.dispose();
+      await replace(page, original);
+    }
+  });
+
   test('nested Twig bindings cannot supply JSON fields to the parent project', async () => {
     const nested = await vscode.workspace.openTextDocument(uri('nested-app/templates/task/_row.html.twig'));
     const original = nested.getText();

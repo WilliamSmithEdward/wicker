@@ -215,6 +215,14 @@ so a lower-scoring provider is never called. Semantic tokens select one provider
 outright. This is why general PHP language support is out of scope, and it is
 worth checking before adding any feature that competes for those slots.
 
+**The integration suite edits fixture files while it runs**, and restores them
+in teardown. An interrupted run leaves one modified, and `git add -A` then
+commits it as though it were work. That has happened twice: a
+`.vscode/settings.json` written by a settings test, and
+`fixtures/.../Alert.php` renamed by a component test, which left five tests
+failing on a fixture in the wrong state. Read `git status` before staging, and
+treat a changed fixture you did not edit as a leftover rather than a change.
+
 **Do not use a shell heredoc.** Write files with the Write tool and edit them
 with Edit. Heredocs mangle backslashes on the way through the shell and the
 damage surfaces far from its cause.

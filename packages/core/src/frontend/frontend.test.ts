@@ -41,6 +41,37 @@ describe('Stimulus declarations', () => {
   });
 });
 
+describe('dispatched events', () => {
+  const source = `export default class extends Controller {
+    add() {
+      this.dispatch('added', { detail: { id: 1 } });
+      this.dispatch('changed');
+    }
+    quiet() {
+      this.dispatch('raw', { prefix: false });
+      this.dispatch(computedName);
+    }
+  }`;
+  const found = stimulusSource(source).dispatches;
+
+  it('reads every literal dispatched name', () => {
+    expect(found.map((entry) => entry.name)).toEqual(['added', 'changed', 'raw']);
+    for (const entry of found) {
+      expect(source.slice(entry.range.start, entry.range.end)).toBe(entry.name);
+    }
+  });
+
+  it('marks a call that overrides the prefix, whose event name it cannot compose', () => {
+    // Stimulus emits "<identifier>:added" by default. A prefix option changes
+    // that, and the option's value is not read, so no claim is made.
+    expect(found.filter((entry) => entry.defaultPrefix).map((entry) => entry.name)).toEqual(['added', 'changed']);
+  });
+
+  it('reads nothing from a computed name', () => {
+    expect(found.some((entry) => entry.name.includes('computed'))).toBe(false);
+  });
+});
+
 describe('stimulusDeclarationRanges', () => {
   const source = `import { Controller } from '@hotwired/stimulus';
 export default class extends Controller {

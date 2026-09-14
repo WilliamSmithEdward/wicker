@@ -3,6 +3,17 @@ import { closingToken, javascriptTokens, stringRange } from './javascript.js';
 
 export interface StimulusMember { readonly name: string; readonly range: OffsetRange }
 export interface StimulusAccess extends StimulusMember { readonly receiver?: string }
+export interface StimulusDispatch extends StimulusMember {
+  /**
+   * True when the emitted event is `<identifier>:<name>`.
+   *
+   * Stimulus prefixes a dispatched event with the controller identifier unless
+   * the call passes a `prefix` option. That option's value is not read, so a
+   * call carrying one records the name but makes no claim about the event a
+   * listener would bind, which is better than composing the wrong one.
+   */
+  readonly defaultPrefix: boolean;
+}
 export interface StimulusSource {
   readonly range: OffsetRange;
   readonly actions: readonly StimulusMember[];
@@ -11,6 +22,8 @@ export interface StimulusSource {
   readonly outlets: readonly StimulusMember[];
   /** Logical names from `static classes`, not the CSS classes they map to. */
   readonly classes: readonly StimulusMember[];
+  /** Events the controller emits through `this.dispatch(...)`. */
+  readonly dispatches: readonly StimulusDispatch[];
   readonly outletsRange?: OffsetRange;
   readonly outletCallbacks: readonly StimulusMember[];
   readonly accesses: readonly StimulusAccess[];
@@ -26,7 +39,7 @@ export function stimulusIdentifier(relativePath: string): string | undefined {
  * declarations and runtime registrations deliberately remain unknown. */
 export function stimulusSource(source: string): StimulusSource {
   const tokens = javascriptTokens(source);
-  const empty = { range: { start: 0, end: 0 }, actions: [], targets: [], values: [], outlets: [], classes: [], outletCallbacks: [], accesses: [] };
+  const empty = { range: { start: 0, end: 0 }, actions: [], targets: [], values: [], outlets: [], classes: [], dispatches: [], outletCallbacks: [], accesses: [] };
   const exported = tokens.findIndex((t, i) => t.text === 'export' && tokens[i + 1]?.text === 'default');
   if (exported < 0) { return empty; }
   let klass = exported + 2;
@@ -89,6 +102,7 @@ export function stimulusSource(source: string): StimulusSource {
     if (['{', '[', '('].includes(t.text)) { const end = closingToken(tokens, i); if (end >= 0) { i = end; } }
   }
   const accesses: StimulusAccess[] = [];
+  const dispatches: StimulusDispatch[] = [];
   for (let i = open + 1; i < close; i++) {
     const token = tokens[i]!;
     if (staticBodies.some((range) => token.start >= range.start && token.end <= range.end)) { continue; }
@@ -104,6 +118,15 @@ export function stimulusSource(source: string): StimulusSource {
     const property = tokens[i + 2];
     accesses.push(property?.kind === 'name' ? { name: property.text, range: property }
       : { name: '', range: { start: tokens[i + 1]!.end, end: tokens[i + 1]!.end } });
+    if (property?.text === 'dispatch' && tokens[i + 3]?.text === '(') {
+      const emitted = tokens[i + 4];
+      const args = closingToken(tokens, i + 3);
+      if (emitted?.kind === 'string' && emitted.value !== undefined && args > 0) {
+        const options = tokens.slice(i + 5, args);
+        dispatches.push({ name: emitted.value, range: stringRange(emitted),
+          defaultPrefix: !options.some((option) => option.text === 'prefix') });
+      }
+    }
     if (property?.kind === 'name' && ['.', '?.'].includes(tokens[i + 3]?.text ?? '')) {
       const member = tokens[i + 4];
       accesses.push({ receiver: property.text, ...(member?.kind === 'name' ? { name: member.text, range: member }
@@ -111,7 +134,7 @@ export function stimulusSource(source: string): StimulusSource {
     }
   }
   return { range: tokens[klass]!, actions, targets, values,
-    outlets, classes, ...(outletsRange ? { outletsRange } : {}), outletCallbacks, accesses };
+    outlets, classes, dispatches, ...(outletsRange ? { outletsRange } : {}), outletCallbacks, accesses };
 }
 
 /** Stimulus removes namespace separators when generating outlet accessors. */

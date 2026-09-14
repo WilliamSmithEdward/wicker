@@ -646,6 +646,27 @@ class WickerFrontendTestController {
       'the method position should still offer controller actions');
   });
 
+  test('connects a dispatched event to the action listening for it', async () => {
+    const originalJs = js.getText();
+    try {
+      // Stimulus composes "<identifier>:<name>", so this controller emits
+      // wicker-test:refreshed. Neither file mentions the other.
+      await replace(js, jsSource.replace('async refresh()',
+        "notify() { this.dispatch('refreshed'); }\n  async refresh()"));
+
+      const eventPosition = await at(page, '<div data-action="§->wicker-test#refresh"></div>');
+      await eventually(async () => (await items(page, eventPosition))
+        .some((item) => item.label === 'wicker-test:refreshed'));
+
+      const listening = await at(page, '<div data-action="wicker-test:refreshed§->wicker-test#refresh"></div>');
+      const links = await definitions(page, listening);
+      assert.equal(links.length, 1, 'the composed event name should open its dispatch call');
+      assert.ok(links[0]!.targetUri.path.endsWith(JS), `expected ${JS}, got ${links[0]!.targetUri.path}`);
+    } finally {
+      await replace(js, originalJs);
+    }
+  });
+
   test('nested Twig bindings cannot supply JSON fields to the parent project', async () => {
     const nested = await vscode.workspace.openTextDocument(uri('nested-app/templates/task/_row.html.twig'));
     const original = nested.getText();

@@ -110,6 +110,7 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       query.routes = routes;
     } else if (ref && ['event', 'keyFilter', 'eventTarget', 'actionOption'].includes(ref.kind)) {
       query = descriptorQuery(ref);
+      if (ref.kind === 'event') { query.candidates.push(...this.dispatchedEvents(session)); }
     } else if (ref?.kind === 'asset' || ref?.kind === 'entrypoint') {
       query = this.assetQuery(session, ref);
     } else if (ref?.kind === 'url') {
@@ -151,6 +152,35 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       if (!query && /\.[jt]s$/.test(path)) { query = await this.outlets.javascript(session, path, source, offset); }
     }
     return this.sessions.sessionFor(document) === session && document.version === version ? query : undefined;
+  }
+
+  /**
+   * Events the project's own controllers emit.
+   *
+   * `this.dispatch('added')` in `cart_controller.js` emits `cart:added`, and a
+   * listener binds that composed name in a data-action. Nothing in either file
+   * mentions the other, so this is the only place the two meet.
+   *
+   * Read from the index, which already holds a parsed source per file, so a
+   * keystroke costs a lookup rather than re-reading every controller.
+   */
+  private dispatchedEvents(session: ProjectSession): Candidate[] {
+    const index = frontendIndex(this.sessions, session);
+    // The registered identifier, not one derived from the path: a controller's
+    // name depends on which configured directory it sits under, and its
+    // project path does not carry that.
+    return session.frontend.controllers
+      .filter((controller) => ownsFrontendPath(this.sessions, session, controller.projectPath))
+      .flatMap((controller) => {
+        const file = index.get(controller.projectPath);
+        if (!file?.stimulus) { return []; }
+        // Only the calls whose event name is composable. A dispatch overriding
+        // the prefix names an event this cannot work out.
+        return file.stimulus.dispatches.filter((entry) => entry.defaultPrefix).map((entry) => ({
+          name: `${controller.name}:${entry.name}`, projectPath: controller.projectPath, range: entry.range,
+          label: `Dispatched by ${controller.name}`, kind: vscode.CompletionItemKind.Event,
+        }));
+      });
   }
 
   /**

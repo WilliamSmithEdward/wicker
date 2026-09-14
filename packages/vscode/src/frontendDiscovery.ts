@@ -3,6 +3,14 @@ import { joinProjectPath, normalizeProjectPath, parseComposerManifest, parseJson
 
 export interface FrontendDiscovery {
   readonly controllers: readonly StimulusController[];
+  /**
+   * Where a new controller belongs, from `stimulus.controller_paths`.
+   *
+   * The first configured directory, which is the one a project keeps its own
+   * controllers in. Absent when the console could not say, in which case
+   * nothing should guess at a location.
+   */
+  readonly controllerDirectory?: string;
   readonly routes: readonly SymfonyRoute[];
   readonly stimulusStatus: string;
   readonly routesStatus: string;
@@ -15,14 +23,15 @@ export async function discoverFrontend(fs: WickerFileSystem, root: string, runne
     (await fs.stat(joinProjectPath(root, 'vendor/symfony/stimulus-bundle/composer.json')))?.type === 'file';
   const [routeResult, stimulus] = await Promise.all([
     runner.run(['debug:router', '--format=json', '--no-ansi', '--no-interaction']),
-    installed ? discoverStimulus(fs, root, runner) : Promise.resolve({ controllers: [], status: 'StimulusBundle not detected' }),
+    installed ? discoverStimulus(fs, root, runner) : Promise.resolve({ controllers: [], status: 'StimulusBundle not detected', directory: undefined }),
   ]);
   const routes = routeResult.ok ? routesFromDebug(routeResult.stdout) : undefined;
   return { controllers: stimulus.controllers, stimulusStatus: stimulus.status, routes: routes ?? [],
+    ...(stimulus.directory === undefined ? {} : { controllerDirectory: stimulus.directory }),
     routesStatus: routes ? `${routes.length} routes from Symfony console` : `unavailable; ${routeResult.error ?? 'route JSON was not readable'}` };
 }
 
-async function discoverStimulus(fs: WickerFileSystem, root: string, runner: ConsoleRunner): Promise<{ controllers: StimulusController[]; status: string }> {
+async function discoverStimulus(fs: WickerFileSystem, root: string, runner: ConsoleRunner): Promise<{ controllers: StimulusController[]; status: string; directory: string | undefined }> {
   const [config, directory] = await Promise.all([
     runner.run(['debug:config', 'stimulus', '--format=json', '--no-ansi', '--no-interaction']),
     runner.run(['debug:container', '--parameter=kernel.project_dir', '--format=json', '--no-ansi', '--no-interaction']),
@@ -31,7 +40,7 @@ async function discoverStimulus(fs: WickerFileSystem, root: string, runner: Cons
   const stimulus = object(data?.['stimulus']);
   const runtimeRoot = directory.ok ? object(parseJsonLoosely(directory.stdout))?.['kernel.project_dir'] : undefined;
   if (!stimulus || typeof runtimeRoot !== 'string' || !Array.isArray(stimulus['controller_paths'])) {
-    return { controllers: [], status: 'unavailable; Stimulus configuration could not be read' };
+    return { controllers: [], status: 'unavailable; Stimulus configuration could not be read', directory: undefined };
   }
   const projectPath = (value: unknown): string | undefined => typeof value === 'string'
     ? toProjectPath(runtimeRoot, value) ?? normalizeProjectPath(value) : undefined;
@@ -81,7 +90,10 @@ async function discoverStimulus(fs: WickerFileSystem, root: string, runner: Cons
     await visit(path);
   }
   return { controllers: [...controllers.values()].sort((a, b) => a.name.localeCompare(b.name)),
-    status: `Stimulus configuration from Symfony console${truncated ? '; controller scan limit reached' : ''}` };
+    status: `Stimulus configuration from Symfony console${truncated ? '; controller scan limit reached' : ''}`,
+    // The first configured path, which is where a project keeps its own
+    // controllers. A later one is usually a bundle's.
+    directory: projectPath(stimulus['controller_paths'][0]) };
 }
 function object(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;

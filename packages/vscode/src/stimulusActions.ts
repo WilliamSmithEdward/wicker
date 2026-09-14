@@ -35,6 +35,10 @@ export class StimulusMemberActionProvider implements vscode.CodeActionProvider {
       offset >= entry.range.start && offset <= entry.range.end);
     if (!reference || !ADDABLE.includes(reference.kind) || reference.name.length === 0) { return []; }
 
+    if (reference.kind === 'controller') {
+      return this.createController(session, reference.name);
+    }
+
     const controller = session.frontend.controllers.find((entry) => entry.name === reference.controller);
     if (!controller || !ownsFrontendPath(this.sessions, session, controller.projectPath)) { return []; }
 
@@ -58,9 +62,45 @@ export class StimulusMemberActionProvider implements vscode.CodeActionProvider {
     action.command = { command: 'vscode.open', title: 'Open the controller', arguments: [uri] };
     return [action];
   }
+
+  /**
+   * Offers to create a controller a template binds but nothing registers.
+   *
+   * Stimulus names the file from the identifier, so where it belongs is not a
+   * guess: the configured controller directory, and `user-card` becomes
+   * `user_card_controller.js`. Without the console that directory is unknown,
+   * and inventing one would create a file Stimulus never loads.
+   */
+  private createController(session: ProjectSession, name: string): vscode.CodeAction[] {
+    const directory = session.frontend.controllerDirectory;
+    if (directory === undefined || !IDENTIFIER.test(name)) { return []; }
+    if (session.frontend.controllers.some((entry) => entry.name === name)) { return []; }
+
+    const projectPath = `${directory}/${name.replaceAll('--', '/').replaceAll('-', '_')}_controller.js`;
+    const uri = session.fileSystem.toUri(joinPath(session, projectPath));
+
+    const action = new vscode.CodeAction(`Create ${projectPath}`, vscode.CodeActionKind.QuickFix);
+    action.edit = new vscode.WorkspaceEdit();
+    action.edit.createFile(uri, { ignoreIfExists: true });
+    action.edit.insert(uri, new vscode.Position(0, 0), CONTROLLER_SCAFFOLD);
+    action.isPreferred = true;
+    action.command = { command: 'vscode.open', title: 'Open the new controller', arguments: [uri] };
+    return [action];
+  }
 }
 
-const ADDABLE: readonly FrontendReference['kind'][] = ['action', 'target', 'value', 'class'];
+const CONTROLLER_SCAFFOLD = `import { Controller } from '@hotwired/stimulus';
+
+export default class extends Controller {
+    connect() {
+    }
+}
+`;
+
+const ADDABLE: readonly FrontendReference['kind'][] = ['controller', 'action', 'target', 'value', 'class'];
+
+/** Identifier characters StimulusBundle maps back to a file name. */
+const IDENTIFIER = /^[a-z0-9]+(?:-[a-z0-9]+)*(?:--[a-z0-9]+(?:-[a-z0-9]+)*)*$/;
 
 function alreadyDeclared(info: StimulusSource, reference: FrontendReference): boolean {
   const declared = reference.kind === 'action' ? info.actions

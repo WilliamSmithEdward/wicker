@@ -951,6 +951,37 @@ class WickerFrontendTestController {
     }
   });
 
+  test('offers to create a controller a template binds but nothing registers', async () => {
+    const created = uri('assets/controllers/user_card_controller.js');
+    const fixes = async (marked: string): Promise<vscode.CodeAction[]> => {
+      const position = await at(page, marked);
+      return (await vscode.commands.executeCommand<vscode.CodeAction[]>(
+        'vscode.executeCodeActionProvider', page.uri, new vscode.Range(position, position))) ?? [];
+    };
+    try {
+      // Stimulus names the file from the identifier, so where it belongs is
+      // not a guess: user-card becomes user_card_controller.js.
+      const offered = await fixes('<div data-controller="user-c§ard"></div>');
+      const create = offered.find((action) =>
+        action.title === 'Create assets/controllers/user_card_controller.js');
+      assert.ok(create, `expected a create action, got ${offered.map((a) => a.title).join(', ') || 'none'}`);
+
+      assert.ok(await vscode.workspace.applyEdit(create.edit!));
+      const written = (await vscode.workspace.openTextDocument(created)).getText();
+      assert.match(written, /extends Controller/);
+
+      // A controller that is registered needs nothing.
+      const registered = await fixes('<div data-controller="wicker-t§est"></div>');
+      assert.ok(!registered.some((action) => action.title.startsWith('Create assets/controllers/wicker_test')));
+    } finally {
+      try {
+        await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(created));
+        await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+        await vscode.workspace.fs.delete(created);
+      } catch { /* Never created, so nothing to remove. */ }
+    }
+  });
+
   test('nested Twig bindings cannot supply JSON fields to the parent project', async () => {
     const nested = await vscode.workspace.openTextDocument(uri('nested-app/templates/task/_row.html.twig'));
     const original = nested.getText();

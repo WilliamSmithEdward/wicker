@@ -246,34 +246,46 @@ async function collectFiles(
 
   const files: string[] = [];
   let truncated = false;
+  const absoluteOf = (relative: string): string => joinProjectPath(
+    projectRoot,
+    relative === '' ? loaderDirectory : `${loaderDirectory}/${relative}`,
+  );
 
-  const walk = async (relativeDirectory: string): Promise<void> => {
-    if (truncated) {
-      return;
-    }
-    const absolute = joinProjectPath(
-      projectRoot,
-      relativeDirectory === '' ? loaderDirectory : `${loaderDirectory}/${relativeDirectory}`,
-    );
-
-    for (const entry of await fileSystem.readDirectory(absolute)) {
-      if (files.length >= remaining) {
-        truncated = true;
-        return;
-      }
-      const relative = relativeDirectory === '' ? entry.name : `${relativeDirectory}/${entry.name}`;
-      if (entry.type === 'directory') {
-        if (!skipDirectories.has(entry.name)) {
-          await walk(relative);
+  /*
+   * A level at a time, listing the directories in each level together.
+   *
+   * Every listing is a round trip, and descending one directory at a time made
+   * the wait as long as the tree has directories. A template tree is wide and
+   * shallow, so reading each level at once turns most of that into waiting
+   * once per level.
+   */
+  let level = [''];
+  while (level.length > 0 && !truncated) {
+    const next: string[] = [];
+    for (let at = 0; at < level.length && !truncated; at += LISTINGS_AT_ONCE) {
+      const listings = await Promise.all(level.slice(at, at + LISTINGS_AT_ONCE).map(
+        async (directory) => ({ directory, entries: await fileSystem.readDirectory(absoluteOf(directory)) })));
+      for (const { directory, entries } of listings) {
+        for (const entry of entries) {
+          if (files.length >= remaining) {
+            truncated = true;
+            break;
+          }
+          const relative = directory === '' ? entry.name : `${directory}/${entry.name}`;
+          if (entry.type === 'directory') {
+            if (!skipDirectories.has(entry.name)) { next.push(relative); }
+          } else if (extensions.some((extension) => entry.name.endsWith(extension))) {
+            files.push(relative);
+          }
         }
-        continue;
-      }
-      if (extensions.some((extension) => entry.name.endsWith(extension))) {
-        files.push(relative);
+        if (truncated) { break; }
       }
     }
-  };
-
-  await walk('');
+    level = next;
+  }
   return { files, truncated };
 }
+
+/** Directory listings to request together. Enough to hide the latency of one,
+ * without opening an unbounded number of handles on a large tree. */
+const LISTINGS_AT_ONCE = 16;

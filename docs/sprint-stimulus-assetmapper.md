@@ -82,6 +82,37 @@ record what is implemented, demonstrated and verified, and what depends on
 runtime information. Uncertainty needs a useful explanation rather than a
 guessed relationship or a speculative warning.
 
+## Coverage status
+
+Audited against the code and the integration suite. "Done" means an
+editor-driven test exercises it; anything else is named rather than implied.
+
+| Area | Done | Not implemented |
+| --- | --- | --- |
+| Controllers and scope | Registration origin from `controllers.json` and configured paths, identifiers, navigation | Nested and multiple scopes, connection lifecycle, inheritance. Lifecycle names are recognised only to keep them out of the action list |
+| Actions | Events, shorthand, key filters, window/document targets, options, method resolution | Action parameters (`data-<controller>-<action>-param`), listener ordering |
+| Targets | Declarations, bindings, singular, plural and presence through generated members | Connected and disconnected callbacks are parsed but not navigable |
+| Values | Names, types, defaults, generated members, presence checks | Serialization, change callbacks |
+| CSS classes | Declarations, template bindings, generated members | Hover distinguishing a logical name from an ordinary class attribute |
+| Outlets | Declarations, generated properties, callbacks, receiver methods, Twig bindings, references | The five items listed above |
+| Events between controllers | Literal dispatch names, listener completion, navigation to the dispatch | Event detail, bubbling and global listeners, guidance on when an event fits |
+| JavaScript and TypeScript | Generated members alongside built-in completion, original-source navigation through source maps | Declaration snippets |
+| Symfony integration | Helper functions and filters, named and positional arguments, enabled UX controllers | Eager and lazy loading, fuller registration origins |
+| AssetMapper | Configured roots, the asset map, `importmap.php`, `asset()`, `importmap()`, import specifiers, unresolvable-import reporting, a page's stylesheets by every route | The loading chain as a browsable tree, CSS `url()` references, fragments such as `sprite.svg#icon`, the logical-path explanation, repair actions, the array form of `importmap()` |
+
+Outstanding against the completion criteria as a whole: no beginner
+walkthrough exists, light and dark themes and keyboard navigation have not
+been checked, no larger fixture has been tried, and none of this has been
+exercised by hand against the live application. Every claim above rests on
+tests.
+
+Two increments were built against the wrong mechanism before the live
+application contradicted them. Stylesheets were first found only through
+`asset()`, which that application never uses. Unresolvable imports were first
+designed around `missing_import_mode: strict` rejecting unknown bare
+specifiers, which it does not. Both were caught late; checking the mechanism
+against the running application first is cheaper than either.
+
 ## Coverage and delivery order
 
 Ship coherent steps in this order, with each built and opened for live testing.

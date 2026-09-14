@@ -44,6 +44,8 @@ export interface StimulusSource {
   readonly dispatches: readonly StimulusDispatch[];
   readonly outletsRange?: OffsetRange;
   readonly outletCallbacks: readonly StimulusMember[];
+  /** Methods Stimulus calls by name: xValueChanged, xTargetConnected and the like. */
+  readonly memberCallbacks: readonly StimulusMember[];
   readonly accesses: readonly StimulusAccess[];
 }
 export interface StimulusController { readonly name: string; readonly projectPath: string }
@@ -60,7 +62,7 @@ export function stimulusIdentifier(relativePath: string): string | undefined {
  * declarations and runtime registrations deliberately remain unknown. */
 export function stimulusSource(source: string): StimulusSource {
   const tokens = javascriptTokens(source);
-  const empty = { range: { start: 0, end: 0 }, actions: [], targets: [], values: [], outlets: [], classes: [], dispatches: [], outletCallbacks: [], accesses: [] };
+  const empty = { range: { start: 0, end: 0 }, actions: [], targets: [], values: [], outlets: [], classes: [], dispatches: [], outletCallbacks: [], memberCallbacks: [], accesses: [] };
   const exported = tokens.findIndex((t, i) => t.text === 'export' && tokens[i + 1]?.text === 'default');
   if (exported < 0) { return empty; }
   let klass = exported + 2;
@@ -74,6 +76,7 @@ export function stimulusSource(source: string): StimulusSource {
   if (close < 0) { return empty; }
   const actions: StimulusMember[] = [], targets: StimulusMember[] = [], values: StimulusValue[] = [];
   const outlets: StimulusMember[] = [], classes: StimulusMember[] = [], outletCallbacks: StimulusMember[] = [];
+  const memberCallbacks: StimulusMember[] = [];
   const staticBodies: OffsetRange[] = [];
   let outletsRange: OffsetRange | undefined;
   const lifecycle = new Set(['constructor', 'initialize', 'connect', 'disconnect']);
@@ -111,6 +114,9 @@ export function stimulusSource(source: string): StimulusSource {
         for (let j = i - 1; j > open && ![';', '}', '{'].includes(tokens[j]!.text); j--) { modifiers.push(tokens[j]!.text); }
         const instance = !modifiers.some((m) => ['#', 'private', 'protected', 'static', '='].includes(m));
         if (instance && /(?:OutletConnected|OutletDisconnected)$/.test(t.text)) { outletCallbacks.push({ name: t.text, range: t }); }
+        if (instance && /(?:TargetConnected|TargetDisconnected|ValueChanged)$/.test(t.text)) {
+          memberCallbacks.push({ name: t.text, range: t });
+        }
         if (!lifecycle.has(t.text) && !/(?:TargetConnected|TargetDisconnected|ValueChanged|OutletConnected|OutletDisconnected)$/.test(t.text) &&
           !modifiers.some((m) => ['#', 'private', 'protected', 'static', 'get', 'set', '='].includes(m))) {
           actions.push({ name: t.text, range: t });
@@ -157,7 +163,7 @@ export function stimulusSource(source: string): StimulusSource {
   }
   return { range: tokens[klass]!, bodyRange: { start: tokens[open]!.start, end: tokens[close]!.end },
     actions, targets, values,
-    outlets, classes, dispatches, ...(outletsRange ? { outletsRange } : {}), outletCallbacks, accesses };
+    outlets, classes, dispatches, ...(outletsRange ? { outletsRange } : {}), outletCallbacks, memberCallbacks, accesses };
 }
 
 /** Stimulus removes namespace separators when generating outlet accessors. */
@@ -282,4 +288,41 @@ function valueShape(source: string, tokens: readonly JsToken[], at: number,
     i += 2;
   }
   return shape;
+}
+
+export interface CallbackOwner {
+  readonly callback: StimulusMember;
+  readonly declaration: StimulusMember;
+  readonly kind: 'value' | 'target';
+  /** What Stimulus calls it for. */
+  readonly reason: 'changed' | 'connected' | 'disconnected';
+}
+
+/**
+ * Callback methods paired with the declaration that causes them to run.
+ *
+ * `urlValueChanged()` is never called by any code in the project: Stimulus
+ * finds it by name because `url` is a declared value. Nothing links the two,
+ * so a declaration renamed without its callback leaves a method that is simply
+ * never called again, and nothing reports it.
+ */
+export function stimulusCallbackOwners(source: StimulusSource): readonly CallbackOwner[] {
+  const suffixes: readonly [string, CallbackOwner['kind'], CallbackOwner['reason']][] = [
+    ['ValueChanged', 'value', 'changed'],
+    ['TargetConnected', 'target', 'connected'],
+    ['TargetDisconnected', 'target', 'disconnected'],
+  ];
+
+  return source.memberCallbacks.flatMap((callback) => {
+    for (const [suffix, kind, reason] of suffixes) {
+      if (!callback.name.endsWith(suffix)) { continue; }
+      const stem = callback.name.slice(0, -suffix.length);
+      const declared = kind === 'value' ? source.values : source.targets;
+      const declaration = declared.find((member) => member.name === stem);
+      // A callback naming nothing declared is left alone: it may belong to an
+      // inherited declaration, which this parser deliberately cannot see.
+      return declaration ? [{ callback, declaration, kind, reason }] : [];
+    }
+    return [];
+  });
 }

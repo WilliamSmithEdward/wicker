@@ -16,7 +16,7 @@ export {
 } from './fs/fileSystem.js';
 export { InMemoryFileSystem } from './fs/inMemoryFileSystem.js';
 export { NodeFileSystem } from './fs/nodeFileSystem.js';
-export { VALUE_TYPES, stimulusClassProperties, stimulusDeclarationRanges, stimulusGeneratedMembers, stimulusIdentifier, stimulusSource, stimulusOutletProperties, stimulusOutletStem, stimulusTargetProperties, stimulusValueProperties, type GeneratedMember, type StimulusController, type StimulusSource, type StimulusMember, type StimulusDispatch, type StimulusValue } from './frontend/stimulus.js';
+export { VALUE_TYPES, stimulusCallbackOwners, stimulusClassProperties, stimulusDeclarationRanges, stimulusGeneratedMembers, stimulusIdentifier, stimulusSource, stimulusOutletProperties, stimulusOutletStem, stimulusTargetProperties, stimulusValueProperties, type GeneratedMember, type StimulusController, type StimulusSource, type StimulusMember, type StimulusDispatch, type StimulusValue, type CallbackOwner } from './frontend/stimulus.js';
 export { AssetMap, assetExcluded, assetLogicalPath, assetMapperSettings, type AssetMapperSettings, type AssetRoot, type MappedAsset } from './frontend/assetMap.js';
 export { parseImportMap, type ImportMapEntry } from './frontend/importMap.js';
 export { cssImports, type CssImport } from './frontend/cssImports.js';

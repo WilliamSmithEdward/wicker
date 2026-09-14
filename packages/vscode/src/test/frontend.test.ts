@@ -840,6 +840,31 @@ class WickerFrontendTestController {
     assert.ok(!/declares no/.test(working));
   });
 
+  test('connects a callback to the declaration that makes Stimulus call it', async () => {
+    const original = js.getText();
+    try {
+      const withCallbacks = jsSource.replace('async refresh()',
+        'urlValueChanged() {}\n  outputTargetConnected() {}\n  strayValueChanged() {}\n  async refresh()');
+      await replace(js, withCallbacks);
+
+      // Nothing in the project calls these; Stimulus finds them by name.
+      // The built-in JavaScript provider answers here too and definitions
+      // merge, so the declaration has to be present rather than alone.
+      const targets = async (marker: string): Promise<string[]> =>
+        (await definitions(js, js.positionAt(withCallbacks.indexOf(marker) + 2)))
+          .map((link) => js.getText(link.targetRange));
+
+      assert.ok((await targets('urlValueChanged')).includes('url'), 'the value declaration');
+      assert.ok((await targets('outputTargetConnected')).includes('output'), 'the target declaration');
+
+      // A callback naming nothing declared may belong to an inherited
+      // declaration, which this parser cannot see, so it claims nothing.
+      assert.ok(!(await targets('strayValueChanged')).includes('stray'), 'no declaration to claim');
+    } finally {
+      await replace(js, original);
+    }
+  });
+
   test('nested Twig bindings cannot supply JSON fields to the parent project', async () => {
     const nested = await vscode.workspace.openTextDocument(uri('nested-app/templates/task/_row.html.twig'));
     const original = nested.getText();

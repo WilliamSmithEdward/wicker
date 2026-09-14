@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { ACTION_OPTIONS, COMMON_EVENTS, EVENT_TARGETS, KEY_FILTERS,
   fetchValueReferences, importSpecifiers, joinProjectPath, resolveRelativeImport, responseAccessAt,
-  scanFrontend, stimulusGeneratedMembers, stimulusHtmlName, stimulusSource,
+  scanFrontend, stimulusCallbackOwners, stimulusGeneratedMembers, stimulusHtmlName, stimulusSource,
   type FrontendReference, type OffsetRange, type ResponseField, type StimulusMember, type StimulusValue,
   type SymfonyRoute } from '@wicker/core';
 import { enginePathOf } from './paths.js';
@@ -151,9 +151,36 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       }
       if (!query && /\.[jt]s$/.test(path)) { query = this.importQuery(session, path, source, offset); }
       if (!query && /\.[jt]s$/.test(path)) { query = await this.outlets.javascript(session, path, source, offset); }
+      if (!query && /\.[jt]s$/.test(path)) { query = this.callbackQuery(path, source, offset); }
       if (/\.[jt]s$/.test(path)) { query = this.withGeneratedMembers(session, path, source, offset, query); }
     }
     return this.sessions.sessionFor(document) === session && document.version === version ? query : undefined;
+  }
+
+  /**
+   * A callback method, and the declaration that makes Stimulus call it.
+   *
+   * Nothing in the project calls `urlValueChanged()`. Stimulus finds it by
+   * name because `url` is a declared value, so the two are connected by a
+   * spelling convention and by nothing else. Rename the declaration without
+   * the callback and the method is simply never called again, silently.
+   */
+  private callbackQuery(path: string, source: string, offset: number): Query | undefined {
+    const owner = stimulusCallbackOwners(stimulusSource(source)).find((entry) =>
+      offset >= entry.callback.range.start && offset <= entry.callback.range.end);
+    if (!owner) { return undefined; }
+
+    const article = owner.reason === 'changed' ? 'changes' : owner.reason;
+    return {
+      name: owner.callback.name, range: owner.callback.range,
+      candidates: [{
+        name: owner.callback.name, projectPath: path, range: owner.declaration.range,
+        label: `Stimulus ${owner.kind} callback · ${owner.declaration.name}`,
+        kind: vscode.CompletionItemKind.Method,
+        documentation: `Stimulus calls this when the ${owner.kind} "${owner.declaration.name}" ${article}. `
+          + 'It is connected by name only: renaming the declaration without renaming this method stops it running.',
+      }],
+    };
   }
 
   /**

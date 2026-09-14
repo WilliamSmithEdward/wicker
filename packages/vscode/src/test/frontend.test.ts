@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { LoaderPathMemory } from '../loaderPathMemory.js';
 import { SessionManager } from '../session.js';
-import { ProjectTreeProvider } from '../sidebar.js';
+import { ProjectTreeProvider, type SidebarNode } from '../sidebar.js';
 
 const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
 const JS = 'assets/controllers/wicker_test_controller.js';
@@ -715,6 +715,42 @@ class WickerFrontendTestController {
     }
   });
 
+  test('lists the stylesheets a template links, following its layout', async () => {
+    const original = page.getText();
+    const memory = new Map<string, unknown>();
+    const sessions = new SessionManager(new LoaderPathMemory({
+      keys: () => [...memory.keys()],
+      get: <T>(key: string, fallback?: T): T | undefined => (memory.get(key) as T | undefined) ?? fallback,
+      update: (key, value) => { memory.set(key, value); return Promise.resolve(); },
+    }));
+    await sessions.initialize();
+    const tree = new ProjectTreeProvider(sessions);
+    try {
+      await replace(page, `<link rel="stylesheet" href="{{ asset('styles/app.css') }}">`);
+      await eventually(() => true);
+
+      const find = (node: SidebarNode | undefined, depth = 0): SidebarNode | undefined => {
+        for (const child of tree.getChildren(node)) {
+          if (child.kind === 'template' && child.name === 'wicker_frontend_test.html.twig') { return child; }
+          const found = depth < 6 ? find(child, depth + 1) : undefined;
+          if (found) { return found; }
+        }
+        return undefined;
+      };
+      const template = find(undefined);
+      assert.ok(template, 'the edited template should appear in the tree');
+
+      const styles = tree.getChildren(template).filter((child) => child.kind === 'style');
+      assert.deepEqual(styles.map((style) => style.kind === 'style' ? style.projectPath : ''),
+        ['assets/styles/app.css']);
+      assert.match(tooltipOf(tree.getTreeItem(styles[0]!)), /Linked by wicker_frontend_test\.html\.twig/);
+    } finally {
+      tree.dispose();
+      sessions.dispose();
+      await replace(page, original);
+    }
+  });
+
   test('nested Twig bindings cannot supply JSON fields to the parent project', async () => {
     const nested = await vscode.workspace.openTextDocument(uri('nested-app/templates/task/_row.html.twig'));
     const original = nested.getText();
@@ -742,4 +778,8 @@ function leafIconPath(item: vscode.TreeItem): string {
   assert.ok(item.iconPath && typeof item.iconPath === 'object' && 'dark' in item.iconPath);
   assert.ok(item.iconPath.dark instanceof vscode.Uri);
   return item.iconPath.dark.path;
+}
+
+function tooltipOf(item: vscode.TreeItem): string {
+  return typeof item.tooltip === 'string' ? item.tooltip : item.tooltip?.value ?? '';
 }

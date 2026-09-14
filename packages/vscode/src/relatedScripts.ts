@@ -32,9 +32,18 @@ export function controllerScripts(sessions: SessionManager, session: ProjectSess
 }
 
 interface ScriptConnection { readonly projectPath: string; readonly reason: string }
-function scriptsFromTemplates(sessions: SessionManager, session: ProjectSession, index: FrontendIndex, names: readonly string[]): ScriptConnection[] {
+
+/**
+ * Visits a template and everything it literally pulls in.
+ *
+ * A page's real content is spread across its layout, its includes and its
+ * embeds, so anything asked "what does this template use" has to follow the
+ * same chain Twig does. Shared so that scripts and stylesheets cannot disagree
+ * about which templates are involved.
+ */
+export function walkTemplates(session: ProjectSession, index: FrontendIndex, names: readonly string[],
+  visit: (file: NonNullable<ReturnType<FrontendIndex['get']>>, name: string) => void): void {
   const queue = [...new Set(names)], visited = new Set<string>();
-  const result: ScriptConnection[] = [];
   for (let at = 0; at < queue.length; at++) {
     const name = queue[at]!;
     const template = session.lookup(name);
@@ -42,6 +51,16 @@ function scriptsFromTemplates(sessions: SessionManager, session: ProjectSession,
     visited.add(template.projectPath);
     const file = index.get(template.projectPath);
     if (!file) { continue; }
+    visit(file, name);
+    for (const ref of file.templateReferences) {
+      if (['extends', 'include', 'include-function', 'embed'].includes(ref.kind) && !ref.isCandidateList) { queue.push(ref.templateName); }
+    }
+  }
+}
+
+function scriptsFromTemplates(sessions: SessionManager, session: ProjectSession, index: FrontendIndex, names: readonly string[]): ScriptConnection[] {
+  const result: ScriptConnection[] = [];
+  walkTemplates(session, index, names, (file, name) => {
     for (const ref of file.scan.references) {
       const outlet = resolveOutletReference(ref, session.frontend.controllers);
       const controllerName = ref.kind === 'controller' ? ref.name : outlet?.controller ?? ref.controller;
@@ -57,10 +76,7 @@ function scriptsFromTemplates(sessions: SessionManager, session: ProjectSession,
         result.push({ projectPath: controller.projectPath, reason: `Stimulus ${controller.name} in ${name}` });
       }
     }
-    for (const ref of file.templateReferences) {
-      if (['extends', 'include', 'include-function', 'embed'].includes(ref.kind) && !ref.isCandidateList) { queue.push(ref.templateName); }
-    }
-  }
+  });
   return result;
 }
 

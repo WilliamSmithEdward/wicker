@@ -7,6 +7,7 @@ import type { ProjectSession, SessionManager } from './session.js';
 import { apiRoutes, compareRoutePaths, controllerDependencies, routeAction, routeConsumers, templateRoutes } from './frontendProject.js';
 import { dependencyKind, sidebarIcon, SIDEBAR_ICONS as icons } from './sidebarIcons.js';
 import { controllerScripts, templateScripts, type RelatedScript } from './relatedScripts.js';
+import { templateStyles, type RelatedStyle } from './relatedStyles.js';
 
 const SHOW_BUNDLES_KEY = 'wicker.sidebar.showBundleTemplates';
 type WarningReason = 'namespaces' | 'indexLimit';
@@ -33,6 +34,7 @@ export type SidebarNode =
   | (ControllerIdentity & { readonly kind: 'controllerDependency'; readonly typeName: string })
   | (ControllerIdentity & { readonly kind: 'controllerScripts' })
   | { readonly kind: 'script'; readonly root: vscode.Uri; readonly projectPath: string; readonly parent: ScriptOwner }
+  | { readonly kind: 'style'; readonly root: vscode.Uri; readonly projectPath: string; readonly parent: ScriptOwner }
   | { readonly kind: 'warning'; readonly root: vscode.Uri; readonly reason: WarningReason }
   | { readonly kind: 'action'; readonly root: vscode.Uri; readonly reason: WarningReason; readonly action: 'retry' | 'settings' }
   | { readonly kind: 'namespace'; readonly root: vscode.Uri; readonly namespace: string }
@@ -136,9 +138,16 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       ];
     }
     if (isScriptOwner(node)) {
-      return scriptsForOwner(this.sessions, session, node).map((script) => ({
-        kind: 'script', root: node.root, projectPath: script.projectPath, parent: node,
-      }));
+      return [
+        ...scriptsForOwner(this.sessions, session, node).map((script) => ({
+          kind: 'script' as const, root: node.root, projectPath: script.projectPath, parent: node,
+        })),
+        // Stylesheets after scripts, since the link almost always sits in a
+        // layout rather than the page and is the less expected of the two.
+        ...stylesForOwner(this.sessions, session, node).map((style) => ({
+          kind: 'style' as const, root: node.root, projectPath: style.projectPath, parent: node,
+        })),
+      ];
     }
     if (node.kind === 'section' && node.section === 'controllers') {
       return controllersInProject(this.sessions, session).map(({ projectPath, className }) => ({
@@ -217,7 +226,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
   }
 
   getParent(node: SidebarNode): SidebarNode | undefined {
-    if (node.kind === 'script') { return node.parent; }
+    if (node.kind === 'script' || node.kind === 'style') { return node.parent; }
     if (node.kind === 'route') { return { kind: 'section', root: node.root, section: node.section }; }
     if (node.kind === 'routeConsumer' || node.kind === 'routeTemplate') { return { kind: 'route', root: node.root, name: node.name, section: node.section }; }
     if (node.kind === 'project') {
@@ -292,6 +301,19 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
         ? `\n\nTypeScript source for:\n${script.generatedPaths.join('\n')}` : ''}`;
       item.resourceUri = session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath));
       if (script) { item.command = { command: 'wicker.openRelatedScript', title: 'Open associated script', arguments: [node] }; }
+      return item;
+    }
+    if (node.kind === 'style') {
+      const style = stylesForOwner(this.sessions, session, node.parent).find((entry) => entry.projectPath === node.projectPath);
+      const item = new vscode.TreeItem(basename(node.projectPath));
+      item.description = node.projectPath.slice(0, node.projectPath.lastIndexOf('/'));
+      item.iconPath = new vscode.ThemeIcon(icons.stylesheet);
+      // Which template links it, because the link is usually in a layout and
+      // not in the page the reader started from.
+      item.tooltip = `${node.projectPath}\n\n${style?.reasons.join('\n') ?? ''}`;
+      item.resourceUri = session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath));
+      item.command = { command: 'vscode.open', title: 'Open stylesheet',
+        arguments: [session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath))] };
       return item;
     }
     if (node.kind === 'controllerDependencies' || node.kind === 'controllerDependency') {
@@ -709,7 +731,7 @@ function namespaceOf(name: string): string {
 
 function nodeId(node: SidebarNode): string {
   return JSON.stringify([node.root.toString(), node.kind,
-    node.kind === 'script' ? [nodeId(node.parent), node.projectPath] :
+    node.kind === 'script' || node.kind === 'style' ? [nodeId(node.parent), node.kind, node.projectPath] :
     node.kind === 'controllerDependencies' || node.kind === 'controllerDependency' || node.kind === 'controllerScripts'
       ? [node.projectPath, node.className, node.kind === 'controllerDependency' ? node.typeName : '']
     : isControllerNode(node) ? [node.projectPath, node.className,
@@ -728,6 +750,17 @@ function isControllerNode(node: SidebarNode): node is ControllerNode {
 
 function isScriptOwner(node: SidebarNode): node is ScriptOwner {
   return ['controllerScripts', 'controllerTemplate', 'template', 'routeTemplate'].includes(node.kind);
+}
+
+/** Stylesheets for the same owners, from the same template walk as scripts. */
+function stylesForOwner(sessions: SessionManager, session: ProjectSession, node: ScriptOwner): readonly RelatedStyle[] {
+  if (node.kind === 'controllerScripts') { return []; }
+  if (node.kind === 'controllerTemplate' && !controllerSites(sessions, session, node).length) { return []; }
+  if (node.kind === 'routeTemplate') {
+    const route = session.frontend.routes.find((route) => route.name === node.name);
+    if (!route || !routeAction(sessions, session, route)?.action.templates.includes(node.templateName)) { return []; }
+  }
+  return templateStyles(sessions, session, [node.kind === 'routeTemplate' ? node.templateName : node.name]);
 }
 
 function scriptsForOwner(sessions: SessionManager, session: ProjectSession, node: ScriptOwner): readonly RelatedScript[] {

@@ -12,6 +12,7 @@ export const SIDEBAR_ICONS = {
   entity: 'symbol-struct', interface: 'symbol-interface', enum: 'symbol-enum',
   class: 'symbol-misc',
   scripts: 'file-code', javascript: 'code', typescript: 'symbol-type-parameter',
+  stylesheet: 'symbol-color',
 } as const;
 
 export function sidebarIcon(name: string): vscode.ThemeIcon | { light: vscode.Uri; dark: vscode.Uri } {

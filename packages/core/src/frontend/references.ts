@@ -6,7 +6,9 @@ import { javascriptTokens, stringRange } from './javascript.js';
 import type { TwigExpressionToken } from '../twig/expressionLexer.js';
 
 export interface FrontendReference {
-  readonly kind: 'controller' | 'action' | 'target' | 'value' | 'outlet' | 'class' | 'route' | 'url';
+  readonly kind: 'controller' | 'action' | 'target' | 'value' | 'outlet' | 'class' | 'route' | 'url'
+  /** A logical asset path from `asset()`, or an importmap entrypoint from `importmap()`. */
+  | 'asset' | 'entrypoint';
   readonly name: string;
   readonly range: OffsetRange;
   readonly controller?: string;
@@ -41,7 +43,7 @@ export function scanFrontend(source: string, twig: boolean): FrontendScan {
       const tokens = tokenizeTwigExpression(source, region.innerStart, region.innerEnd);
       for (let i = 0; i < tokens.length; i++) {
         const helper = tokens[i]!.value;
-        if (!['path', 'url', 'stimulus_controller', 'stimulus_action', 'stimulus_target'].includes(helper) ||
+        if (!['path', 'url', 'asset', 'importmap', 'stimulus_controller', 'stimulus_action', 'stimulus_target'].includes(helper) ||
           tokens[i + 1]?.value !== '(' || ['.', '?.'].includes(tokens[i - 1]?.value ?? '')) { continue; }
         let end = i + 2, depth = 1;
         for (; end < tokens.length; end++) {
@@ -53,7 +55,11 @@ export function scanFrontend(source: string, twig: boolean): FrontendScan {
         const name = literalTwigString(first);
         if (first === undefined || name === undefined || args[0]?.length !== 1) { continue; }
         const firstRange = { start: first.start + 1, end: first.end - (source[first.end - 1] === source[first.start] ? 1 : 0) };
-        references.push({ kind: helper === 'path' || helper === 'url' ? 'route' : 'controller', name, range: firstRange });
+        const helperKind = helper === 'path' || helper === 'url' ? 'route'
+          : helper === 'asset' ? 'asset' : helper === 'importmap' ? 'entrypoint' : 'controller';
+        references.push({ kind: helperKind, name, range: firstRange });
+        // The remaining arguments belong to the Stimulus helpers only.
+        if (helper === 'asset' || helper === 'importmap') { i = end; continue; }
         const second = args[1]?.[0];
         const secondName = literalTwigString(second);
         if (second && secondName !== undefined && args[1]?.length === 1 && ['stimulus_action', 'stimulus_target'].includes(helper)) {

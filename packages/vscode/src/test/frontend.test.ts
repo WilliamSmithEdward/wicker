@@ -20,6 +20,7 @@ const CONSOLE = `const args = process.argv; const root = process.cwd();
 const routes = ${JSON.stringify(routes)};
 try { if (!require('node:fs').readFileSync('${PHP}', 'utf8').includes("name: 'wicker_test_json'")) delete routes.wicker_test_json; } catch {}
 process.stdout.write(JSON.stringify(args.includes('debug:router') ? routes :
+args.includes('asset_mapper') ? {paths:{'assets/':''},excluded_patterns:['*.d.ts'],exclude_dotfiles:true,public_prefix:'/assets/'} :
 args.includes('debug:config') ? {stimulus:{controller_paths:[root + '/assets/controllers'],controllers_json:root + '/assets/controllers.json'}} :
 args.includes('debug:container') ? {'kernel.project_dir':root} :
 {loader_paths:{'(None)':['templates']}, functions:{path:[], stimulus_controller:[], stimulus_action:[], stimulus_target:[]}, filters:{}}));`;
@@ -545,6 +546,25 @@ class WickerFrontendTestController {
       await eventually(async () => (await definitions(page, position)).length === 0);
     } finally { await replace(php, phpSource); await php.save(); await vscode.commands.executeCommand('wicker.reindex'); }
   });
+  test('asset() completes and opens mapped files, and importmap() offers only entrypoints', async () => {
+    // The controller written by this suite lives under the configured root, so
+    // the asset map should know it by its logical path.
+    const logical = 'controllers/wicker_test_controller.js';
+
+    const assetPosition = await at(page, `<link href="{{ asset('§') }}">`);
+    await eventually(async () => (await items(page, assetPosition)).some((item) => item.label === logical));
+
+    const opened = await definitions(page, await at(page, `<link href="{{ asset('${logical}§') }}">`));
+    assert.equal(opened.length, 1);
+    assert.ok(opened[0]!.targetUri.path.endsWith(JS), `expected ${JS}, got ${opened[0]!.targetUri.path}`);
+
+    // An entrypoint is a key of importmap.php, not a logical path. Offering
+    // logical paths here would suggest names importmap() cannot take.
+    const entrypoint = await at(page, `{{ importmap('§') }}`);
+    const offered = (await items(page, entrypoint)).map((item) => item.label);
+    assert.ok(!offered.includes(logical), 'a logical asset path is not an entrypoint');
+  });
+
   test('nested Twig bindings cannot supply JSON fields to the parent project', async () => {
     const nested = await vscode.workspace.openTextDocument(uri('nested-app/templates/task/_row.html.twig'));
     const original = nested.getText();

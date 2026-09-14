@@ -126,6 +126,20 @@ describe('Twig/JavaScript frontend references', () => {
     expect(parsed.references.filter((ref) => ref.kind === 'class').map((ref) => ref.name)).toEqual(['loading']);
   });
 
+  it('reads logical asset paths and importmap entrypoints', () => {
+    const source = `<link rel="stylesheet" href="{{ asset('styles/app.css') }}">
+      {{ importmap('app') }}`;
+    const parsed = scanFrontend(source, true);
+    expect(parsed.references.map((ref) => [ref.kind, ref.name]))
+      .toEqual([['asset', 'styles/app.css'], ['entrypoint', 'app']]);
+    for (const entry of parsed.references) { expect(source.slice(entry.range.start, entry.range.end)).toBe(entry.name); }
+  });
+
+  it('leaves a computed asset path alone rather than guessing at it', () => {
+    expect(scanFrontend(`{{ asset('images/' ~ name ~ '.png') }}`, true).references).toEqual([]);
+    expect(scanFrontend(`{{ importmap(['app', 'admin']) }}`, true).references).toEqual([]);
+  });
+
   it('handles multiple controllers, action options and target lists', () => {
     const source = `<div data-controller="status other" data-action="click->status#refresh:prevent keydown.enter@window->other#run"
       data-status-target="output status" data-status-url-value="{{ path('api_status') }}"></div>`;

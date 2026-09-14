@@ -27,6 +27,7 @@ import { enginePathOf } from './paths.js';
 import { RenderSiteTracker } from './renderSiteTracker.js';
 import { TemplateContextTracker } from './templateContextTracker.js';
 import { FrontendTracker } from './frontendTracker.js';
+import { discoverAssets, type AssetDiscovery } from './assetDiscovery.js';
 import { discoverFrontend, type FrontendDiscovery } from './frontendDiscovery.js';
 
 const DEFAULT_EXTENSIONS = ['.twig'];
@@ -52,6 +53,8 @@ export class ProjectSession implements vscode.Disposable {
   readonly templateContexts: TemplateContextTracker;
   readonly frontendSources: FrontendTracker;
   frontend: FrontendDiscovery;
+  /** Mapped assets and the importmap, for asset() and bare imports. */
+  assets: AssetDiscovery;
   /**
    * The workspace folder's own URI, kept so watchers and child URIs are built
    * from it rather than reconstructed from a path string. Rebuilding would
@@ -84,6 +87,7 @@ export class ProjectSession implements vscode.Disposable {
     loaderPaths: LoaderPathsResolution,
     components: ComponentDiscovery,
     frontend: FrontendDiscovery,
+    assets: AssetDiscovery,
     memory: LoaderPathMemory,
   ) {
     this.project = project;
@@ -95,6 +99,7 @@ export class ProjectSession implements vscode.Disposable {
     this.loaderPathInfo = loaderPaths;
     this.componentInfo = components;
     this.frontend = frontend;
+    this.assets = assets;
     this.frontendSources = new FrontendTracker(project.root, fileSystem);
     this.memory = memory;
     this.installWatchers();
@@ -132,6 +137,7 @@ export class ProjectSession implements vscode.Disposable {
       built.loaderPaths,
       built.components,
       built.frontend,
+      built.assets,
       memory,
     );
     try {
@@ -219,6 +225,7 @@ export class ProjectSession implements vscode.Disposable {
         this.loaderPathInfo = built.loaderPaths;
         this.componentInfo = built.components;
         this.frontend = built.frontend;
+        this.assets = built.assets;
         await this.templateContexts.refresh(built.index);
         if (this.disposed) { return; }
         if (revision !== this.refreshRevision) { continue; }
@@ -334,7 +341,7 @@ async function buildIndex(
   fileSystem: VsCodeFileSystem,
   project: SymfonyProject,
   memory: LoaderPathMemory,
-): Promise<{ index: TwigTemplateIndex; loaderPaths: LoaderPathsResolution; components: ComponentDiscovery; frontend: FrontendDiscovery }> {
+): Promise<{ index: TwigTemplateIndex; loaderPaths: LoaderPathsResolution; components: ComponentDiscovery; frontend: FrontendDiscovery; assets: AssetDiscovery }> {
   const raw = await fileSystem.readFile(joinProjectPath(project.root, TWIG_CONFIG_PATH));
   const config = parseTwigConfig(raw ?? '');
 
@@ -343,11 +350,12 @@ async function buildIndex(
   // the console is asked first, an earlier console answer is the fallback, and
   // the configuration is the last resort.
   const runner = ProcessConsoleRunner.create(project.root);
-  const [loaderPaths, components, frontend] = await Promise.all([resolveLoaderPaths(
+  const [loaderPaths, components, frontend, assets] = await Promise.all([resolveLoaderPaths(
     runner,
     loaderPathsFromTwigConfig(config),
     memory.read(project.root),
-  ), discoverComponents(fileSystem, project.root, runner), discoverFrontend(fileSystem, project.root, runner)]);
+  ), discoverComponents(fileSystem, project.root, runner), discoverFrontend(fileSystem, project.root, runner),
+  discoverAssets(fileSystem, project.root, runner)]);
 
   // Only a fresh console answer is recorded, so a run with the container down
   // cannot overwrite a good answer with a worse one.
@@ -366,7 +374,7 @@ async function buildIndex(
     extensions,
     maxFiles: settings.get<number>('index.maxFiles', 20000),
   });
-  return { index, loaderPaths, components, frontend };
+  return { index, loaderPaths, components, frontend, assets };
 }
 
 /**

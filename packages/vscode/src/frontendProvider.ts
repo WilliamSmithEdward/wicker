@@ -102,6 +102,8 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       const routes = session.frontend.routes.filter((route) => route.name === ref.name);
       query = this.routeQuery(session, session.frontend.routes, ref.name, ref.range);
       query.routes = routes;
+    } else if (ref?.kind === 'asset' || ref?.kind === 'entrypoint') {
+      query = this.assetQuery(session, ref);
     } else if (ref?.kind === 'url') {
       const route = frontendIndex(this.sessions, session).resolve(ref, session.frontend.routes);
       if (route) { query = this.routeQuery(session, [route], ref.name, ref.range, true); }
@@ -140,6 +142,32 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       if (!query && /\.[jt]s$/.test(path)) { query = await this.outlets.javascript(session, path, source, offset); }
     }
     return this.sessions.sessionFor(document) === session && document.version === version ? query : undefined;
+  }
+
+  /**
+   * Logical asset names, or the entrypoints the importmap declares.
+   *
+   * Two different vocabularies. `asset()` takes a logical path, which is a
+   * file's position within a configured root. `importmap()` takes a key of
+   * `importmap.php` that was declared an entrypoint. Offering one where the
+   * other belongs would suggest names that resolve to nothing.
+   */
+  private assetQuery(session: ProjectSession, ref: FrontendReference): Query {
+    const { map, importMap } = session.assets;
+    if (ref.kind === 'entrypoint') {
+      return { name: ref.name, range: ref.range, candidates: importMap
+        .filter((entry) => entry.entrypoint && entry.projectPath !== undefined)
+        .map((entry) => ({ name: entry.specifier, projectPath: entry.projectPath!,
+          range: { start: 0, end: 0 }, label: 'Importmap entrypoint',
+          kind: vscode.CompletionItemKind.Module })) };
+    }
+    return { name: ref.name, range: ref.range, candidates: map.logicalPaths().flatMap((logicalPath) => {
+      const asset = map.lookup(logicalPath);
+      // Opening the file is the useful destination; a logical path names no
+      // position inside it.
+      return asset ? [{ name: logicalPath, projectPath: asset.projectPath, range: { start: 0, end: 0 },
+        label: `Mapped asset · ${asset.projectPath}`, kind: vscode.CompletionItemKind.File }] : [];
+    }) };
   }
 
   private routeQuery(session: ProjectSession, routes: readonly SymfonyRoute[], name: string, range: OffsetRange, useLabel = false): Query {

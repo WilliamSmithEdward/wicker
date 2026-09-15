@@ -1195,8 +1195,8 @@ function leafIconName(item: vscode.TreeItem): string {
   assert.ok(item.iconPath && typeof item.iconPath === 'object' && 'dark' in item.iconPath);
   const icon = item.iconPath as { light: vscode.Uri; dark: vscode.Uri };
   assert.ok(icon.dark instanceof vscode.Uri);
-  for (const name of ['template-leaf', 'route-leaf']) {
-    const built = sidebarIcon(name);
+  for (const [name, role] of [['template-leaf', 'template'], ['route-leaf', 'templateRoute']] as const) {
+    const built = sidebarIcon(role);
     if ('dark' in built && built.dark.toString(true) === icon.dark.toString(true)) { return name; }
   }
   return `unrecognised icon: ${icon.dark.toString(true)}`;

@@ -8,7 +8,7 @@ import { TwigLoaderPaths } from '@wicker/core';
 
 import { LoaderPathMemory } from '../loaderPathMemory.js';
 import { SessionManager } from '../session.js';
-import { SIDEBAR_ICONS, sidebarIcon } from '../sidebarIcons.js';
+import { SIDEBAR_ICONS, sidebarIcon, type SidebarRole } from '../sidebarIcons.js';
 import { isBundleNamespace, ProjectTreeProvider, type SidebarNode } from '../sidebar.js';
 import { tooltipOf } from './support.js';
 
@@ -660,9 +660,9 @@ class SidebarCreatedController {
     // The two roles drawn as inline SVG rather than from the codicon font.
     const drawn = new Set(['template-leaf', 'route-leaf']);
 
-    const broken = Object.entries(SIDEBAR_ICONS).flatMap(([role, id]) => {
+    const broken = Object.entries(SIDEBAR_ICONS).flatMap(([role, { id }]) => {
       if (!drawn.has(id)) { return codicons.has(id) ? [] : [`${role}: no codicon "${id}"`]; }
-      const icon = sidebarIcon(id);
+      const icon = sidebarIcon(role as SidebarRole);
       if (!('dark' in icon)) { return [`${role}: "${id}" should be drawn, not a ThemeIcon`]; }
       return [icon.light, icon.dark]
         // skipEncoding, matching how the workbench serialises an icon into CSS.

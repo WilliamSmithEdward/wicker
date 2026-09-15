@@ -6,7 +6,7 @@ import { enginePathOf } from './paths.js';
 import { isEnabled, type ProjectSession, type SessionManager } from './session.js';
 import { counted } from './text.js';
 import { apiRoutes, compareRoutePaths, controllerDependencies, frontendIndex, routeAction, routeConsumers, stimulusControllers, templateRoutes, templatesBinding } from './frontendProject.js';
-import { dependencyKind, sidebarIcon, SIDEBAR_ICONS as icons } from './sidebarIcons.js';
+import { dependencyKind, sidebarIcon, type SidebarRole } from './sidebarIcons.js';
 import { controllerScripts, templateControllers, templateScripts, type BoundController, type BoundWiring, type RelatedScript } from './relatedScripts.js';
 import { templateStyles, type RelatedStyle } from './relatedStyles.js';
 import { chainChildren, templateEntrypoints, type ChainEntry } from './loadingChain.js';
@@ -63,9 +63,8 @@ export type SidebarNode =
 const WIRING_LABELS: Record<BoundWiring['kind'], string> = {
   action: 'Action', target: 'Target', value: 'Value', class: 'Class', outlet: 'Outlet', actionParam: 'Param',
 };
-const WIRING_ICONS: Record<BoundWiring['kind'], string> = {
-  action: 'symbol-event', target: 'symbol-field', value: 'symbol-variable',
-  class: 'symbol-color', outlet: 'link', actionParam: 'symbol-parameter',
+const WIRING_ICONS: Record<BoundWiring['kind'], SidebarRole> = {
+  action: 'action', target: 'target', value: 'value', class: 'cssClass', outlet: 'outlet', actionParam: 'actionParam',
 };
 
 /** What a template did, in the words of the tag it used. */
@@ -423,7 +422,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       const item = new vscode.TreeItem(node.name, controller?.wiring.length
         ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
       if (controller === undefined) { return item; }
-      item.iconPath = new vscode.ThemeIcon(scriptIcon(controller.projectPath));
+      item.iconPath = sidebarIcon(scriptIcon(controller.projectPath));
       // Where the attribute is, because a binding inherited from a layout is
       // not in the file the reader started from.
       item.description = controller.boundIn.join(', ');
@@ -440,7 +439,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     item.description = [WIRING_LABELS[wire.kind], wire.impliedEvent ? 'default event' : undefined,
       wire.projectPath === templateOwnerPath(session, node.parent) ? undefined : basename(wire.projectPath),
     ].filter(Boolean).join(' · ');
-    item.iconPath = new vscode.ThemeIcon(WIRING_ICONS[wire.kind]);
+    item.iconPath = sidebarIcon(WIRING_ICONS[wire.kind]);
     item.tooltip = `${WIRING_LABELS[wire.kind]} of ${node.name}${wire.selector === undefined ? '' : ` → ${wire.selector}`}\n${
       wire.projectPath}\n\nOpen where it is written.`;
     const uri = session.uriOf(wire.projectPath);
@@ -463,7 +462,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     if (component === undefined) { return new vscode.TreeItem(node.name); }
     if (node.kind === 'component') {
       const item = new vscode.TreeItem(`<twig:${component.name}>`, vscode.TreeItemCollapsibleState.Collapsed);
-      item.iconPath = new vscode.ThemeIcon(icons.component);
+      item.iconPath = sidebarIcon('component');
       if (component.live) { item.description = 'Live'; }
       else if (component.className === undefined) { item.description = 'Anonymous'; }
       item.tooltip = `${component.template}\n${component.className ?? 'No class; props come from the template.'}${
@@ -475,7 +474,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     const path = template?.projectPath ?? classPath;
     const item = new vscode.TreeItem(path === undefined ? node.part : basename(path));
     item.description = node.part === 'template' ? 'Template' : 'Class';
-    item.iconPath = node.part === 'template' ? sidebarIcon(icons.template) : new vscode.ThemeIcon(icons.controller);
+    item.iconPath = node.part === 'template' ? sidebarIcon('template') : sidebarIcon('controller');
     item.tooltip = node.part === 'template' ? `${component.template}\n${path ?? ''}` : `${component.className}\n${path ?? ''}`;
     if (path === undefined) { return item; }
     return opens(item, template ? session.uriFor(template) : session.uriOf(path), 'Open file');
@@ -494,7 +493,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       const uri = session.uriOf(node.projectPath);
       const item = new vscode.TreeItem(basename(node.projectPath));
       item.description = node.projectPath.slice(0, Math.max(0, node.projectPath.lastIndexOf('/')));
-      item.iconPath = sidebarIcon(icons.template);
+      item.iconPath = sidebarIcon('template');
       item.tooltip = `${node.projectPath}\n\nBinds ${node.name}.`;
       return opens(item, uri, 'Open template');
     }
@@ -504,7 +503,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
     if (controller === undefined) { return item; }
     item.description = uses.length ? counted(uses.length, 'template') : 'Unused';
-    item.iconPath = new vscode.ThemeIcon(scriptIcon(controller.projectPath));
+    item.iconPath = sidebarIcon(scriptIcon(controller.projectPath));
     item.tooltip = `${controller.projectPath}\n\nWritten in markup as data-controller="${node.name}".${
       uses.length ? '' : '\nNo indexed template binds it.'}`;
     return opens(item, session.uriOf(controller.projectPath), 'Open controller');
@@ -514,14 +513,14 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     if (node.kind === 'controllerScripts') {
       const item = new vscode.TreeItem('Scripts', (await this.getChildren(node)).length
         ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
-      item.iconPath = new vscode.ThemeIcon(icons.scripts);
+      item.iconPath = sidebarIcon('scripts');
       item.tooltip = 'Scripts associated through rendered templates, Stimulus bindings or route consumers.';
       return item;
     }
     if (node.kind === 'renderedBy') {
       const item = new vscode.TreeItem(node.label);
       item.description = 'Renders this';
-      item.iconPath = new vscode.ThemeIcon(icons.method);
+      item.iconPath = sidebarIcon('method');
       item.tooltip = `${node.projectPath}
 
 Open the render call that names ${node.name}.`;
@@ -533,21 +532,21 @@ Open the render call that names ${node.name}.`;
       const extending = extendingTemplates(this.sessions, session, node.name);
       const item = new vscode.TreeItem('Extended by', vscode.TreeItemCollapsibleState.Collapsed);
       item.description = String(extending.length);
-      item.iconPath = new vscode.ThemeIcon(icons.dependencies);
+      item.iconPath = sidebarIcon('extended');
       item.tooltip = `Templates that extend ${node.name}, and inherit the blocks it declares.`;
       return item;
     }
     if (node.kind === 'includedBy') {
       const item = new vscode.TreeItem('Included by', vscode.TreeItemCollapsibleState.Collapsed);
       item.description = String(includingTemplates(this.sessions, session, node.name).length);
-      item.iconPath = new vscode.ThemeIcon(icons.consumer);
+      item.iconPath = sidebarIcon('included');
       item.tooltip = `Templates that pull ${node.name} in without extending it.`;
       return item;
     }
     if (node.kind === 'including') {
       const item = new vscode.TreeItem(basename(node.projectPath));
       item.description = REFERENCE_VERBS[node.via];
-      item.iconPath = sidebarIcon(icons.template);
+      item.iconPath = sidebarIcon('template');
       item.tooltip = `${node.projectPath}\n\n${REFERENCE_VERBS[node.via]} ${node.name}.`;
       return opens(item, session.uriOf(node.projectPath), 'Open template');
     }
@@ -555,7 +554,7 @@ Open the render call that names ${node.name}.`;
       const item = new vscode.TreeItem('Stimulus', vscode.TreeItemCollapsibleState.Collapsed);
       item.description = String(templateControllers(this.sessions, session,
         templatesForOwner(this.sessions, session, node.parent)).length);
-      item.iconPath = new vscode.ThemeIcon(icons.stimulus);
+      item.iconPath = sidebarIcon('stimulus');
       item.tooltip = 'Stimulus controllers this page mounts, including those bound by its layout and includes.';
       return item;
     }
@@ -571,7 +570,7 @@ Open the render call that names ${node.name}.`;
     if (node.kind === 'extending') {
       const item = new vscode.TreeItem(basename(templatePath(node.templateName)));
       item.description = templatePath(node.templateName).slice(0, Math.max(0, templatePath(node.templateName).lastIndexOf('/')));
-      item.iconPath = sidebarIcon(icons.template);
+      item.iconPath = sidebarIcon('template');
       item.tooltip = `${node.templateName}
 
 Extends ${node.name}.`;
@@ -584,7 +583,7 @@ Extends ${node.name}.`;
       const script = (await scriptsForOwner(this.sessions, session, node.parent)).find((entry) => entry.projectPath === node.projectPath);
       const item = new vscode.TreeItem(basename(node.projectPath));
       item.description = node.projectPath.slice(0, node.projectPath.lastIndexOf('/'));
-      item.iconPath = new vscode.ThemeIcon(scriptIcon(node.projectPath));
+      item.iconPath = sidebarIcon(scriptIcon(node.projectPath));
       item.tooltip = `${node.projectPath}\n\n${script?.reasons.join('\n') ?? ''}${script?.generatedPaths.length
         ? `\n\nTypeScript source for:\n${script.generatedPaths.join('\n')}` : ''}`;
       item.resourceUri = session.uriOf(node.projectPath);
@@ -595,7 +594,7 @@ Extends ${node.name}.`;
       const style = (await stylesForOwner(this.sessions, session, node.parent)).find((entry) => entry.projectPath === node.projectPath);
       const item = new vscode.TreeItem(basename(node.projectPath));
       item.description = node.projectPath.slice(0, node.projectPath.lastIndexOf('/'));
-      item.iconPath = new vscode.ThemeIcon(icons.stylesheet);
+      item.iconPath = sidebarIcon('stylesheet');
       // Which template links it, because the link is usually in a layout and
       // not in the page the reader started from.
       item.tooltip = `${node.projectPath}\n\n${style?.reasons.join('\n') ?? ''}`;
@@ -606,7 +605,7 @@ Extends ${node.name}.`;
       if (node.kind === 'controllerDependencies') {
         const item = new vscode.TreeItem('Dependencies', dependencies.length
           ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
-        item.iconPath = new vscode.ThemeIcon(icons.dependencies);
+        item.iconPath = sidebarIcon('dependencies');
         item.tooltip = 'Project types declared on this controller’s parameters and properties. Select one to open its declaration.';
         return item;
       }
@@ -615,7 +614,7 @@ Extends ${node.name}.`;
       const duplicate = dependencies.filter((entry) => entry.declaration.name.split('\\').at(-1) === shortName).length > 1;
       const item = new vscode.TreeItem(duplicate ? node.typeName : shortName);
       if (!dependency) { return item; }
-      item.iconPath = new vscode.ThemeIcon(icons[dependencyKind(dependency.declaration)]);
+      item.iconPath = sidebarIcon(dependencyKind(dependency.declaration));
       item.description = [...new Set(dependency.uses.map((use) => use.variable))].join(', ');
       item.tooltip = `${node.typeName}\n${dependency.projectPath}\n\nDeclared on:\n${[...new Set(dependency.uses.map((use) =>
         use.methodName ? `${use.methodName}() — ${use.variable}` : `Property ${use.variable}`))].join('\n')}\n\nOpen type declaration.`;
@@ -626,20 +625,20 @@ Extends ${node.name}.`;
     if (node.kind === 'section' && (node.section === 'api' || node.section === 'templateRoutes')) {
       const api = node.section === 'api';
       const item = new vscode.TreeItem(api ? 'API routes' : 'Template routes', vscode.TreeItemCollapsibleState.Collapsed);
-      item.iconPath = new vscode.ThemeIcon(api ? icons.apiRoutes : icons.templateRoutes);
+      item.iconPath = sidebarIcon(api ? 'apiRoutes' : 'templateRoutes');
       item.tooltip = api ? 'JSON endpoints and routes explicitly fetched by JavaScript. Expand a route to find its consumers and rendered templates.' :
         'Routes whose controller actions render Twig HTML. Select a route to open its PHP action, or expand it to browse rendered templates and references.';
       return item;
     }
     if (node.kind === 'route' || node.kind === 'routeConsumer' || node.kind === 'routeTemplate') {
       const route = session.frontend.routes.find((route) => route.name === node.name);
-      const rowIcon = route ? routeIcon(this.sessions, session, route) : icons.route;
+      const rowIcon = route ? routeIcon(this.sessions, session, route) : 'route';
       const label = node.kind === 'route' ? `${route?.methods ?? ''} ${route?.path ?? node.name}` :
         node.kind === 'routeTemplate' ? node.templateName : node.projectPath;
       const item = new vscode.TreeItem(label, (node.kind === 'route' || node.kind === 'routeTemplate') && (await this.getChildren(node)).length
         ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
-      item.iconPath = sidebarIcon(node.kind === 'route' ? rowIcon : node.kind === 'routeTemplate' ? icons.template :
-        /\.[jt]s$/.test(node.projectPath) ? scriptIcon(node.projectPath) : node.projectPath.endsWith('.twig') ? icons.template : icons.consumer);
+      item.iconPath = sidebarIcon(node.kind === 'route' ? rowIcon : node.kind === 'routeTemplate' ? 'template' :
+        /\.[jt]s$/.test(node.projectPath) ? scriptIcon(node.projectPath) : node.projectPath.endsWith('.twig') ? 'template' : 'consumer');
       item.description = node.kind === 'route' ? node.name : node.kind === 'routeTemplate' ? 'Renders' : 'Consumer';
       item.tooltip = node.kind === 'route' ? `${route?.controller ?? node.name}\nOpen the endpoint action. Expand to explore its connections.` :
         node.kind === 'routeTemplate' ? `HTML rendered by ${node.name}` : `Explicit reference to ${node.name}\n${node.projectPath}`;
@@ -650,7 +649,7 @@ Extends ${node.name}.`;
       const components = node.section === 'components';
       const count = components ? componentsInProject(session).length : stimulusControllers(this.sessions, session).length;
       const item = new vscode.TreeItem(components ? 'Components' : 'Stimulus', vscode.TreeItemCollapsibleState.Collapsed);
-      item.iconPath = new vscode.ThemeIcon(components ? icons.components : icons.stimulus);
+      item.iconPath = sidebarIcon(components ? 'components' : 'stimulus');
       item.description = String(count);
       item.tooltip = components
         ? 'Twig components registered with this project. Expand one to open its template or its class.'
@@ -663,7 +662,7 @@ Extends ${node.name}.`;
         : this.visibleFileCount(session);
       const item = new vscode.TreeItem(controllers ? 'Controllers' : 'Templates',
         controllers && count === 0 ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Expanded);
-      item.iconPath = new vscode.ThemeIcon(controllers ? icons.controllers : icons.templates);
+      item.iconPath = sidebarIcon(controllers ? 'controllers' : 'templates');
       item.description = String(count);
       item.tooltip = controllers
         ? 'Controllers with literal render calls or #[Template] attributes. Expand a controller to browse its actions and templates.'
@@ -681,7 +680,7 @@ Extends ${node.name}.`;
         routeLabels.length ? routeLabels.join(' · ') : `${node.methodName}()`,
         (template ? (await this.getChildren(node)).length === 0 : sites.length === 0) ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Collapsed);
       const actionIcon = actionRouteIcon(routes.map((route) => routeIcon(this.sessions, session, route)));
-      item.iconPath = sidebarIcon(template ? icons.template : controller ? icons.controller : actionIcon);
+      item.iconPath = sidebarIcon(template ? 'template' : controller ? 'controller' : actionIcon);
       item.tooltip = `${node.className}${controller ? '' : `::${node.methodName}()`}\n${node.projectPath}`;
       if (!template) {
         item.description = controller ? String(new Set(sites.map((site) => site.methodName)).size) :
@@ -697,7 +696,7 @@ Extends ${node.name}.`;
         item.tooltip = `${node.name}\n${resolved?.projectPath ?? 'This template name could not be resolved with the current index.'}`;
         if (resolved === undefined) {
           item.description = 'Unresolved';
-          item.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('list.warningForeground'));
+          item.iconPath = sidebarIcon('warning');
         } else {
           item.resourceUri = session.uriFor(resolved);
         }
@@ -716,7 +715,7 @@ Extends ${node.name}.`;
       const item = new vscode.TreeItem(label, this.sessions.all().length === 1
         ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed);
       const visibleFiles = this.visibleFileCount(session);
-      item.iconPath = new vscode.ThemeIcon(icons.project);
+      item.iconPath = sidebarIcon('project');
       item.tooltip = `${session.project.root}\n${counted(session.index.fileCount, 'file')}, ${counted(session.index.nameCount, 'template name')}`;
       const source = NAMESPACE_SOURCES[session.loaderPaths.source];
       item.tooltip += `\nNamespaces: ${source.label}\n${source.detail}`;
@@ -735,7 +734,7 @@ Extends ${node.name}.`;
       const item = new vscode.TreeItem(node.reason === 'namespaces' ? 'Bundle namespaces unavailable'
         : node.reason === 'console' ? 'Symfony console unavailable'
         : 'Template index limit reached', vscode.TreeItemCollapsibleState.Expanded);
-      item.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('list.warningForeground'));
+      item.iconPath = sidebarIcon('warning');
       item.tooltip = node.reason === 'namespaces' ? namespaceWarning(session)
         : node.reason === 'console'
           ? `Routes, Stimulus controllers and components are read from Symfony, and this project's console did not answer. Those sections are missing rather than empty.\n\n${
@@ -747,7 +746,7 @@ Extends ${node.name}.`;
       const retry = node.action === 'retry';
       const label = retry ? 'Retry' : ['namespaces', 'console'].includes(node.reason) ? 'Open console settings' : 'Open index settings';
       const item = new vscode.TreeItem(label);
-      item.iconPath = new vscode.ThemeIcon(retry ? 'refresh' : 'settings-gear');
+      item.iconPath = sidebarIcon(retry ? 'retry' : 'settings');
       item.tooltip = retry ? 'Rebuild this project’s template index and retry namespace discovery.' : label;
       if (warningReasons(session).includes(node.reason)) {
         item.command = {
@@ -762,7 +761,7 @@ Extends ${node.name}.`;
         ? vscode.TreeItemCollapsibleState.None
         : vscode.TreeItemCollapsibleState.Collapsed);
       item.description = String(names.length);
-      item.iconPath = new vscode.ThemeIcon(icons.namespace);
+      item.iconPath = sidebarIcon('namespace');
       const directories = session.loaderPaths.paths.all().find((entry) =>
         namespaceKey(entry.namespace, entry.forcesBundleTemplate) === node.namespace,
       )?.directories ?? [];
@@ -776,7 +775,7 @@ Extends ${node.name}.`;
       const count = namesInGroup(session, node.namespace)
         .filter((name) => templatePath(name).startsWith(`${node.path}/`)).length;
       const item = new vscode.TreeItem(basename(node.path), vscode.TreeItemCollapsibleState.Collapsed);
-      item.iconPath = new vscode.ThemeIcon(icons.folder);
+      item.iconPath = sidebarIcon('folder');
       item.description = String(count);
       item.tooltip = `${node.namespace ? `${node.namespace}/` : ''}${node.path}/\n${counted(count, 'template name')}`;
       return item;
@@ -786,8 +785,8 @@ Extends ${node.name}.`;
         chainChildren(this.sessions, session, node.projectPath).length
           ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
       item.description = node.projectPath.slice(0, node.projectPath.lastIndexOf('/'));
-      item.iconPath = new vscode.ThemeIcon(node.projectPath.toLowerCase().endsWith('.css')
-        ? icons.stylesheet : scriptIcon(node.projectPath));
+      item.iconPath = sidebarIcon(node.projectPath.toLowerCase().endsWith('.css')
+        ? 'stylesheet' : scriptIcon(node.projectPath));
       // The reason is the point of the row: a file this deep in the chain is
       // named in no template, and "why is this loaded" is the question.
       item.tooltip = `${node.projectPath}\n\n${node.reason}`;
@@ -796,7 +795,7 @@ Extends ${node.name}.`;
     const template = session.lookup(node.name);
     const item = new vscode.TreeItem(basename(templatePath(node.name)), (await this.getChildren(node)).length
       ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
-    item.iconPath = sidebarIcon(icons.template);
+    item.iconPath = sidebarIcon('template');
     if (template !== undefined) {
       item.resourceUri = session.uriFor(template);
       item.tooltip = `${node.name}\n${template.projectPath}`;
@@ -1161,7 +1160,7 @@ function scriptsForOwner(sessions: SessionManager, session: ProjectSession, node
     : templateScripts(sessions, session, templatesForOwner(sessions, session, node));
 }
 
-function scriptIcon(path: string): string { return path.endsWith('.ts') ? icons.typescript : icons.javascript; }
+function scriptIcon(path: string): SidebarRole { return path.endsWith('.ts') ? 'typescript' : 'javascript'; }
 
 /**
  * What points at this template, above what it loads.
@@ -1334,17 +1333,17 @@ function controllerActionMethods(sessions: SessionManager, session: ProjectSessi
  * The leaf icon claims a template is rendered, so it must never land on an
  * endpoint that renders nothing.
  */
-function routeIcon(sessions: SessionManager, session: ProjectSession, route: SymfonyRoute): string {
+function routeIcon(sessions: SessionManager, session: ProjectSession, route: SymfonyRoute): SidebarRole {
   const action = routeAction(sessions, session, route)?.action;
-  if (route.format === 'json' || action?.json) { return icons.jsonRoute; }
-  return action?.templates.length ? icons.templateRoute : icons.route;
+  if (route.format === 'json' || action?.json) { return 'jsonRoute'; }
+  return action?.templates.length ? 'templateRoute' : 'route';
 }
 
 /** One icon for an action that may carry several routes, by strongest claim. */
-function actionRouteIcon(routes: readonly string[]): string {
-  if (!routes.length) { return icons.method; }
-  if (routes.includes(icons.jsonRoute)) { return icons.jsonRoute; }
-  return routes.includes(icons.templateRoute) ? icons.templateRoute : icons.route;
+function actionRouteIcon(routes: readonly SidebarRole[]): SidebarRole {
+  if (!routes.length) { return 'method'; }
+  if (routes.includes('jsonRoute')) { return 'jsonRoute'; }
+  return routes.includes('templateRoute') ? 'templateRoute' : 'route';
 }
 
 function warningReasons(session: ProjectSession): WarningReason[] {

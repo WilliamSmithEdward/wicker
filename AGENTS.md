@@ -203,6 +203,18 @@ in a production build step only.
 **Twig comments do not nest.** A `{# ... #}` marker inside a commented-out block
 terminates the outer comment early and the rest becomes live template code.
 
+**Console answers cannot be cached across a template appearing.** A rebuild
+runs about seven `bin/console` commands, each a few hundred milliseconds, so
+reusing them when only a `.twig` file was created looks like free speed. It is
+not: anonymous Twig components *are* template files, and `debug:twig-component`
+enumerates them, so a cached answer means a component the editor never
+discovers. There is also a race, because a rebuild already in flight writes its
+answer into the cache after a newer change has cleared it. Both are covered by
+tests (`creating and deleting an anonymous component updates discovery`, and
+`a PHP change during a slow console run is not lost`), which is how this was
+caught rather than shipped. The disk-side discovery is cheap; the console is
+the source of truth and asking it again is the price.
+
 **Shiki identifies a language by the grammar's `name` field**, which in
 `twig.tmLanguage.json` is the display name `Twig`. The demo app re-registers it
 as `twig`. The worse bug was the silent `catch` around it, which made a broken

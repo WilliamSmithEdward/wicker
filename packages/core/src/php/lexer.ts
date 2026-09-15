@@ -458,7 +458,33 @@ export function isTrivia(token: PhpToken): boolean {
   return token.kind === 'comment' || token.kind === 'inline-html';
 }
 
-/** The token stream with comments and inline HTML removed. */
+/**
+ * The token stream with comments and inline HTML removed.
+ *
+ * The last answer is kept, because indexing one PHP file asks for it several
+ * times over: the route actions are read from it, the templates those actions
+ * render are read from it again, the type declarations again after that, and
+ * the render sites once more. Each of those arrives with the same source, one
+ * after another, so a file was tokenised four times to be indexed once.
+ *
+ * One entry, because the callers are consecutive rather than interleaved, and
+ * holding more would mean holding whole projects. A large file is not retained
+ * at all: it is the one whose tokens are worth the most memory and the one
+ * least likely to be asked for four times in a row.
+ */
+let lastSource: string | undefined;
+let lastTokens: readonly PhpToken[] | undefined;
+
+const MAX_RETAINED_SOURCE = 512 * 1024;
+
 export function significantTokens(source: string): readonly PhpToken[] {
-  return tokenizePhp(source).filter((token) => !isTrivia(token));
+  if (lastTokens !== undefined && lastSource === source) {
+    return lastTokens;
+  }
+  const tokens = tokenizePhp(source).filter((token) => !isTrivia(token));
+  if (source.length <= MAX_RETAINED_SOURCE) {
+    lastSource = source;
+    lastTokens = tokens;
+  }
+  return tokens;
 }

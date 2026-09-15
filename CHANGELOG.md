@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.7.0
+
+What points at a file, and what a page actually runs.
+
+### Added
+
+- **A template says what points at it.** Which controller action renders it,
+  which pages extend it, and which templates include it, each as rows under the
+  template in the sidebar. An included row names the tag it was pulled in with,
+  so an include, an embed and a macro import are told apart without opening the
+  file.
+- **Components and Stimulus controllers are browsable.** Both were already
+  discovered and used for completion and hovers, and neither was listed
+  anywhere. A component expands to the two files it is made of, which no single
+  file names; a controller expands to the templates that mount it, or says
+  Unused.
+- **A page's Stimulus wiring sits under the template that mounts it.** Actions
+  with the event that fires them, targets, values, classes, outlets and params.
+  Selecting one opens the attribute itself, including where it is written in a
+  layout rather than in the page.
+- **`wicker.codeLens.enabled`** turns off the lenses above a template, and the
+  lens now counts the templates extending a layout.
+
+### Fixed
+
+- **A template name starting with `/` is no longer reported as an error.**
+  Twig's own loader trims leading slashes, so the file is found and only the
+  diagnostic was wrong. Backslashes, doubled slashes and `..` now follow the
+  rules Twig applies rather than being refused.
+- **The tree's leaf icons draw over a remote connection.** An icon addressed by
+  file URI is resolved against the window rather than the extension host, so
+  over SSH it pointed at a path on the other machine and silently drew nothing.
+- **A Stimulus controller declaring a `constructor` reported no targets, values
+  or actions at all.** Bracket matching read its table as a plain object, so a
+  token naming anything on `Object.prototype` was taken for an opening bracket
+  and the matching never balanced again. `toString`, `valueOf` and
+  `hasOwnProperty` did the same.
+- **The hover names the event a `data-action` relies on** instead of calling it
+  the element's default and leaving it to be looked up.
+
+### Changed
+
+- **Opening a project reads each file once.** Its PHP was read for render sites
+  and again for the frontend index, and its templates for their contexts and
+  again for the same index. Source maps are read only when a row asks about one.
+- **The Controllers section no longer costs seconds to expand.** The controller
+  list was regrouped and re-sorted from the whole PHP index on every call, then
+  filtered by an ownership question asked once per controller. Two hundred
+  controllers with four hundred actions measured 313ms and now measure 7ms.
+- **Indexing costs less per file**, with PHP tokenised, JavaScript lexed and
+  Twig regions marked once each rather than once per question. Grouping three
+  thousand template names for the tree went from 49.8ms to 0.8ms, and deciding
+  which project owns a file from 4.7us to 1.3us.
+
 ## 0.6.1
 
 What a large project was waiting for.

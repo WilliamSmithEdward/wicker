@@ -11,6 +11,7 @@ const JS = 'assets/controllers/wicker_test_controller.js';
 const PEER = 'assets/controllers/wicker_peer_controller.ts';
 const PHP = 'src/Controller/WickerFrontendTestController.php';
 const TWIG = 'templates/wicker_frontend_test.html.twig';
+const LAYOUT = 'templates/wicker_layout_test.html.twig';
 const routes = {
   wicker_test_fragment: { path: '/_wicker-test/fragment', method: 'GET', defaults: { _controller: 'App\\Controller\\WickerFrontendTestController::fragment' } },
   wicker_test_json: { path: '/_wicker-test/api', method: 'GET', defaults: { _controller: 'App\\Controller\\WickerFrontendTestController::data' } },
@@ -508,6 +509,67 @@ class WickerFrontendTestController {
       await eventually(async () => (await tree.getChildren(bound)).length === 0);
       assert.equal((await tree.getTreeItem(bound)).description, 'Unused');
     } finally {
+      tree.dispose(); sessions.dispose();
+    }
+  });
+  /*
+   * The wiring is spread across elements and often across files, and no single
+   * file shows all of it: a layout's bindings are live on every page that
+   * extends it. Each row opens the attribute itself.
+   */
+  test('a template lists the controllers it mounts and the attributes wiring them', async () => {
+    const memory = new Map<string, unknown>();
+    const sessions = new SessionManager(new LoaderPathMemory({ keys: () => [...memory.keys()],
+      get: <T>(key: string, fallback?: T): T | undefined => memory.get(key) as T | undefined ?? fallback,
+      update: (key, value) => { memory.set(key, value); return Promise.resolve(); } }));
+    await sessions.initialize();
+    const tree = new ProjectTreeProvider(sessions);
+    try {
+      const root = (await tree.getChildren()).find((node) => node.root.toString() === uri('').toString())!;
+      const leaf = { kind: 'template' as const, root: root.root, name: TWIG.slice(10) };
+      const group = (await tree.getChildren(leaf)).find((node) => node.kind === 'stimulusGroup');
+      assert.ok(group, 'a page that mounts a controller should say so');
+      const groupItem = await tree.getTreeItem(group);
+      assert.equal(groupItem.label, 'Stimulus');
+      assert.equal(groupItem.description, '1');
+      assert.deepEqual(tree.getParent(group), leaf);
+
+      const mounted = await tree.getChildren(group);
+      assert.deepEqual(await Promise.all(mounted.map(async (node) => (await tree.getTreeItem(node)).label)), ['wicker-test']);
+      const controllerItem = await tree.getTreeItem(mounted[0]!);
+      assert.equal(controllerItem.description, TWIG.slice(10));
+      assert.deepEqual(tree.getParent(mounted[0]!), group);
+
+      // Every half of the binding, named as Stimulus names it. An action keeps
+      // its event: which event fires a method is the question being asked.
+      const wiring = await tree.getChildren(mounted[0]);
+      assert.deepEqual(await Promise.all(wiring.map(async (node) => {
+        const item = await tree.getTreeItem(node);
+        return [item.label, item.description];
+      })), [['click → refresh', 'Action'], ['output', 'Target'], ['url', 'Value']]);
+      assert.deepEqual(tree.getParent(wiring[0]!), mounted[0]!);
+
+      // The row opens the attribute, not the file: the whole point is finding
+      // where a binding is written.
+      const target = wiring[1]!;
+      const targetItem = await tree.getTreeItem(target);
+      await vscode.commands.executeCommand(targetItem.command!.command, ...targetItem.command!.arguments!);
+      assert.equal(vscode.window.activeTextEditor?.document.uri.toString(), page.uri.toString());
+      assert.equal(page.getText(vscode.window.activeTextEditor.selection.with(undefined,
+        vscode.window.activeTextEditor.selection.start.translate(0, 6))), 'output');
+
+      // A binding written in a layout belongs to every page that extends it,
+      // and the row says which file to open.
+      await vscode.workspace.fs.writeFile(uri(LAYOUT),
+        Buffer.from(`<body {{ stimulus_controller('wicker-peer') }}>{% block body %}{% endblock %}</body>`));
+      await replace(page, `{% extends '${LAYOUT.slice(10)}' %}{% block body %}${pageSource}{% endblock %}`);
+      await eventually(async () => (await tree.getChildren(group)).length === 2);
+      const rows = await Promise.all((await tree.getChildren(group)).map((node) => tree.getTreeItem(node)));
+      const inherited = rows.find((item) => item.label === 'wicker-peer');
+      assert.ok(inherited, 'a layout binding should be listed on the page that extends it');
+      assert.equal(inherited.description, LAYOUT.slice(10));
+    } finally {
+      try { await vscode.workspace.fs.delete(uri(LAYOUT)); } catch { /* never written */ }
       tree.dispose(); sessions.dispose();
     }
   });

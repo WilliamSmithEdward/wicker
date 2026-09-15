@@ -31,6 +31,77 @@ export function controllerScripts(sessions: SessionManager, session: ProjectSess
   return mergeScripts(session, index, scripts);
 }
 
+/** One attribute wiring a controller to the markup around it. */
+export interface BoundWiring {
+  readonly kind: 'action' | 'target' | 'value' | 'class' | 'outlet' | 'actionParam';
+  readonly name: string;
+  /** The event half of an action descriptor, absent when the element's
+   * default event is relied on. */
+  readonly event?: string;
+  /** The element an outlet points at. */
+  readonly selector?: string;
+  /** Where the attribute is written, which may be a layout rather than the
+   * template the reader started from. */
+  readonly projectPath: string;
+  readonly offset: number;
+}
+
+/** A controller a page mounts, and the template the attribute is written in. */
+export interface BoundController {
+  readonly name: string;
+  readonly projectPath: string;
+  readonly boundIn: readonly string[];
+  readonly wiring: readonly BoundWiring[];
+}
+
+const WIRING_KINDS: readonly BoundWiring['kind'][] = ['action', 'target', 'value', 'class', 'outlet', 'actionParam'];
+function wiringKind(kind: string): BoundWiring['kind'] | undefined {
+  return WIRING_KINDS.find((known) => known === kind);
+}
+
+/**
+ * The Stimulus controllers a page mounts, by identifier.
+ *
+ * The same walk the script list uses, because a binding written in a layout is
+ * live on every page that extends it, and reading only the page's own markup
+ * would miss the controllers that are on nearly every screen.
+ *
+ * By identifier rather than by file: the identifier is what the markup says,
+ * what the browser matches, and what someone reading the page is looking at.
+ */
+export function templateControllers(sessions: SessionManager, session: ProjectSession,
+  names: readonly string[]): readonly BoundController[] {
+  const index = frontendIndex(sessions, session);
+  const found = new Map<string, { name: string; projectPath: string; boundIn: string[]; wiring: BoundWiring[] }>();
+  walkTemplates(session, index, names, (file, name) => {
+    for (const ref of file.scan.references) {
+      const controller = controllerForReference(ref, session.frontend.controllers);
+      if (controller === undefined || !sessions.owns(session, controller.projectPath)) { continue; }
+      const entry = found.get(controller.name) ??
+        { name: controller.name, projectPath: controller.projectPath, boundIn: [], wiring: [] };
+      if (!entry.boundIn.includes(name)) { entry.boundIn.push(name); }
+      found.set(controller.name, entry);
+      const kind = wiringKind(ref.kind);
+      // A value or class attribute written without a controller carries the
+      // identifier as its own prefix, which is not part of the declared name.
+      const bare = ref.controller === undefined && ['value', 'class'].includes(ref.kind) &&
+        ref.name.startsWith(`${controller.name}-`) ? ref.name.slice(controller.name.length + 1) : ref.name;
+      if (kind === undefined) { continue; }
+      // The same target or action can be on many elements; the list answers
+      // what is wired, not how many times.
+      if (entry.wiring.some((wire) => wire.kind === kind && wire.name === bare && wire.event === ref.event)) { continue; }
+      entry.wiring.push({ kind, name: bare, projectPath: file.projectPath, offset: ref.range.start,
+        ...(ref.event === undefined ? {} : { event: ref.event }),
+        ...(ref.selector === undefined ? {} : { selector: ref.selector.name }) });
+    }
+  });
+  for (const entry of found.values()) {
+    entry.wiring.sort((left, right) => WIRING_KINDS.indexOf(left.kind) - WIRING_KINDS.indexOf(right.kind) ||
+      left.name.localeCompare(right.name) || (left.event ?? '').localeCompare(right.event ?? ''));
+  }
+  return [...found.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
 interface ScriptConnection { readonly projectPath: string; readonly reason: string }
 
 /**

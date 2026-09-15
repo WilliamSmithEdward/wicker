@@ -6,7 +6,7 @@ import { enginePathOf } from './paths.js';
 import type { ProjectSession, SessionManager } from './session.js';
 import { apiRoutes, compareRoutePaths, controllerDependencies, frontendIndex, routeAction, routeConsumers, stimulusControllers, templateRoutes, templatesBinding } from './frontendProject.js';
 import { dependencyKind, sidebarIcon, SIDEBAR_ICONS as icons } from './sidebarIcons.js';
-import { controllerScripts, templateScripts, type RelatedScript } from './relatedScripts.js';
+import { controllerScripts, templateControllers, templateScripts, type BoundController, type BoundWiring, type RelatedScript } from './relatedScripts.js';
 import { templateStyles, type RelatedStyle } from './relatedStyles.js';
 import { chainChildren, templateEntrypoints, type ChainEntry } from './loadingChain.js';
 
@@ -44,6 +44,10 @@ export type SidebarNode =
   | { readonly kind: 'stimulusUse'; readonly root: vscode.Uri; readonly name: string; readonly projectPath: string }
   | { readonly kind: 'component'; readonly root: vscode.Uri; readonly name: string }
   | { readonly kind: 'componentPart'; readonly root: vscode.Uri; readonly name: string; readonly part: 'template' | 'class' }
+  | { readonly kind: 'stimulusGroup'; readonly root: vscode.Uri; readonly parent: ScriptOwner }
+  | { readonly kind: 'boundController'; readonly root: vscode.Uri; readonly name: string; readonly parent: ScriptOwner }
+  | { readonly kind: 'wiring'; readonly root: vscode.Uri; readonly name: string; readonly parent: ScriptOwner;
+      readonly wiringKind: BoundWiring['kind']; readonly member: string; readonly event?: string }
   | { readonly kind: 'script'; readonly root: vscode.Uri; readonly projectPath: string; readonly parent: ScriptOwner }
   | { readonly kind: 'style'; readonly root: vscode.Uri; readonly projectPath: string; readonly parent: ScriptOwner }
   | { readonly kind: 'loaded'; readonly root: vscode.Uri; readonly projectPath: string; readonly reason: string; readonly parent: SidebarNode }
@@ -52,6 +56,15 @@ export type SidebarNode =
   | { readonly kind: 'namespace'; readonly root: vscode.Uri; readonly namespace: string }
   | { readonly kind: 'folder'; readonly root: vscode.Uri; readonly namespace: string; readonly path: string }
   | { readonly kind: 'template'; readonly root: vscode.Uri; readonly name: string };
+
+/** Stimulus' own names for the attributes, as the docs write them. */
+const WIRING_LABELS: Record<BoundWiring['kind'], string> = {
+  action: 'Action', target: 'Target', value: 'Value', class: 'Class', outlet: 'Outlet', actionParam: 'Param',
+};
+const WIRING_ICONS: Record<BoundWiring['kind'], string> = {
+  action: 'symbol-event', target: 'symbol-field', value: 'symbol-variable',
+  class: 'symbol-color', outlet: 'link', actionParam: 'symbol-parameter',
+};
 
 /** What a template did, in the words of the tag it used. */
 const REFERENCE_VERBS: Record<TwigReferenceKind, string> = {
@@ -196,9 +209,23 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
         kind: 'extending' as const, root: node.root, name: node.name, templateName,
       }));
     }
+    if (node.kind === 'stimulusGroup') {
+      return templateControllers(this.sessions, session, templatesForOwner(this.sessions, session, node.parent))
+        .map((controller) => ({ kind: 'boundController' as const, root: node.root, name: controller.name, parent: node.parent }));
+    }
+    if (node.kind === 'boundController') {
+      return (boundControllerFor(this.sessions, session, node)?.wiring ?? []).map((wire) => ({
+        kind: 'wiring' as const, root: node.root, name: node.name, parent: node.parent,
+        wiringKind: wire.kind, member: wire.name, ...(wire.event === undefined ? {} : { event: wire.event }),
+      }));
+    }
     if (isScriptOwner(node)) {
       return [
         ...incomingTemplateRows(this.sessions, session, node),
+        // What the page runs, named the way the markup names it, before the
+        // files that carry it.
+        ...(templateControllers(this.sessions, session, templatesForOwner(this.sessions, session, node)).length
+          ? [{ kind: 'stimulusGroup' as const, root: node.root, parent: node }] : []),
         ...(await scriptsForOwner(this.sessions, session, node)).map((script) => ({
           kind: 'script' as const, root: node.root, projectPath: script.projectPath, parent: node,
         })),
@@ -301,7 +328,9 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     if (node.kind === 'component' || node.kind === 'stimulusController') {
       return { kind: 'section', root: node.root, section: node.kind === 'component' ? 'components' : 'stimulus' };
     }
-    if (node.kind === 'script' || node.kind === 'style') { return node.parent; }
+    if (node.kind === 'boundController') { return { kind: 'stimulusGroup', root: node.root, parent: node.parent }; }
+    if (node.kind === 'wiring') { return { kind: 'boundController', root: node.root, name: node.name, parent: node.parent }; }
+    if (node.kind === 'script' || node.kind === 'style' || node.kind === 'stimulusGroup') { return node.parent; }
     if (node.kind === 'loaded') { return node.parent; }
     if (node.kind === 'route') { return { kind: 'section', root: node.root, section: node.section }; }
     if (node.kind === 'routeConsumer' || node.kind === 'routeTemplate') { return { kind: 'route', root: node.root, name: node.name, section: node.section }; }
@@ -357,6 +386,45 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       label: [typeof item.label === 'string' ? item.label : item.label?.label,
         typeof item.description === 'string' ? item.description : undefined].filter(Boolean).join(', '),
     };
+    return item;
+  }
+
+  /**
+   * A mounted controller and the attributes wiring it to the markup.
+   *
+   * The wiring is spread across elements and often across files: a page's
+   * bindings and its layout's are one behaviour at runtime, and neither file
+   * shows the other. Each row opens the attribute itself, which is the part a
+   * reader cannot find by opening the file they are already looking at.
+   */
+  private describeWiring(node: Extract<SidebarNode, { kind: 'boundController' | 'wiring' }>,
+    session: ProjectSession): vscode.TreeItem {
+    const controller = boundControllerFor(this.sessions, session, node);
+    if (node.kind === 'boundController') {
+      const item = new vscode.TreeItem(node.name, controller?.wiring.length
+        ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
+      if (controller === undefined) { return item; }
+      item.iconPath = new vscode.ThemeIcon(scriptIcon(controller.projectPath));
+      // Where the attribute is, because a binding inherited from a layout is
+      // not in the file the reader started from.
+      item.description = controller.boundIn.join(', ');
+      item.tooltip = `${controller.projectPath}\n\nBound in:\n${controller.boundIn.join('\n')}`;
+      const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, controller.projectPath));
+      item.resourceUri = uri;
+      item.command = { command: 'vscode.open', title: 'Open controller', arguments: [uri] };
+      return item;
+    }
+    const wire = controller?.wiring.find((entry) => entry.kind === node.wiringKind &&
+      entry.name === node.member && entry.event === node.event);
+    const item = new vscode.TreeItem(node.event === undefined ? node.member : `${node.event} → ${node.member}`);
+    if (wire === undefined || controller === undefined) { return item; }
+    item.description = WIRING_LABELS[wire.kind];
+    item.iconPath = new vscode.ThemeIcon(WIRING_ICONS[wire.kind]);
+    item.tooltip = `${WIRING_LABELS[wire.kind]} of ${node.name}${wire.selector === undefined ? '' : ` → ${wire.selector}`}\n${
+      wire.projectPath}\n\nOpen where it is written.`;
+    const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, wire.projectPath));
+    item.resourceUri = uri;
+    item.command = { command: 'wicker.openWiring', title: 'Open the attribute', arguments: [node] };
     return item;
   }
 
@@ -472,6 +540,17 @@ Open the render call that names ${node.name}.`;
       item.resourceUri = uri;
       item.command = { command: 'vscode.open', title: 'Open template', arguments: [uri] };
       return item;
+    }
+    if (node.kind === 'stimulusGroup') {
+      const item = new vscode.TreeItem('Stimulus', vscode.TreeItemCollapsibleState.Collapsed);
+      item.description = String(templateControllers(this.sessions, session,
+        templatesForOwner(this.sessions, session, node.parent)).length);
+      item.iconPath = new vscode.ThemeIcon(icons.stimulus);
+      item.tooltip = 'Stimulus controllers this page mounts, including those bound by its layout and includes.';
+      return item;
+    }
+    if (node.kind === 'boundController' || node.kind === 'wiring') {
+      return this.describeWiring(node, session);
     }
     if (node.kind === 'component' || node.kind === 'componentPart') {
       return this.describeComponent(node, session);
@@ -792,6 +871,7 @@ export class WickerSidebar implements vscode.Disposable {
       vscode.commands.registerCommand('wicker.revealTemplate', () => this.revealActiveTemplate()),
       vscode.commands.registerCommand('wicker.openEndpoint', (node: SidebarNode) => this.openEndpoint(node)),
       vscode.commands.registerCommand('wicker.openRenderedBy', (node: SidebarNode) => this.openRenderedBy(node)),
+      vscode.commands.registerCommand('wicker.openWiring', (node: SidebarNode) => this.openWiring(node)),
       vscode.commands.registerCommand('wicker.showBundleTemplates', () => this.setShowBundleTemplates(true)),
       vscode.commands.registerCommand('wicker.hideBundleTemplates', () => this.setShowBundleTemplates(false)),
       vscode.window.onDidChangeActiveTextEditor(() => this.updateRevealContext()),
@@ -824,6 +904,31 @@ export class WickerSidebar implements vscode.Disposable {
     const document = await vscode.workspace.openTextDocument(uri);
     if (this.sessions.sessionFor({ uri }) !== session) { return; }
     const at = document.positionAt(site.offset);
+    await vscode.window.showTextDocument(document, { preview: true, selection: new vscode.Range(at, at) });
+  }
+
+  /**
+   * Opens the attribute a wiring row stands for.
+   *
+   * Resolved from the index again after the file opens, because opening it can
+   * reindex, and an offset from a row built before an edit above it selects
+   * unrelated text rather than nothing.
+   */
+  private async openWiring(node: SidebarNode): Promise<void> {
+    if (!node || node.kind !== 'wiring') { return; }
+    const session = this.sessions.sessionFor({ uri: node.root });
+    if (!session) { return; }
+    const wire = (): BoundWiring | undefined => boundControllerFor(this.sessions, session, node)?.wiring
+      .find((entry) => entry.kind === node.wiringKind && entry.name === node.member && entry.event === node.event);
+    const found = wire();
+    if (found === undefined) { return; }
+    const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, found.projectPath));
+    if (this.sessions.sessionFor({ uri }) !== session) { return; }
+    const document = await vscode.workspace.openTextDocument(uri);
+    const current = wire();
+    if (current === undefined || current.projectPath !== found.projectPath ||
+      this.sessions.sessionFor({ uri }) !== session) { return; }
+    const at = document.positionAt(current.offset);
     await vscode.window.showTextDocument(document, { preview: true, selection: new vscode.Range(at, at) });
   }
 
@@ -988,6 +1093,9 @@ function nodeId(node: SidebarNode): string {
     node.kind === 'stimulusUse' ? [node.name, node.projectPath] :
     node.kind === 'componentPart' ? [node.name, node.part] :
     node.kind === 'loaded' ? [nodeId(node.parent), 'loaded', node.projectPath] :
+    node.kind === 'stimulusGroup' ? [nodeId(node.parent), 'stimulusGroup'] :
+    node.kind === 'boundController' ? [nodeId(node.parent), 'boundController', node.name] :
+    node.kind === 'wiring' ? [nodeId(node.parent), 'wiring', node.name, node.wiringKind, node.member, node.event ?? ''] :
     node.kind === 'script' || node.kind === 'style' ? [nodeId(node.parent), node.kind, node.projectPath] :
     node.kind === 'controllerDependencies' || node.kind === 'controllerDependency' || node.kind === 'controllerScripts'
       ? [node.projectPath, node.className, node.kind === 'controllerDependency' ? node.typeName : '']
@@ -1118,6 +1226,13 @@ function extendingTemplates(sessions: SessionManager, session: ProjectSession, t
  */
 function includingTemplates(sessions: SessionManager, session: ProjectSession, templateName: string): readonly IncomingReference[] {
   return frontendIndex(sessions, session).includedBy(templateName);
+}
+
+/** The mounted controller a row stands for, or nothing once it has gone. */
+function boundControllerFor(sessions: SessionManager, session: ProjectSession,
+  node: Extract<SidebarNode, { kind: 'boundController' | 'wiring' }>): BoundController | undefined {
+  return templateControllers(sessions, session, templatesForOwner(sessions, session, node.parent))
+    .find((entry) => entry.name === node.name);
 }
 
 /** The components this project registered, by the name markup writes. */

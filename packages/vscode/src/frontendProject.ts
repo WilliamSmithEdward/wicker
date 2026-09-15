@@ -140,11 +140,28 @@ export function routeConsumers(sessions: SessionManager, session: ProjectSession
   return frontendIndex(sessions, session).consumers(route, session.frontend.routes, session.frontend.controllers);
 }
 
+/** The files that fetch a route, which is what makes a route that renders
+ * HTML an endpoint all the same. */
+export function routeRequesters(sessions: SessionManager, session: ProjectSession, route: SymfonyRoute): readonly EndpointUse[] {
+  return frontendIndex(sessions, session).requesters(route, session.frontend.routes, session.frontend.controllers);
+}
+
+/**
+ * The routes that are endpoints rather than pages.
+ *
+ * JSON, by format or by what the action returns. A route JavaScript fetches
+ * is not an endpoint on that account: a fragment rendered from a template is
+ * a template route that happens to be loaded by script, and listing it here
+ * put a leaf icon under a section that promised JSON. The one exception is a
+ * fetched route whose action renders nothing, which has no other home.
+ */
 export function apiRoutes(sessions: SessionManager, session: ProjectSession): readonly SymfonyRoute[] {
   const index = frontendIndex(sessions, session);
   const { routes, controllers } = session.frontend;
   return routes.filter((route) => {
-    if (route.format === 'json' || actionIn(index, route)?.action.json) { return true; }
+    const action = actionIn(index, route)?.action;
+    if (route.format === 'json' || action?.json) { return true; }
+    if (action?.templates.length) { return false; }
     return index.isRequested(route, routes, controllers) ||
       index.consumers(route, routes, controllers).some((use) => use.via);
   }).sort(compareRoutePaths);

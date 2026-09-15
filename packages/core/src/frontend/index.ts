@@ -48,6 +48,10 @@ interface GraphLookups {
   readonly consumers: ReadonlyMap<string, readonly EndpointUse[]>;
   /** Routes some file actually asks for, as opposed to merely links to. */
   readonly requested: ReadonlySet<string>;
+  /** Who asks for each route: a fetch written out, or a Stimulus value a
+   * controller fetches. The reason a route that renders HTML is still an
+   * endpoint, and the reason a row can say so. */
+  readonly requesters: ReadonlyMap<string, readonly EndpointUse[]>;
 }
 
 export class FrontendIndex {
@@ -235,6 +239,12 @@ export class FrontendIndex {
   isRequested(route: SymfonyRoute, routes: readonly SymfonyRoute[], controllers: readonly StimulusController[]): boolean {
     return this.graph(routes, controllers).requested.has(route.name);
   }
+
+  /** The files that ask for this route: a fetch written out, or a Stimulus
+   * value a controller fetches (`via` says which). */
+  requesters(route: SymfonyRoute, routes: readonly SymfonyRoute[], controllers: readonly StimulusController[]): readonly EndpointUse[] {
+    return this.graph(routes, controllers).requesters.get(route.name) ?? [];
+  }
   resolve(ref: FrontendReference, routes: readonly SymfonyRoute[]): SymfonyRoute | undefined {
     return resolveWith(this.routeLookups(routes), ref);
   }
@@ -303,31 +313,37 @@ export class FrontendIndex {
     // controllerNames and boundRoutes, is complete by now; only the consumer
     // map is still being written, and nothing in the pass reads it.
     const requested = new Set<string>();
+    const requesters = new Map<string, EndpointUse[]>();
+    const push = (into: Map<string, EndpointUse[]>, name: string, use: EndpointUse): void => {
+      const found = into.get(name);
+      if (found) { found.push(use); }
+      else { into.set(name, [use]); }
+    };
     for (const file of this.files.values()) {
       for (const request of file.scan.requests) {
         const route = resolveWith(lookups, request);
-        if (route) { requested.add(route.name); }
+        if (route) {
+          requested.add(route.name);
+          push(requesters, route.name, { projectPath: file.projectPath, range: request.range });
+        }
       }
     }
 
     const graph: GraphLookups = { routes, controllers, revision: this.revision, controllerNames, boundRoutes,
-      consumers: new Map(), requested };
+      consumers: new Map(), requested, requesters };
     this.graphMemo = graph;
 
     const consumers = graph.consumers as Map<string, EndpointUse[]>;
-    const add = (name: string, use: EndpointUse): void => {
-      const found = consumers.get(name);
-      if (found) { found.push(use); }
-      else { consumers.set(name, [use]); }
-    };
     for (const file of this.files.values()) {
       for (const ref of file.scan.references) {
         const route = resolveWith(lookups, ref);
-        if (route) { add(route.name, { projectPath: file.projectPath, range: ref.range }); }
+        if (route) { push(consumers, route.name, { projectPath: file.projectPath, range: ref.range }); }
       }
       for (const value of file.fetchValues) {
         for (const route of this.routesForValue(file.projectPath, value.name, routes, controllers)) {
-          add(route.name, { projectPath: file.projectPath, range: value.range, via: 'Stimulus value' });
+          const use: EndpointUse = { projectPath: file.projectPath, range: value.range, via: 'Stimulus value' };
+          push(consumers, route.name, use);
+          push(requesters, route.name, use);
         }
       }
     }

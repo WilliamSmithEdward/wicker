@@ -304,14 +304,15 @@ suite('Stimulus and API connections', () => {
       assert.equal(vscode.window.activeTextEditor?.document.uri.toString(), php.uri.toString());
       assert.equal(vscode.window.activeTextEditor?.document.getText(vscode.window.activeTextEditor.selection), 'wicker_frontend_test.html.twig');
       const section = (await tree.getChildren(root)).find((node) => node.kind === 'section' && node.section === 'api'); assert.ok(section);
+      // API routes holds JSON endpoints and nothing else. The fragment route is
+      // fetched by script, but it renders a template, and a leaf icon under a
+      // section that promises JSON read as a route filed in the wrong place.
       const entries = await tree.getChildren(section);
-      assert.deepEqual(await Promise.all(entries.map(async (node) => (await tree.getTreeItem(node)).label)), ['GET /_wicker-test/api', 'GET /_wicker-test/fragment']);
+      assert.deepEqual(await Promise.all(entries.map(async (node) => (await tree.getTreeItem(node)).label)), ['GET /_wicker-test/api']);
       assert.equal(((await tree.getTreeItem(entries[0]!)).iconPath as vscode.ThemeIcon).id, 'symbol-object');
-      assert.equal(leafIconName(await tree.getTreeItem(entries[1]!)), 'route-leaf');
+      assert.equal((await tree.getTreeItem(entries[0]!)).description, 'wicker_test_json', 'a JSON endpoint explains itself');
       const json = await tree.getChildren(entries[0]);
       assert.ok(json.some((node) => node.kind === 'routeConsumer' && node.projectPath === JS));
-      const html = await tree.getChildren(entries[1]);
-      assert.ok(html.some((node) => node.kind === 'routeTemplate' && node.templateName === TWIG.slice(10)));
       const templateSection = (await tree.getChildren(root)).find((node) => node.kind === 'section' && node.section === 'templateRoutes');
       assert.ok(templateSection);
       assert.equal((await tree.getTreeItem(templateSection)).label, 'Template routes');
@@ -320,7 +321,13 @@ suite('Stimulus and API connections', () => {
         ['GET /_wicker-test/alpha', 'GET /_wicker-test/fragment', 'GET /_wicker-test/zebra']);
       const templateRoute = templateEntries.find((node) => node.kind === 'route' && node.name === 'wicker_test_fragment')!;
       assert.equal(leafIconName(await tree.getTreeItem(templateRoute)), 'route-leaf');
-      assert.notEqual((await tree.getTreeItem(templateRoute)).id, (await tree.getTreeItem(entries[1]!)).id);
+      // It is a fragment: the page's own inline script fetches it, and the row
+      // says so, because nothing else in a template route would.
+      const fragmentItem = await tree.getTreeItem(templateRoute);
+      assert.equal(fragmentItem.description, `wicker_test_fragment · fetched by ${TWIG.slice(10)}`);
+      assert.match(tooltipOf(fragmentItem), /Fetched by:\n[^\n]*wicker_frontend_test\.html\.twig/);
+      const plainRoute = templateEntries.find((node) => node.kind === 'route' && node.name === 'wicker_test_first')!;
+      assert.equal((await tree.getTreeItem(plainRoute)).description, 'wicker_test_first', 'a route nothing fetches is the plain route');
       assert.deepEqual(tree.getParent(templateRoute), templateSection);
       const renderedTemplate = (await tree.getChildren(templateRoute)).find((node) => node.kind === 'routeTemplate');
       assert.ok(renderedTemplate);

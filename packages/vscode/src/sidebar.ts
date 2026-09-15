@@ -5,7 +5,7 @@ import { parseTemplateName, type IncomingReference, type TwigTemplateIndex, type
 import { enginePathOf } from './paths.js';
 import { isEnabled, type ProjectSession, type SessionManager } from './session.js';
 import { counted } from './text.js';
-import { apiRoutes, compareRoutePaths, controllerDependencies, frontendIndex, routeAction, routeConsumers, stimulusControllers, templateRoutes, templatesBinding } from './frontendProject.js';
+import { apiRoutes, compareRoutePaths, controllerDependencies, frontendIndex, routeAction, routeConsumers, routeRequesters, stimulusControllers, templateRoutes, templatesBinding } from './frontendProject.js';
 import { dependencyKind, sidebarIcon, type SidebarRole } from './sidebarIcons.js';
 import { controllerScripts, templateControllers, templateScripts, type BoundController, type BoundWiring, type RelatedScript } from './relatedScripts.js';
 import { templateStyles, type RelatedStyle } from './relatedStyles.js';
@@ -626,7 +626,7 @@ Extends ${node.name}.`;
       const api = node.section === 'api';
       const item = new vscode.TreeItem(api ? 'API routes' : 'Template routes', vscode.TreeItemCollapsibleState.Collapsed);
       item.iconPath = sidebarIcon(api ? 'apiRoutes' : 'templateRoutes');
-      item.tooltip = api ? 'JSON endpoints and routes explicitly fetched by JavaScript. Expand a route to find its consumers and rendered templates.' :
+      item.tooltip = api ? 'JSON endpoints. Expand a route to find what calls it.' :
         'Routes whose controller actions render Twig HTML. Select a route to open its PHP action, or expand it to browse rendered templates and references.';
       return item;
     }
@@ -639,8 +639,16 @@ Extends ${node.name}.`;
         ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
       item.iconPath = sidebarIcon(node.kind === 'route' ? rowIcon : node.kind === 'routeTemplate' ? 'template' :
         /\.[jt]s$/.test(node.projectPath) ? scriptIcon(node.projectPath) : node.projectPath.endsWith('.twig') ? 'template' : 'consumer');
-      item.description = node.kind === 'route' ? node.name : node.kind === 'routeTemplate' ? 'Renders' : 'Consumer';
-      item.tooltip = node.kind === 'route' ? `${route?.controller ?? node.name}\nOpen the endpoint action. Expand to explore its connections.` :
+      // A template route that script fetches is a fragment, which nothing in
+      // the row would otherwise say; a JSON endpoint explains itself.
+      const fetchers = node.kind === 'route' && route && rowIcon !== 'jsonRoute'
+        ? routeRequesters(this.sessions, session, route) : [];
+      const fetchedBy = fetchers.length === 0 ? '' : ` · fetched by ${basename(fetchers[0]!.projectPath)}${
+        fetchers.length > 1 ? ` +${fetchers.length - 1}` : ''}`;
+      item.description = node.kind === 'route' ? `${node.name}${fetchedBy}` : node.kind === 'routeTemplate' ? 'Renders' : 'Consumer';
+      item.tooltip = node.kind === 'route' ? `${route?.controller ?? node.name}\n${fetchers.length === 0 ? '' :
+        `Fetched by:\n${fetchers.map((use) => `${use.projectPath}${use.via === undefined ? '' : ` (${use.via})`}`).join('\n')}\n`
+      }Open the endpoint action. Expand to explore its connections.` :
         node.kind === 'routeTemplate' ? `HTML rendered by ${node.name}` : `Explicit reference to ${node.name}\n${node.projectPath}`;
       item.command = { command: 'wicker.openEndpoint', title: 'Open endpoint connection', arguments: [node] };
       return item;

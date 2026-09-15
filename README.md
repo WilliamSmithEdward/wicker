@@ -377,14 +377,16 @@ consumers. Find All References on a route reference or PHP action name opens
 its Twig and JavaScript consumers.
 
 The sidebar's **Template routes** branch lists routes whose actions render Twig
-HTML. Click a URL to open its PHP action, or expand it to open the template.
-The **API routes** branch appears when there are JSON endpoints or
-routes explicitly fetched by JavaScript. Click an endpoint to open its action;
-expand it to browse consumers and rendered templates. A `/api` path prefix
-alone does not claim that an endpoint returns JSON.
-An HTML fragment fetched by JavaScript can appear in both route sections.
+HTML. Click a URL to open its PHP action, or expand it to open the template. A
+fragment that JavaScript fetches is still a template route, and its row says
+which file fetches it.
+The **API routes** branch appears when there are JSON endpoints, by response
+format or by what the action returns. Click an endpoint to open its action;
+expand it to browse what calls it. A `/api` path prefix alone does not claim
+that an endpoint returns JSON, and a route that renders a template is never
+listed here.
 JSON routes use the `{}` object icon. Twig template files use a leaf; routes
-rendering Twig use a leaf with a route arrow, consistently in either section
+rendering Twig use a leaf with a route arrow
 and under their controller. The icons include light and dark theme variants.
 
 JSON field completion and navigation follow local awaited assignments:

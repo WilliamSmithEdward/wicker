@@ -69,6 +69,38 @@ describe('parseTemplateName', () => {
     expect(parsed(' home/index.html.twig').path).toBe(' home/index.html.twig');
   });
 
+  /*
+   * Twig's FilesystemLoader normalises a name before resolving it, so these are
+   * names it loads rather than mistakes. Reporting them as errors made working
+   * templates look broken, which is the whole cost of guessing at Twig's rules
+   * instead of reading them.
+   */
+  describe('normalises the way Twig does, rather than refusing', () => {
+    it('strips a leading slash, as validateName ltrims it', () => {
+      expect(parsed('/home/index.html.twig').path).toBe('home/index.html.twig');
+      expect(parsed('/base.html.twig').path).toBe('base.html.twig');
+    });
+
+    it('turns backslashes into forward slashes', () => {
+      expect(parsed('home\\index.html.twig').path).toBe('home/index.html.twig');
+      expect(parsed('@Maker\\foo.html.twig')).toMatchObject({ namespace: 'Maker', path: 'foo.html.twig' });
+    });
+
+    it('collapses repeated slashes', () => {
+      expect(parsed('home//index.html.twig').path).toBe('home/index.html.twig');
+      expect(parsed('@Maker//foo.html.twig')).toMatchObject({ namespace: 'Maker', path: 'foo.html.twig' });
+    });
+
+    it('allows a ".." that stays inside the loader path, which resolves', () => {
+      expect(parsed('home/../index.html.twig').path).toBe('home/../index.html.twig');
+      expect(parsed('./index.html.twig').path).toBe('./index.html.twig');
+    });
+
+    it('keeps the name as written, so the reported range still matches the source', () => {
+      expect(parsed('/home/index.html.twig').raw).toBe('/home/index.html.twig');
+    });
+  });
+
   describe('rejects', () => {
     it.each([
       ['', 'empty'],
@@ -76,8 +108,6 @@ describe('parseTemplateName', () => {
       ['@Maker', 'namespace-without-path'],
       ['@Maker/', 'namespace-without-path'],
       ['@/foo.html.twig', 'empty-namespace'],
-      ['home\\index.html.twig', 'backslash-separator'],
-      ['/home/index.html.twig', 'absolute-path'],
       ['../secrets.html.twig', 'parent-traversal'],
       ['home/../../etc/passwd', 'parent-traversal'],
       ['AcmeBundle:Default:index.html.twig', 'legacy-bundle-syntax'],

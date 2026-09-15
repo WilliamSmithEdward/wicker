@@ -37,8 +37,6 @@ export type TemplateNameProblemKind =
   | 'empty'
   | 'namespace-without-path'
   | 'empty-namespace'
-  | 'backslash-separator'
-  | 'absolute-path'
   | 'parent-traversal'
   | 'legacy-bundle-syntax';
 
@@ -53,6 +51,23 @@ export type ParsedTemplateName =
 
 function problem(kind: TemplateNameProblemKind, message: string): ParsedTemplateName {
   return { ok: false, problem: { kind, message } };
+}
+
+/**
+ * Whether a name climbs above the directory it is resolved against.
+ *
+ * Twig counts segments rather than banning `..`, so `home/../index.html.twig`
+ * is a real name that resolves, and only a name that would leave the loader
+ * directory is refused. Rejecting every `..` reported the legal form as broken.
+ */
+function escapesLoaderPath(path: string): boolean {
+  let depth = 0;
+  for (const part of path.split('/')) {
+    if (part === '..') { depth -= 1; }
+    else if (part !== '.') { depth += 1; }
+    if (depth < 0) { return true; }
+  }
+  return false;
 }
 
 /** Matches the removed Symfony 2/3 reference form, e.g. `AcmeBundle:Default:index.html.twig`. */
@@ -78,25 +93,26 @@ export function parseTemplateName(raw: string): ParsedTemplateName {
     );
   }
 
-  if (raw.includes('\\')) {
-    return problem(
-      'backslash-separator',
-      'Twig template names always use forward slashes, even on Windows.',
-    );
-  }
+  /*
+   * Twig normalises a name before it resolves anything: FilesystemLoader's
+   * normalizeName turns backslashes into forward slashes and collapses runs of
+   * slashes. Treating either as an authoring mistake reported a broken
+   * reference for a name Twig loads perfectly well.
+   */
+  const normalized = raw.replace(/\\/g, '/').replace(/\/{2,}/g, '/');
 
   let namespace: string | null = MAIN_NAMESPACE;
   let forcesBundleTemplate = false;
-  let path = raw;
+  let path = normalized;
 
-  if (raw.startsWith('@')) {
+  if (normalized.startsWith('@')) {
     let cursor = 1;
-    if (raw.startsWith('@!')) {
+    if (normalized.startsWith('@!')) {
       forcesBundleTemplate = true;
       cursor = 2;
     }
 
-    const separator = raw.indexOf('/', cursor);
+    const separator = normalized.indexOf('/', cursor);
     if (separator === -1) {
       return problem(
         'namespace-without-path',
@@ -104,18 +120,18 @@ export function parseTemplateName(raw: string): ParsedTemplateName {
       );
     }
 
-    namespace = raw.slice(cursor, separator);
+    namespace = normalized.slice(cursor, separator);
     if (namespace.length === 0) {
       return problem('empty-namespace', 'Template namespace is empty.');
     }
 
-    path = raw.slice(separator + 1);
-  } else if (raw.startsWith('/')) {
-    return problem(
-      'absolute-path',
-      'Twig template names are relative to a loader path and cannot start with "/".',
-    );
+    path = normalized.slice(separator + 1);
   }
+
+  // Stripped rather than refused, because Twig's own validateName ltrims it and
+  // the lookup that follows joins the loader directory to whatever is left, so
+  // the doubled separator collapses and the file is found.
+  path = path.replace(/^\/+/, '');
 
   if (path.length === 0) {
     return problem(
@@ -124,8 +140,9 @@ export function parseTemplateName(raw: string): ParsedTemplateName {
     );
   }
 
-  if (path.split('/').includes('..')) {
-    return problem('parent-traversal', 'Twig template names cannot traverse upwards with "..".');
+  if (escapesLoaderPath(path)) {
+    return problem('parent-traversal',
+      'Twig template names cannot traverse above a loader path.');
   }
 
   return {

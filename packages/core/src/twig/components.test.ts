@@ -21,13 +21,23 @@ describe('Symfony component discovery', () => {
     expect(componentsFromDebug('Command not found')).toBeUndefined();
     expect(componentsFromDebug('| Name | Class | Template | Type |')).toEqual([]);
   });
-  it('ignores banners, malformed rows, arbitrary paths and wrapped output', () => {
+  it('ignores banners, malformed rows, traversal and wrapped output', () => {
     expect(componentsFromDebug(`Warning: deprecation\n${table}
       | Bad | X | ../../secret | |
-      | Path | X | /etc/passwd | |
       | ../Unsafe | | components/x.html.twig | Anon |
       | Split | App\\ | |
       | NoType | | components/n.html.twig | Surprise |`)?.length).toBe(3);
+  });
+
+  /*
+   * A leading slash is not a way out of the loader path, it is a name Twig
+   * resolves inside it, so the row is well formed and the template simply does
+   * not exist. Refusing it here once meant a legal component was invisible.
+   */
+  it('keeps a row whose template Twig would resolve relative to a loader path', () => {
+    const rows = componentsFromDebug(`| Name | Class | Template | Type |
+      | Rooted | X | /components/rooted.html.twig | |`);
+    expect(rows?.map((row) => row.name)).toEqual(['Rooted']);
   });
 });
 

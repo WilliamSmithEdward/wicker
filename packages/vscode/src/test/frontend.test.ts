@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { LoaderPathMemory } from '../loaderPathMemory.js';
 import { SessionManager } from '../session.js';
 import { ProjectTreeProvider, type SidebarNode } from '../sidebar.js';
+import { sidebarIcon } from '../sidebarIcons.js';
 
 const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
 const JS = 'assets/controllers/wicker_test_controller.js';
@@ -303,7 +304,7 @@ suite('Stimulus and API connections', () => {
       const actionItem = tree.getTreeItem(action);
       assert.equal(actionItem.label, 'GET /_wicker-test/fragment');
       assert.equal(actionItem.description, 'fragment()');
-      assert.ok(leafIconPath(actionItem).endsWith('/route-leaf-dark.svg'));
+      assert.equal(leafIconName(actionItem), 'route-leaf');
       assert.ok(typeof actionItem.tooltip === 'string');
       assert.ok(actionItem.tooltip.includes('wicker_test_fragment'));
       assert.ok(actionItem.tooltip.includes('wicker_frontend_test.html.twig'));
@@ -323,7 +324,7 @@ suite('Stimulus and API connections', () => {
       const entries = tree.getChildren(section);
       assert.deepEqual(entries.map((node) => tree.getTreeItem(node).label), ['GET /_wicker-test/api', 'GET /_wicker-test/fragment']);
       assert.equal((tree.getTreeItem(entries[0]!).iconPath as vscode.ThemeIcon).id, 'symbol-object');
-      assert.ok(leafIconPath(tree.getTreeItem(entries[1]!)).endsWith('/route-leaf-dark.svg'));
+      assert.equal(leafIconName(tree.getTreeItem(entries[1]!)), 'route-leaf');
       const json = tree.getChildren(entries[0]);
       assert.ok(json.some((node) => node.kind === 'routeConsumer' && node.projectPath === JS));
       const html = tree.getChildren(entries[1]);
@@ -335,15 +336,21 @@ suite('Stimulus and API connections', () => {
       assert.deepEqual(templateEntries.map((node) => tree.getTreeItem(node).label),
         ['GET /_wicker-test/alpha', 'GET /_wicker-test/fragment', 'GET /_wicker-test/zebra']);
       const templateRoute = templateEntries.find((node) => node.kind === 'route' && node.name === 'wicker_test_fragment')!;
-      assert.ok(leafIconPath(tree.getTreeItem(templateRoute)).endsWith('/route-leaf-dark.svg'));
+      assert.equal(leafIconName(tree.getTreeItem(templateRoute)), 'route-leaf');
       assert.notEqual(tree.getTreeItem(templateRoute).id, tree.getTreeItem(entries[1]!).id);
       assert.deepEqual(tree.getParent(templateRoute), templateSection);
       const renderedTemplate = tree.getChildren(templateRoute).find((node) => node.kind === 'routeTemplate');
       assert.ok(renderedTemplate);
-      assert.ok(leafIconPath(tree.getTreeItem(renderedTemplate)).endsWith('/template-leaf-dark.svg'));
+      assert.equal(leafIconName(tree.getTreeItem(renderedTemplate)), 'template-leaf');
       for (const treeItem of [tree.getTreeItem(renderedTemplate), tree.getTreeItem(templateRoute)]) {
         const icon = treeItem.iconPath as { light: vscode.Uri; dark: vscode.Uri };
-        for (const file of [icon.light, icon.dark]) { assert.ok((await vscode.workspace.fs.readFile(file)).byteLength > 0); }
+        for (const theme of [icon.light, icon.dark]) {
+          const svg = leafSvg(theme);
+          assert.ok(svg.startsWith('<svg ') && svg.endsWith('</svg>'), svg);
+          assert.ok(svg.includes('M5.5 17.5C3 14.5'), 'the leaf should be drawn');
+        }
+        // The two themes must actually differ, or one of them is unreadable.
+        assert.notEqual(leafSvg(icon.light), leafSvg(icon.dark));
       }
       assert.deepEqual(tree.getParent(renderedTemplate), templateRoute);
       await vscode.commands.executeCommand('wicker.openEndpoint', renderedTemplate);
@@ -475,7 +482,7 @@ class WickerFrontendTestController {
       assert.equal(tree.getTreeItem(initial[0]!).label, 'wicker_test_controller.js');
       assert.deepEqual(tree.getParent(initial[0]!), leaf);
       assert.equal(tree.getTreeItem(leaf).collapsibleState, vscode.TreeItemCollapsibleState.Collapsed);
-      assert.ok(leafIconPath(tree.getTreeItem(leaf)).endsWith('/template-leaf-dark.svg'));
+      assert.equal(leafIconName(tree.getTreeItem(leaf)), 'template-leaf');
       const controllers = tree.getChildren(root).find((node) => node.kind === 'section' && node.section === 'controllers')!;
       const controller = tree.getChildren(controllers).find((node) => node.kind === 'controller' && node.className.endsWith('WickerFrontendTestController'))!;
       const group = tree.getChildren(controller).find((node) => node.kind === 'controllerScripts');
@@ -517,7 +524,7 @@ class WickerFrontendTestController {
       await vscode.commands.executeCommand('wicker.reindex');
       await sessions.refreshAll();
       await eventually(() => tree.getChildren(leaf).length === 1);
-      assert.ok(leafIconPath(tree.getTreeItem(leaf)).includes('template-leaf'));
+      assert.equal(leafIconName(tree.getTreeItem(leaf)), 'template-leaf');
       await vscode.workspace.fs.delete(uri(mapPath));
       await eventually(() => tree.getChildren(leaf).some((node) => node.kind === 'script' && node.projectPath === JS));
     } finally {
@@ -1005,10 +1012,38 @@ async function deleteDependencyFiles(files: readonly vscode.Uri[]): Promise<void
   }
 }
 
-function leafIconPath(item: vscode.TreeItem): string {
+/**
+ * Which leaf a row is drawn with.
+ *
+ * The icons are inline data URIs rather than files, so there is no filename to
+ * match on; they are compared against what the sidebar builds for each name.
+ */
+function leafIconName(item: vscode.TreeItem): string {
   assert.ok(item.iconPath && typeof item.iconPath === 'object' && 'dark' in item.iconPath);
-  assert.ok(item.iconPath.dark instanceof vscode.Uri);
-  return item.iconPath.dark.path;
+  const icon = item.iconPath as { light: vscode.Uri; dark: vscode.Uri };
+  assert.ok(icon.dark instanceof vscode.Uri);
+  for (const name of ['template-leaf', 'route-leaf']) {
+    const built = sidebarIcon(name);
+    if ('dark' in built && built.dark.toString(true) === icon.dark.toString(true)) { return name; }
+  }
+  return `unrecognised icon: ${icon.dark.toString(true)}`;
+}
+
+/**
+ * The drawing an icon carries.
+ *
+ * Also proves the URI survives being parsed and rendered back, which is the
+ * form VS Code hands to the renderer. Base64 padding and its `+` and `/` would
+ * be silently mangled by an encoding change, and the icon would just vanish.
+ */
+function leafSvg(uri: vscode.Uri): string {
+  // skipEncoding, because that is what the workbench uses when it turns an
+  // icon into a CSS url(). Plain toString() percent-encodes the very
+  // characters a data URI is made of, so asserting on it would be testing a
+  // form nothing renders.
+  const [header, payload] = uri.toString(true).split(',');
+  assert.equal(header, 'data:image/svg+xml;base64', 'icon should be an inline SVG');
+  return Buffer.from(payload!, 'base64').toString('utf8');
 }
 
 function tooltipOf(item: vscode.TreeItem): string {

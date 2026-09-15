@@ -8,7 +8,7 @@ import { TwigLoaderPaths } from '@wicker/core';
 
 import { LoaderPathMemory } from '../loaderPathMemory.js';
 import { SessionManager } from '../session.js';
-import { SIDEBAR_ICONS } from '../sidebarIcons.js';
+import { SIDEBAR_ICONS, sidebarIcon } from '../sidebarIcons.js';
 import { isBundleNamespace, ProjectTreeProvider, type SidebarNode } from '../sidebar.js';
 
 const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
@@ -515,15 +515,17 @@ suite('Wicker sidebar', () => {
       .map((name) => name.slice('codicon-'.length)));
     assert.ok(codicons.size > 100, 'the codicon list should have parsed');
 
-    // The two roles drawn from bundled SVG rather than the codicon font.
-    const bundled = new Set(['template-leaf', 'route-leaf']);
-    const root = vscode.extensions.getExtension('WilliamSmithE.wicker')!.extensionUri;
+    // The two roles drawn as inline SVG rather than from the codicon font.
+    const drawn = new Set(['template-leaf', 'route-leaf']);
 
     const broken = Object.entries(SIDEBAR_ICONS).flatMap(([role, id]) => {
-      if (!bundled.has(id)) { return codicons.has(id) ? [] : [`${role}: no codicon "${id}"`]; }
-      return ['light', 'dark']
-        .filter((theme) => !fs.existsSync(path.join(root.fsPath, 'resources', `${id}-${theme}.svg`)))
-        .map((theme) => `${role}: no resources/${id}-${theme}.svg`);
+      if (!drawn.has(id)) { return codicons.has(id) ? [] : [`${role}: no codicon "${id}"`]; }
+      const icon = sidebarIcon(id);
+      if (!('dark' in icon)) { return [`${role}: "${id}" should be drawn, not a ThemeIcon`]; }
+      return [icon.light, icon.dark]
+        // skipEncoding, matching how the workbench serialises an icon into CSS.
+        .filter((uri) => !/^data:image\/svg\+xml;base64,[A-Za-z0-9+/]+=*$/.test(uri.toString(true)))
+        .map((uri) => `${role}: "${id}" is not an inline SVG: ${uri.toString(true).slice(0, 48)}`);
     });
     assert.deepEqual(broken, []);
   });

@@ -6,21 +6,26 @@ import * as vscode from 'vscode';
  *
  * The editor colours only its `symbol-*` codicons on its own, from a pastel
  * palette whose blues sit close together, so a controller came out orange
- * beside a grey folder, a grey route and a grey leaf and two kinds of blue
- * row could not be told apart. Every row now takes its hue from what it is,
- * and the eight hues are chosen to stay apart in light, dark and high
- * contrast: the chart palette for six of them and two terminal colours for
- * the rest. A warning keeps the warning colour, and yellow is otherwise given
- * only to stylesheets, which never sit beside a warning.
+ * beside a grey folder, a grey route and a grey leaf.
+ *
+ * Where a convention exists the hue follows it, because a reader arrives
+ * already knowing it: JavaScript is yellow and TypeScript blue in every file
+ * icon theme, PHP's own colour is purple, Twig's is green. Where none exists
+ * the hue says what the row does: a template route leads to a template and is
+ * green like one, an API route answers with JSON and is cyan, a component is
+ * red, Stimulus is orange. The hues are the theme's chart and terminal
+ * colours, defined in light, dark and high contrast alike, and a warning keeps
+ * the warning colour, which is a darker yellow than the JavaScript one.
  */
 const HUES = {
   template: 'charts.green',
-  php: 'charts.orange',
-  action: 'charts.purple',
-  route: 'charts.blue',
-  script: 'terminal.ansiCyan',
-  stimulus: 'terminal.ansiMagenta',
-  stylesheet: 'charts.yellow',
+  templateRoute: 'terminal.ansiBrightGreen',
+  apiRoute: 'terminal.ansiCyan',
+  php: 'charts.purple',
+  javascript: 'terminal.ansiBrightYellow',
+  typescript: 'charts.blue',
+  stylesheet: 'terminal.ansiMagenta',
+  stimulus: 'charts.orange',
   component: 'charts.red',
   warning: 'list.warningForeground',
 } as const;
@@ -32,6 +37,7 @@ export const SIDEBAR_ICONS = {
   project: { id: 'project' },
   controllers: { id: 'list-tree', hue: 'php' },
   controller: { id: 'symbol-class', hue: 'php' },
+  method: { id: 'symbol-method', hue: 'php' },
   dependencies: { id: 'type-hierarchy-sub', hue: 'php' },
   service: { id: 'server', hue: 'php' },
   repository: { id: 'database', hue: 'php' },
@@ -39,24 +45,25 @@ export const SIDEBAR_ICONS = {
   interface: { id: 'symbol-interface', hue: 'php' },
   enum: { id: 'symbol-enum', hue: 'php' },
   class: { id: 'symbol-misc', hue: 'php' },
-  method: { id: 'symbol-method', hue: 'action' },
-  templateRoutes: { id: 'list-selection', hue: 'route' },
-  templateRoute: { id: 'route-leaf', hue: 'route' },
-  apiRoutes: { id: 'radio-tower', hue: 'route' },
-  jsonRoute: { id: 'symbol-object', hue: 'route' },
-  route: { id: 'globe', hue: 'route' },
-  consumer: { id: 'references', hue: 'route' },
+  templateRoutes: { id: 'list-selection', hue: 'templateRoute' },
+  templateRoute: { id: 'route-leaf', hue: 'templateRoute' },
+  apiRoutes: { id: 'radio-tower', hue: 'apiRoute' },
+  jsonRoute: { id: 'symbol-object', hue: 'apiRoute' },
+  route: { id: 'globe', hue: 'apiRoute' },
+  consumer: { id: 'references', hue: 'apiRoute' },
   templates: { id: 'files', hue: 'template' },
   template: { id: 'template-leaf', hue: 'template' },
   namespace: { id: 'package', hue: 'template' },
   folder: { id: 'folder', hue: 'template' },
   included: { id: 'references', hue: 'template' },
   extended: { id: 'type-hierarchy-sub', hue: 'template' },
-  scripts: { id: 'file-code', hue: 'script' },
-  javascript: { id: 'code', hue: 'script' },
-  typescript: { id: 'symbol-type-parameter', hue: 'script' },
+  scripts: { id: 'file-code', hue: 'javascript' },
+  javascript: { id: 'code', hue: 'javascript' },
+  typescript: { id: 'symbol-type-parameter', hue: 'typescript' },
   stylesheet: { id: 'symbol-color', hue: 'stylesheet' },
   stimulus: { id: 'plug', hue: 'stimulus' },
+  stimulusJavascript: { id: 'code', hue: 'stimulus' },
+  stimulusTypescript: { id: 'symbol-type-parameter', hue: 'stimulus' },
   action: { id: 'symbol-event', hue: 'stimulus' },
   target: { id: 'symbol-field', hue: 'stimulus' },
   value: { id: 'symbol-variable', hue: 'stimulus' },
@@ -84,13 +91,14 @@ const VEINS = 'M4 21c2.6-5.2 6.3-8.9 11-12M9 14.5l.5-4M9 14.5l4.5-.5';
 const ARROW = 'M13 21h9m-3-3 3 3-3 2';
 
 /**
- * A drawn icon cannot take a theme colour, so the leaf carries the scheme's
- * own values: the template leaf the green every theme uses for charts.green
- * and the route leaf its blue, in each theme's own shade.
+ * A drawn icon cannot take a theme colour, so the leaves carry the scheme's
+ * own values: the template leaf the green every theme uses for charts.green,
+ * the route leaf the brighter green of terminal.ansiBrightGreen, each in the
+ * theme's own shade.
  */
 const STROKES = {
   'template-leaf': { light: '#388a34', dark: '#89d185' },
-  'route-leaf': { light: '#1a85ff', dark: '#3794ff' },
+  'route-leaf': { light: '#14ce14', dark: '#23d18b' },
 } as const;
 
 /**

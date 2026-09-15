@@ -422,7 +422,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       const item = new vscode.TreeItem(node.name, controller?.wiring.length
         ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
       if (controller === undefined) { return item; }
-      item.iconPath = sidebarIcon(scriptIcon(controller.projectPath));
+      item.iconPath = sidebarIcon(stimulusScriptIcon(controller.projectPath));
       // Where the attribute is, because a binding inherited from a layout is
       // not in the file the reader started from.
       item.description = controller.boundIn.join(', ');
@@ -503,7 +503,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
     if (controller === undefined) { return item; }
     item.description = uses.length ? counted(uses.length, 'template') : 'Unused';
-    item.iconPath = sidebarIcon(scriptIcon(controller.projectPath));
+    item.iconPath = sidebarIcon(stimulusScriptIcon(controller.projectPath));
     item.tooltip = `${controller.projectPath}\n\nWritten in markup as data-controller="${node.name}".${
       uses.length ? '' : '\nNo indexed template binds it.'}`;
     return opens(item, session.uriOf(controller.projectPath), 'Open controller');
@@ -1161,6 +1161,10 @@ function scriptsForOwner(sessions: SessionManager, session: ProjectSession, node
 }
 
 function scriptIcon(path: string): SidebarRole { return path.endsWith('.ts') ? 'typescript' : 'javascript'; }
+
+/** A Stimulus controller is a script, but a row under Stimulus keeps the
+ * Stimulus hue: a section whose children change colour reads as a mistake. */
+function stimulusScriptIcon(path: string): SidebarRole { return path.endsWith('.ts') ? 'stimulusTypescript' : 'stimulusJavascript'; }
 
 /**
  * What points at this template, above what it loads.

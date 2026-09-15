@@ -178,7 +178,7 @@ suite('Twig filters and functions', () => {
     const marker = vscode.Uri.file(path.join(__dirname, 'callable-refresh-started'));
     const position = await at('{{ value|§ }}');
     const slow = CONSOLE.replace('process.stdout.write(JSON.stringify(answer));',
-      `fs.writeFileSync(${JSON.stringify(marker.fsPath)}, custom); setTimeout(() => process.stdout.write(JSON.stringify(answer)), 1000);`);
+      `if (!nested) { fs.writeFileSync(${JSON.stringify(marker.fsPath)}, custom); } setTimeout(() => process.stdout.write(JSON.stringify(answer)), 1000);`);
     try {
       await vscode.workspace.fs.writeFile(probe, Buffer.from('<?php // filter: before_change'));
       await command();

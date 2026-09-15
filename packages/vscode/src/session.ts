@@ -99,6 +99,10 @@ export class ProjectSession implements vscode.Disposable {
   private refreshTimer: ReturnType<typeof setTimeout> | undefined;
   private refreshInFlight: Promise<void> | undefined;
   private refreshRevision = 0;
+  /** The widest thing any change since the last pass could have invalidated. */
+  private pendingScope: RefreshScope = 'templates';
+  /** The revision the last pass to finish cleanly had answered for. */
+  private completedRevision = 0;
   private discoveryPending = false;
   /** Files read from disk on demand, cleared whenever the project is rebuilt. */
   private readonly sourceMaps = new Map<string, string | undefined>();
@@ -289,8 +293,9 @@ export class ProjectSession implements vscode.Disposable {
   }
 
   /** Coalesce requests, but repeat when a change arrived during an older build. */
-  async refresh(): Promise<void> {
+  async refresh(scope: RefreshScope = 'environment'): Promise<void> {
     this.refreshRevision++;
+    this.widenRefresh(scope);
     this.discoveryPending = true;
     this.changed.fire();
     if (this.refreshInFlight !== undefined) {
@@ -311,16 +316,25 @@ export class ProjectSession implements vscode.Disposable {
        */
       for (let pass = 0; pass < MAX_REFRESH_PASSES; pass++) {
         const revision = this.refreshRevision;
-        const built = await buildIndex(this.fileSystem, this.project, this.memory);
+        // Taken at the start of the pass: a change arriving while this pass
+        // runs widens the next one rather than being lost.
+        const scope = this.pendingScope;
+        this.pendingScope = 'templates';
+        const environment: Environment = scope === 'environment'
+          ? await discoverEnvironment(this.fileSystem, this.project, this.memory)
+          : { loaderPaths: this.loaderPathInfo, components: this.componentInfo, frontend: this.frontend, assets: this.assets };
         if (this.disposed) { return; }
-        this.templateIndex = built.index;
-        this.loaderPathInfo = built.loaderPaths;
-        this.componentInfo = built.components;
-        this.frontend = built.frontend;
-        this.assets = built.assets;
-        await this.templateContexts.refresh(built.index);
+        const index = await indexTemplates(this.fileSystem, this.project, environment.loaderPaths);
+        if (this.disposed) { return; }
+        this.templateIndex = index;
+        this.loaderPathInfo = environment.loaderPaths;
+        this.componentInfo = environment.components;
+        this.frontend = environment.frontend;
+        this.assets = environment.assets;
+        await this.templateContexts.refresh(index);
         if (this.disposed) { return; }
         if (revision === this.refreshRevision) {
+          this.completedRevision = revision;
           this.discoveryPending = false;
           this.changed.fire();
           return;
@@ -340,8 +354,9 @@ export class ProjectSession implements vscode.Disposable {
    * A branch switch or a composer install touches many files at once; without
    * this the index would be rebuilt once per file.
    */
-  private scheduleRefresh(): void {
+  private scheduleRefresh(scope: RefreshScope = 'environment'): void {
     this.refreshRevision++;
+    this.widenRefresh(scope);
     if (!this.discoveryPending) {
       this.discoveryPending = true;
       this.changed.fire();
@@ -351,8 +366,17 @@ export class ProjectSession implements vscode.Disposable {
     }
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = undefined;
-      void this.refresh();
+      // A pass that started after this was scheduled has already answered
+      // for it; running another would only repeat the answer.
+      if (this.completedRevision < this.refreshRevision) {
+        void this.refresh(this.pendingScope);
+      }
     }, 350);
+  }
+
+  /** Two changes waiting together are answered by the wider of the two. */
+  private widenRefresh(scope: RefreshScope): void {
+    if (scope === 'environment') { this.pendingScope = 'environment'; }
   }
 
   private affectsTwigEnvironment(uri: vscode.Uri): boolean {
@@ -372,6 +396,33 @@ export class ProjectSession implements vscode.Disposable {
    * switch. `vendor` is deliberately not here, because bundle templates and
    * packaged Stimulus controllers live there and are indexed.
    */
+  /**
+   * Whether a template file is one the component registry would list.
+   *
+   * An anonymous component is registered by nothing but its template, found
+   * in the components directory of a loader path. The directory is settable,
+   * so the ones the console has already reported components in are believed
+   * alongside the default.
+   */
+  private isComponentTemplate(projectPath: string): boolean {
+    const directories = new Set(['components']);
+    for (const component of this.componentInfo.components) {
+      const within = component.template.replace(/^@!?[^/]+\//, '');
+      const slash = within.lastIndexOf('/');
+      if (slash !== -1) { directories.add(within.slice(0, slash)); }
+    }
+    for (const entry of this.loaderPathInfo.paths.all()) {
+      for (const directory of entry.directories) {
+        if (!projectPath.startsWith(`${directory}/`)) { continue; }
+        const within = projectPath.slice(directory.length + 1);
+        const slash = within.lastIndexOf('/');
+        const folder = slash === -1 ? '' : within.slice(0, slash);
+        if ([...directories].some((known) => folder === known || folder.startsWith(`${known}/`))) { return true; }
+      }
+    }
+    return false;
+  }
+
   private watchedPath(uri: vscode.Uri): string | undefined {
     if (uri.scheme !== this.rootUri.scheme || uri.authority !== this.rootUri.authority) { return undefined; }
     const path = this.relativePathOf(enginePathOf(uri));
@@ -392,11 +443,16 @@ export class ProjectSession implements vscode.Disposable {
     // Template files: creation and deletion change what resolves. Edits do not,
     // so onDidChange is deliberately not wired here. The URI is examined rather
     // than discarded, so a generated tree cannot queue a rebuild per file.
-    const refreshForFile = (uri: vscode.Uri): void => {
-      if (this.watchedPath(uri) !== undefined) { this.scheduleRefresh(); }
+    const refreshForFile = (scopeOf: (path: string) => RefreshScope) => (uri: vscode.Uri): void => {
+      const path = this.watchedPath(uri);
+      if (path !== undefined) { this.scheduleRefresh(scopeOf(path)); }
     };
-    watch('**/*.twig', refreshForFile);
-    watch('**/*.{js,ts}', refreshForFile);
+    // A new template changes nothing the console reports, with one exception:
+    // an anonymous Twig component is a template, and debug:twig-component
+    // lists it. A new script can be a Stimulus controller, which discovery
+    // finds by walking the configured directories, so that one always asks.
+    watch('**/*.twig', refreshForFile((path) => this.isComponentTemplate(path) ? 'environment' : 'templates'));
+    watch('**/*.{js,ts}', refreshForFile(() => 'environment'));
     // Maps are not indexed, but one that changes still has to invalidate what
     // was read from it. Watching is not reading: nothing here opens a file, it
     // only forgets one, so a deleted map stops pointing a row at a TypeScript
@@ -463,11 +519,39 @@ export class ProjectSession implements vscode.Disposable {
   }
 }
 
+/** Everything the Symfony console has to be asked for. */
+interface Environment {
+  readonly loaderPaths: LoaderPathsResolution;
+  readonly components: ComponentDiscovery;
+  readonly frontend: FrontendDiscovery;
+  readonly assets: AssetDiscovery;
+}
+
+/**
+ * What a change can invalidate.
+ *
+ * A template created or deleted changes which names resolve and nothing the
+ * console knows: routes, controllers, components and asset roots all come from
+ * PHP and configuration. Asking the console again on every new partial cost
+ * six kernel boots per file, which on a container is most of a minute of
+ * waiting for answers that could not have changed.
+ */
+type RefreshScope = 'templates' | 'environment';
+
 async function buildIndex(
   fileSystem: VsCodeFileSystem,
   project: SymfonyProject,
   memory: LoaderPathMemory,
-): Promise<{ index: TwigTemplateIndex; loaderPaths: LoaderPathsResolution; components: ComponentDiscovery; frontend: FrontendDiscovery; assets: AssetDiscovery }> {
+): Promise<Environment & { index: TwigTemplateIndex }> {
+  const environment = await discoverEnvironment(fileSystem, project, memory);
+  return { ...environment, index: await indexTemplates(fileSystem, project, environment.loaderPaths) };
+}
+
+async function discoverEnvironment(
+  fileSystem: VsCodeFileSystem,
+  project: SymfonyProject,
+  memory: LoaderPathMemory,
+): Promise<Environment> {
   const raw = await fileSystem.readFile(joinProjectPath(project.root, TWIG_CONFIG_PATH));
   const config = parseTwigConfig(raw ?? '');
 
@@ -488,7 +572,17 @@ async function buildIndex(
   if (loaderPaths.consoleEntries !== undefined) {
     await memory.write(project.root, loaderPaths.consoleEntries);
   }
+  return { loaderPaths, components, frontend, assets };
+}
 
+/** The template names that resolve, given where the namespaces point. */
+async function indexTemplates(
+  fileSystem: VsCodeFileSystem,
+  project: SymfonyProject,
+  loaderPaths: LoaderPathsResolution,
+): Promise<TwigTemplateIndex> {
+  const raw = await fileSystem.readFile(joinProjectPath(project.root, TWIG_CONFIG_PATH));
+  const config = parseTwigConfig(raw ?? '');
   const settings = vscode.workspace.getConfiguration('wicker');
   const configured = settings.get<string[]>('templates.extensions', []);
   const extensions =
@@ -496,11 +590,10 @@ async function buildIndex(
       ? configured
       : extensionsFromPatterns(config.fileNamePatterns, DEFAULT_EXTENSIONS);
 
-  const index = await TwigTemplateIndex.build(fileSystem, project.root, loaderPaths.paths, {
+  return TwigTemplateIndex.build(fileSystem, project.root, loaderPaths.paths, {
     extensions,
     maxFiles: settings.get<number>('index.maxFiles', 20000),
   });
-  return { index, loaderPaths, components, frontend, assets };
 }
 
 /**

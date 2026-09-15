@@ -1,4 +1,4 @@
-import { controllerForReference, resolveOutletReference, typescriptSourceForJavascript, type FrontendIndex, type StimulusController } from '@wicker/core';
+import { controllerForReference, resolveOutletReference, typescriptSourceForJavascript, type FrontendIndex, type StimulusController, type TwigTemplateIndex } from '@wicker/core';
 import type { ProjectSession, SessionManager } from './session.js';
 import { frontendIndex, routeAction } from './frontendProject.js';
 
@@ -68,8 +68,11 @@ function wiringKind(kind: string): BoundWiring['kind'] | undefined {
  * listing the controllers, and drawing each controller and each wiring row all
  * need the same walk. Expanding one page asked for it around twenty times.
  */
-const mounted = new WeakMap<FrontendIndex,
-  { controllers: readonly StimulusController[]; byNames: Map<string, readonly BoundController[]> }>();
+const mounted = new WeakMap<FrontendIndex, {
+  controllers: readonly StimulusController[];
+  templates: TwigTemplateIndex;
+  byNames: Map<string, readonly BoundController[]>;
+}>();
 
 /**
  * The Stimulus controllers a page mounts, by identifier.
@@ -85,9 +88,12 @@ export function templateControllers(sessions: SessionManager, session: ProjectSe
   names: readonly string[]): readonly BoundController[] {
   const index = frontendIndex(sessions, session);
   let held = mounted.get(index);
-  // A rediscovery can replace the controller list without touching a file.
-  if (held === undefined || held.controllers !== session.frontend.controllers) {
-    held = { controllers: session.frontend.controllers, byNames: new Map() };
+  // The walk resolves names through the template index, so a template that
+  // appears is a new answer even when no scanned file changed; and a
+  // rediscovery can replace the controller list without touching a file.
+  // Both are held by identity, because both are replaced wholesale.
+  if (held === undefined || held.controllers !== session.frontend.controllers || held.templates !== session.index) {
+    held = { controllers: session.frontend.controllers, templates: session.index, byNames: new Map() };
     mounted.set(index, held);
   }
   const key = names.join('\n');

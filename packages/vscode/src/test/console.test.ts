@@ -10,6 +10,47 @@ const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
 
 suite('console', () => {
   /*
+   * A template created or deleted changes which names resolve and nothing the
+   * console reports. Asking it again for every new partial cost six kernel
+   * boots per file; a PHP file can carry a route, a component or an extension,
+   * so that one still asks.
+   */
+  test('a new template does not ask the console again, and a new PHP file does', async () => {
+    const settings = vscode.workspace.getConfiguration('wicker');
+    const previousCommand = settings.inspect<string[]>('console.command')?.workspaceValue;
+    const previousEnabled = settings.inspect<boolean>('console.enabled')?.workspaceValue;
+    const marker = path.join(ROOT, 'wicker-console-boots.txt');
+    const template = vscode.Uri.file(path.join(ROOT, 'templates/wicker_console_probe.html.twig'));
+    const php = vscode.Uri.file(path.join(ROOT, 'src/WickerConsoleProbe.php'));
+    const boots = (): number => { try { return fs.readFileSync(marker, 'utf8').length; } catch { return 0; } };
+    const settled = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 1200));
+    try {
+      await settings.update('console.enabled', true, vscode.ConfigurationTarget.Workspace);
+      await settings.update('console.command', [process.env['npm_node_execpath'] ?? 'node', '-e',
+        `require('node:fs').appendFileSync(${JSON.stringify(marker)}, 'x'); process.stdout.write('{}')`,
+        '--'], vscode.ConfigurationTarget.Workspace);
+      await vscode.commands.executeCommand('wicker.reindex');
+      await settled();
+      const before = boots();
+      assert.ok(before > 0, 'the reindex should have asked the console');
+
+      await vscode.workspace.fs.writeFile(template, Buffer.from('<p>probe</p>'));
+      await settled();
+      assert.equal(boots(), before, 'a new template must not boot the console');
+
+      await vscode.workspace.fs.writeFile(php, Buffer.from('<?php class WickerConsoleProbe {}'));
+      await settled();
+      assert.ok(boots() > before, 'a new PHP file may carry a route or a component, so the console is asked');
+    } finally {
+      for (const uri of [template, php]) { try { await vscode.workspace.fs.delete(uri); } catch { /* never written */ } }
+      fs.rmSync(marker, { force: true });
+      await settings.update('console.command', previousCommand, vscode.ConfigurationTarget.Workspace);
+      await settings.update('console.enabled', previousEnabled, vscode.ConfigurationTarget.Workspace);
+      await vscode.commands.executeCommand('wicker.reindex');
+    }
+  });
+
+  /*
    * Opening a project asks the console several questions at once and two of
    * them are the same question. Each answer costs a Symfony kernel boot, which
    * on a container or a remote machine is the slowest thing the extension

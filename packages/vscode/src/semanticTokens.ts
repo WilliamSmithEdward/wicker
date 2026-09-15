@@ -11,7 +11,7 @@ import type { SessionManager } from './session.js';
  * every language. `package.json` declares it with `type` as its super type, so
  * a theme that has never heard of Wicker still colours it sensibly.
  */
-export const TEMPLATE_TOKEN_TYPE = 'wickerTemplate';
+const TEMPLATE_TOKEN_TYPE = 'wickerTemplate';
 
 export const SEMANTIC_TOKENS_LEGEND = new vscode.SemanticTokensLegend([TEMPLATE_TOKEN_TYPE]);
 

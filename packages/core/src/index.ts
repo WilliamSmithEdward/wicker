@@ -16,8 +16,8 @@ export {
 } from './fs/fileSystem.js';
 export { InMemoryFileSystem } from './fs/inMemoryFileSystem.js';
 export { NodeFileSystem } from './fs/nodeFileSystem.js';
-export { VALUE_TYPES, stimulusCallbackOwners, stimulusClassProperties, stimulusDeclarationRanges, stimulusGeneratedMembers, stimulusIdentifier, stimulusSource, stimulusOutletProperties, stimulusOutletStem, stimulusTargetProperties, stimulusValueProperties, type GeneratedMember, type StimulusController, type StimulusSource, type StimulusMember, type StimulusDispatch, type StimulusValue, type CallbackOwner } from './frontend/stimulus.js';
-export { AssetMap, assetExcluded, assetLogicalPath, assetMapperSettings, type AssetMapperSettings, type AssetRoot, type MappedAsset } from './frontend/assetMap.js';
+export { stimulusCallbackOwners, stimulusClassProperties, stimulusDeclarationRanges, stimulusGeneratedMembers, stimulusIdentifier, stimulusSource, stimulusOutletProperties, stimulusOutletStem, type GeneratedMember, type StimulusController, type StimulusSource, type StimulusMember, type StimulusDispatch, type StimulusValue, type CallbackOwner } from './frontend/stimulus.js';
+export { AssetMap, assetExcluded, assetMapperSettings, type AssetMapperSettings, type AssetRoot, type MappedAsset } from './frontend/assetMap.js';
 export { parseImportMap, type ImportMapEntry } from './frontend/importMap.js';
 export { cssImports, cssUrls, type CssImport } from './frontend/cssImports.js';
 export { importSpecifiers, resolveRelativeImport, type ImportSpecifier } from './frontend/imports.js';
@@ -59,15 +59,11 @@ export { TemplateContextIndex, type TwigContextVariable, type TwigVariableOrigin
 export {
   classToProjectPaths,
   parseComposerManifest,
-  projectPathToClass,
-  requiresPackage,
-  symfonyPackages,
   type ComposerManifest,
   type Psr4Mapping,
 } from './project/composer.js';
 export {
   discoverSymfonyProject,
-  findSymfonyProjects,
   inspectDirectory,
   isSymfonyProject,
   type SymfonyEvidence,
@@ -94,7 +90,6 @@ export {
 export {
   formatTemplateName,
   MAIN_NAMESPACE,
-  MAIN_NAMESPACE_LABEL,
   normalizeLoaderNamespaceKey,
   parseTemplateName,
   type ParsedTemplateName,
@@ -103,7 +98,7 @@ export {
   type TwigTemplateName,
 } from './twig/templateName.js';
 export { lexTwigRegions, readStringLiterals, type TwigRegion } from './twig/twigLexer.js';
-export { componentsFromDebug, componentClassSource, anonymousComponentProps, isComponentName,
+export { componentsFromDebug, componentClassSource, anonymousComponentProps,
   type TwigComponent, type ComponentProp } from './twig/components.js';
 export { componentReferenceAt, type ComponentReference } from './twig/componentReferences.js';
 export {
@@ -125,7 +120,6 @@ export {
 
 export {
   ancestorDirectories,
-  isWithinDirectory,
   joinProjectPath,
   normalizeProjectPath,
   normalizeRootPath,

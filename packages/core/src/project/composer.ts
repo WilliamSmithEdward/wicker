@@ -118,17 +118,6 @@ function readPsr4(value: unknown): Psr4Mapping[] {
   }
   return mappings;
 }
-
-/** True when the manifest requires the given package in either require block. */
-export function requiresPackage(manifest: ComposerManifest, packageName: string): boolean {
-  return manifest.requirements.has(packageName);
-}
-
-/** Packages required under the `symfony/` vendor, sorted for stable display. */
-export function symfonyPackages(manifest: ComposerManifest): readonly string[] {
-  return [...manifest.requirements.keys()].filter((name) => name.startsWith('symfony/')).sort();
-}
-
 /**
  * Maps a fully qualified class name onto candidate project paths.
  *
@@ -160,46 +149,4 @@ export function classToProjectPaths(
     );
   }
   return [];
-}
-
-/**
- * The inverse mapping: a project path back to the class it must declare.
- *
- * Returns undefined when the path is not a PHP file below any PSR-4 root.
- */
-export function projectPathToClass(
-  manifest: ComposerManifest,
-  projectPath: string,
-): string | undefined {
-  const normalized = normalizeProjectPath(projectPath);
-  if (normalized === undefined || !normalized.endsWith('.php')) {
-    return undefined;
-  }
-  const withoutExtension = normalized.slice(0, -'.php'.length);
-
-  let best: { prefix: string; relative: string; directoryLength: number } | undefined;
-  for (const mapping of manifest.psr4) {
-    for (const directory of mapping.directories) {
-      const isRootMapping = directory === '';
-      if (!isRootMapping && !withoutExtension.startsWith(`${directory}/`)) {
-        continue;
-      }
-      const relative = isRootMapping
-        ? withoutExtension
-        : withoutExtension.slice(directory.length + 1);
-      if (relative.length === 0) {
-        continue;
-      }
-      // Prefer the deepest matching directory: with both `App\ => src` and
-      // `App\Tests\ => src/Tests`, a file under src/Tests belongs to the latter.
-      if (best === undefined || directory.length > best.directoryLength) {
-        best = { prefix: mapping.prefix, relative, directoryLength: directory.length };
-      }
-    }
-  }
-
-  if (best === undefined) {
-    return undefined;
-  }
-  return `${best.prefix}${best.relative.split('/').join('\\')}`;
 }

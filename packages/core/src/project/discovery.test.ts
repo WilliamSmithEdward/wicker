@@ -4,7 +4,6 @@ import { InMemoryFileSystem } from '../fs/inMemoryFileSystem.js';
 
 import {
   discoverSymfonyProject,
-  findSymfonyProjects,
   inspectDirectory,
   isSymfonyProject,
 } from './discovery.js';
@@ -170,47 +169,3 @@ describe('discoverSymfonyProject', () => {
   });
 });
 
-describe('findSymfonyProjects', () => {
-  it('finds a project at the search root', async () => {
-    const fs = new InMemoryFileSystem(symfonyApp('/app'));
-    const projects = await findSymfonyProjects(fs, '/app');
-    expect(projects.map((p) => p.root)).toEqual(['/app']);
-  });
-
-  it('finds several projects side by side', async () => {
-    const fs = new InMemoryFileSystem({
-      ...symfonyApp('/repo/apps/api'),
-      ...symfonyApp('/repo/apps/admin'),
-      '/repo/README.md': 'not a project',
-    });
-    const projects = await findSymfonyProjects(fs, '/repo');
-    expect(projects.map((p) => p.root).sort()).toEqual(['/repo/apps/admin', '/repo/apps/api']);
-  });
-
-  it('does not descend into a project it already found', async () => {
-    const fs = new InMemoryFileSystem({
-      ...symfonyApp('/repo'),
-      ...symfonyApp('/repo/apps/api'),
-    });
-    const projects = await findSymfonyProjects(fs, '/repo');
-    expect(projects.map((p) => p.root)).toEqual(['/repo']);
-  });
-
-  it('skips vendor, node_modules and dot directories', async () => {
-    const fs = new InMemoryFileSystem({
-      ...symfonyApp('/repo/vendor/acme/bundle'),
-      ...symfonyApp('/repo/node_modules/pkg'),
-      ...symfonyApp('/repo/.cache/copy'),
-      '/repo/README.md': 'x',
-    });
-    await expect(findSymfonyProjects(fs, '/repo')).resolves.toEqual([]);
-  });
-
-  it('respects the depth bound', async () => {
-    const fs = new InMemoryFileSystem(symfonyApp('/repo/a/b/c/deep'));
-    await expect(findSymfonyProjects(fs, '/repo', 2)).resolves.toEqual([]);
-
-    const deeper = await findSymfonyProjects(fs, '/repo', 4);
-    expect(deeper.map((p) => p.root)).toEqual(['/repo/a/b/c/deep']);
-  });
-});

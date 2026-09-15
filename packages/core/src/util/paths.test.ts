@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ancestorDirectories,
-  isWithinDirectory,
   joinProjectPath,
   normalizeProjectPath,
   normalizeRootPath,
@@ -179,17 +178,3 @@ describe('ancestorDirectories', () => {
   });
 });
 
-describe('isWithinDirectory', () => {
-  it('matches the directory itself and its descendants', () => {
-    expect(isWithinDirectory('templates', 'templates')).toBe(true);
-    expect(isWithinDirectory('templates/home/a.twig', 'templates')).toBe(true);
-  });
-
-  it('does not match a sibling sharing a prefix', () => {
-    expect(isWithinDirectory('templates2/a.twig', 'templates')).toBe(false);
-  });
-
-  it('does not match an unrelated path', () => {
-    expect(isWithinDirectory('src/Controller/X.php', 'templates')).toBe(false);
-  });
-});

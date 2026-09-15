@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { InMemoryFileSystem } from '../fs/inMemoryFileSystem.js';
 
-import { AssetMap, assetExcluded, assetLogicalPath, assetMapperSettings, type AssetMapperSettings } from './assetMap.js';
+import { AssetMap, assetExcluded, assetMapperSettings, type AssetMapperSettings } from './assetMap.js';
 
 /**
  * Trimmed from the live application's own
@@ -47,26 +47,6 @@ describe('assetMapperSettings', () => {
   it('reports nothing when the payload is not the expected shape', () => {
     expect(assetMapperSettings(undefined, '/app')).toBeUndefined();
     expect(assetMapperSettings({ enabled: true }, '/app')).toBeUndefined();
-  });
-});
-
-describe('assetLogicalPath', () => {
-  it('names an application asset by its path within the root', () => {
-    expect(assetLogicalPath(SETTINGS.roots, 'assets/styles/app.css')).toBe('styles/app.css');
-  });
-
-  it('prefixes a bundle asset with its namespace', () => {
-    expect(assetLogicalPath(SETTINGS.roots, 'vendor/symfony/ux-turbo/assets/dist/turbo_controller.js'))
-      .toBe('@symfony/ux-turbo/turbo_controller.js');
-  });
-
-  it('gives a file covered by nested roots the name of the innermost one', () => {
-    const nested = [{ directory: 'assets', namespace: '' }, { directory: 'assets/vendor', namespace: '@vendor' }];
-    expect(assetLogicalPath(nested, 'assets/vendor/react/react.js')).toBe('@vendor/react/react.js');
-  });
-
-  it('names nothing for a file no root covers', () => {
-    expect(assetLogicalPath(SETTINGS.roots, 'templates/base.html.twig')).toBeUndefined();
   });
 });
 

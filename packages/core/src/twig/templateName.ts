@@ -17,7 +17,7 @@
 export const MAIN_NAMESPACE = null;
 
 /** The label `bin/console debug:twig --format=json` uses for the main namespace. */
-export const MAIN_NAMESPACE_LABEL = '(None)';
+const MAIN_NAMESPACE_LABEL = '(None)';
 
 export interface TwigTemplateName {
   /** The reference exactly as it appeared in source. */

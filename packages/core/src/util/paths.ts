@@ -159,15 +159,3 @@ export function projectPathDirname(projectPath: string): string | undefined {
 export function projectPathBasename(projectPath: string): string {
   return posix.basename(projectPath);
 }
-
-/**
- * True when `candidate` sits at or below `directory`, both project paths.
- *
- * Segment-aware, so `templates2/x` is not treated as living under `templates`.
- */
-export function isWithinDirectory(candidate: string, directory: string): boolean {
-  if (directory.length === 0) {
-    return true;
-  }
-  return candidate === directory || candidate.startsWith(`${directory}/`);
-}

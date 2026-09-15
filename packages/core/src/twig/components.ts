@@ -20,7 +20,7 @@ export interface ComponentProp {
 }
 
 const COMPONENT_NAME = /^[a-zA-Z_][a-zA-Z0-9_]*(?::[a-zA-Z_][a-zA-Z0-9_]*)*$/;
-export function isComponentName(name: string): boolean {
+function isComponentName(name: string): boolean {
   return name.length <= 256 && COMPONENT_NAME.test(name);
 }
 

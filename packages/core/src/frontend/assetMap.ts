@@ -72,26 +72,6 @@ export function assetMapperSettings(payload: unknown, runtimeRoot: string): Asse
     publicPrefix: typeof config['public_prefix'] === 'string' ? config['public_prefix'] : '/assets/',
   };
 }
-
-/**
- * The name a template would use for a file, or undefined when no root covers
- * it.
- *
- * Roots can nest: `assets/` and a bundle directory inside `vendor/` do not,
- * but a project is free to configure one inside another. The longest matching
- * directory wins, because that is the one whose namespace the file answers to.
- */
-export function assetLogicalPath(roots: readonly AssetRoot[], projectPath: string): string | undefined {
-  const covering = roots
-    .filter((root) => projectPath === root.directory || projectPath.startsWith(`${root.directory}/`))
-    .sort((left, right) => right.directory.length - left.directory.length)[0];
-  if (covering === undefined) {
-    return undefined;
-  }
-  const relative = projectPath.slice(covering.directory.length + 1);
-  return covering.namespace === '' ? relative : `${covering.namespace}/${relative}`;
-}
-
 /**
  * Whether AssetMapper would leave a file out of the map.
  *

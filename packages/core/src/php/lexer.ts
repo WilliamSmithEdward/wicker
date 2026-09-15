@@ -456,7 +456,7 @@ function readHeredoc(source: string, start: number): PhpToken | undefined {
 }
 
 /** Tokens that carry no meaning for a parser walking the stream. */
-export function isTrivia(token: PhpToken): boolean {
+function isTrivia(token: PhpToken): boolean {
   return token.kind === 'comment' || token.kind === 'inline-html';
 }
 

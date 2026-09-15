@@ -51,7 +51,7 @@ export interface StimulusSource {
 export interface StimulusController { readonly name: string; readonly projectPath: string }
 
 /** The only types Stimulus converts a value attribute to. */
-export const VALUE_TYPES: readonly string[] = ['String', 'Number', 'Boolean', 'Array', 'Object'];
+const VALUE_TYPES: readonly string[] = ['String', 'Number', 'Boolean', 'Array', 'Object'];
 
 export function stimulusIdentifier(relativePath: string): string | undefined {
   if (!/[-_]controller\.[jt]s$/.test(relativePath)) { return undefined; }
@@ -178,12 +178,12 @@ export function stimulusOutletProperties(identifier: string): readonly string[] 
 }
 
 /** `output` becomes `this.outputTarget`, and the plural and presence forms. */
-export function stimulusTargetProperties(name: string): readonly string[] {
+function stimulusTargetProperties(name: string): readonly string[] {
   return [`${name}Target`, `${name}Targets`, `has${capitalize(name)}Target`];
 }
 
 /** `statusUrl` becomes `this.statusUrlValue` and `this.hasStatusUrlValue`. */
-export function stimulusValueProperties(name: string): readonly string[] {
+function stimulusValueProperties(name: string): readonly string[] {
   return [`${name}Value`, `has${capitalize(name)}Value`];
 }
 

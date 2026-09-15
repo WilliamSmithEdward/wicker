@@ -3,9 +3,6 @@ import { describe, expect, it } from 'vitest';
 import {
   classToProjectPaths,
   parseComposerManifest,
-  projectPathToClass,
-  requiresPackage,
-  symfonyPackages,
   type ComposerManifest,
 } from './composer.js';
 
@@ -51,19 +48,9 @@ describe('parseComposerManifest', () => {
   });
 
   it('merges require and require-dev', () => {
-    expect(requiresPackage(manifest, 'symfony/framework-bundle')).toBe(true);
-    expect(requiresPackage(manifest, 'symfony/maker-bundle')).toBe(true);
-    expect(requiresPackage(manifest, 'doctrine/orm')).toBe(false);
-  });
-
-  it('lists symfony packages only', () => {
-    expect(symfonyPackages(manifest)).toEqual([
-      'symfony/console',
-      'symfony/framework-bundle',
-      'symfony/maker-bundle',
-      'symfony/twig-bundle',
-      'symfony/yaml',
-    ]);
+    expect(manifest.requirements.has('symfony/framework-bundle')).toBe(true);
+    expect(manifest.requirements.has('symfony/maker-bundle')).toBe(true);
+    expect(manifest.requirements.has('doctrine/orm')).toBe(false);
   });
 
   it('reads psr-4 from both autoload blocks, longest prefix first', () => {
@@ -154,52 +141,3 @@ describe('classToProjectPaths', () => {
   });
 });
 
-describe('projectPathToClass', () => {
-  const manifest = parse(REAL_MANIFEST);
-
-  it('maps a controller back to its class', () => {
-    expect(projectPathToClass(manifest, 'src/Controller/HomeController.php')).toBe(
-      'App\\Controller\\HomeController',
-    );
-  });
-
-  it('maps a test back to its class using the dev prefix', () => {
-    expect(projectPathToClass(manifest, 'tests/Controller/HomeControllerTest.php')).toBe(
-      'App\\Tests\\Controller\\HomeControllerTest',
-    );
-  });
-
-  it('normalises separators before mapping', () => {
-    expect(projectPathToClass(manifest, 'src\\Controller\\HomeController.php')).toBe(
-      'App\\Controller\\HomeController',
-    );
-  });
-
-  it('prefers the deepest matching psr-4 directory', () => {
-    const overlapping = parse({
-      autoload: { 'psr-4': { 'App\\': 'src/', 'App\\Domain\\': 'src/Domain/' } },
-    });
-    expect(projectPathToClass(overlapping, 'src/Domain/Order.php')).toBe('App\\Domain\\Order');
-    expect(projectPathToClass(overlapping, 'src/Service/Mailer.php')).toBe('App\\Service\\Mailer');
-  });
-
-  it.each([
-    ['a template', 'templates/home/index.html.twig'],
-    ['a php file outside every root', 'public/index.php'],
-    ['a path escaping the project', '../outside/X.php'],
-  ])('returns undefined for %s', (_label, path) => {
-    expect(projectPathToClass(manifest, path)).toBeUndefined();
-  });
-
-  it('round-trips with classToProjectPaths', () => {
-    for (const className of [
-      'App\\Controller\\HomeController',
-      'App\\Tests\\Controller\\HomeControllerTest',
-      'App\\Kernel',
-    ]) {
-      const [path] = classToProjectPaths(manifest, className);
-      expect(path).toBeDefined();
-      expect(projectPathToClass(manifest, path as string)).toBe(className);
-    }
-  });
-});

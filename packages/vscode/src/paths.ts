@@ -17,3 +17,27 @@ import { normalizeRootPath } from '@wicker/core';
 export function enginePathOf(uri: vscode.Uri): string {
   return normalizeRootPath(uri.scheme === 'file' ? uri.fsPath : uri.path);
 }
+
+/**
+ * Directories a scan of a project's own sources does not descend into.
+ *
+ * Named once, with the search filter and the path test both derived from it.
+ * Written separately they drift, and the drift is silent in the worst
+ * direction: a widened glob whose path guard still rejects the new files finds
+ * nothing and looks like the feature simply does not work.
+ *
+ * `vendor` belongs here because these scans read what the project itself
+ * wrote. Bundle templates and packaged controllers are still reached, through
+ * the loader paths and the console, rather than by walking the tree.
+ */
+const IGNORED_DIRECTORIES = ['vendor', 'var', 'node_modules', '.git'] as const;
+
+/** The exclude pattern for `findFiles`. */
+export const IGNORED_GLOB = `{${IGNORED_DIRECTORIES.map((name) => `**/${name}/**`).join(',')}}`;
+
+const IGNORED = new Set<string>(IGNORED_DIRECTORIES);
+
+/** Whether a project-relative path passes through one of them. */
+export function inIgnoredDirectory(projectPath: string): boolean {
+  return projectPath.split('/').some((segment) => IGNORED.has(segment));
+}

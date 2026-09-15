@@ -1,9 +1,8 @@
 import * as vscode from 'vscode';
 import { FrontendIndex, joinProjectPath, toProjectPath } from '@wicker/core';
 import type { VsCodeFileSystem } from './fileSystem.js';
-import { enginePathOf } from './paths.js';
+import { enginePathOf, inIgnoredDirectory, IGNORED_GLOB } from './paths.js';
 
-const EXCLUDED = new Set(['vendor', 'var', 'node_modules', '.git']);
 /*
  * The file kinds this tracker reads. Named once: the glob and the path guard
  * are both derived from it, and when they were written separately a change to
@@ -39,7 +38,7 @@ export class FrontendTracker implements vscode.Disposable {
   async refresh(): Promise<void> {
     const uris = new Map(this.index.sourcePaths().map((path) => { const uri = this.fs.toUri(joinProjectPath(this.root, path)); return [uri.toString(), uri]; }));
     for (const uri of await vscode.workspace.findFiles(new vscode.RelativePattern(this.rootUri, PATTERN),
-      '{**/vendor/**,**/var/**,**/node_modules/**,**/.git/**}', 20000)) { uris.set(uri.toString(), uri); }
+      IGNORED_GLOB, 20000)) { uris.set(uri.toString(), uri); }
     for (const doc of vscode.workspace.textDocuments) { if (this.path(doc.uri) && !doc.isClosed) { uris.set(doc.uri.toString(), doc.uri); } }
     const files = [...uris.values()];
     for (let i = 0; i < files.length && !this.disposed; i += 32) { await Promise.all(files.slice(i, i + 32).map((uri) => this.load(uri))); }
@@ -47,7 +46,7 @@ export class FrontendTracker implements vscode.Disposable {
   private path(uri: vscode.Uri): string | undefined {
     if (uri.scheme !== this.rootUri.scheme || uri.authority !== this.rootUri.authority) { return undefined; }
     const path = toProjectPath(this.root, enginePathOf(uri));
-    return path && TRACKED.test(path) && !path.split('/').some((part) => EXCLUDED.has(part)) ? path : undefined;
+    return path && TRACKED.test(path) && !inIgnoredDirectory(path) ? path : undefined;
   }
   private update(document: vscode.TextDocument): void {
     const path = this.path(document.uri);

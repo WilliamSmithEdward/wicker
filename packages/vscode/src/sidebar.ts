@@ -816,9 +816,8 @@ function scriptsForOwner(sessions: SessionManager, session: ProjectSession, node
 function scriptIcon(path: string): string { return path.endsWith('.ts') ? icons.typescript : icons.javascript; }
 
 function controllersInProject(sessions: SessionManager, session: ProjectSession): readonly RenderingController[] {
-  return session.renderSites.index.controllers().filter((controller) => sessions.sessionFor({
-    uri: session.fileSystem.toUri(joinProjectPath(session.project.root, controller.projectPath)),
-  }) === session);
+  return session.renderSites.index.controllers()
+    .filter((controller) => sessions.owns(session, controller.projectPath));
 }
 
 function controllerSites(sessions: SessionManager, session: ProjectSession, node: ControllerNode): readonly RenderSite[] {

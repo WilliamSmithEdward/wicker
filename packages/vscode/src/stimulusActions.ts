@@ -1,7 +1,7 @@
 import { stimulusSource, type FrontendReference, type StimulusSource } from '@wicker/core';
 import * as vscode from 'vscode';
 
-import { ownsFrontendPath, scanOf } from './frontendProject.js';
+import { scanOf } from './frontendProject.js';
 import { enginePathOf } from './paths.js';
 import type { ProjectSession, SessionManager } from './session.js';
 
@@ -40,7 +40,7 @@ export class StimulusMemberActionProvider implements vscode.CodeActionProvider {
     }
 
     const controller = session.frontend.controllers.find((entry) => entry.name === reference.controller);
-    if (!controller || !ownsFrontendPath(this.sessions, session, controller.projectPath)) { return []; }
+    if (!controller || !this.sessions.owns(session, controller.projectPath)) { return []; }
 
     const uri = session.fileSystem.toUri(joinPath(session, controller.projectPath));
     let source: vscode.TextDocument;

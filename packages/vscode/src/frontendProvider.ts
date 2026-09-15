@@ -6,7 +6,7 @@ import { ACTION_OPTIONS, COMMON_EVENTS, EVENT_TARGETS, KEY_FILTERS,
   type SymfonyRoute } from '@wicker/core';
 import { enginePathOf } from './paths.js';
 import type { ProjectSession, SessionManager } from './session.js';
-import { fetchValuesOf, frontendIndex, ownsFrontendPath, routeAction, routeConsumers, scanOf } from './frontendProject.js';
+import { fetchValuesOf, frontendIndex, routeAction, routeConsumers, scanOf } from './frontendProject.js';
 import { OutletQueries } from './outletQueries.js';
 import type { FrontendTarget as Target, FrontendCandidate as Candidate, FrontendQuery as Query } from './frontendQueries.js';
 
@@ -37,7 +37,7 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
     const links: vscode.LocationLink[] = [];
     for (const target of matches) {
       const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, target.projectPath));
-      if (!ownsFrontendPath(this.sessions, session, target.projectPath)) { continue; }
+      if (!this.sessions.owns(session, target.projectPath)) { continue; }
       try {
         const targetDoc = await vscode.workspace.openTextDocument(uri);
         links.push({ originSelectionRange: rangeOf(document, query.range), targetUri: uri,
@@ -80,7 +80,7 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
     for (const target of targets) {
       try {
         const doc = await vscode.workspace.openTextDocument(session.fileSystem.toUri(joinProjectPath(session.project.root, target.projectPath)));
-        if (!ownsFrontendPath(this.sessions, session, target.projectPath)) { continue; }
+        if (!this.sessions.owns(session, target.projectPath)) { continue; }
         const location = new vscode.Location(doc.uri, rangeOf(doc, target.range));
         locations.set(`${doc.uri.toString()}:${target.range.start}`, location);
       } catch { /* Ignore a consumer removed while reading. */ }
@@ -170,7 +170,7 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
    */
   private actionParamQuery(session: ProjectSession, ref: FrontendReference): Query | undefined {
     const controllers = session.frontend.controllers
-      .filter((entry) => ownsFrontendPath(this.sessions, session, entry.projectPath));
+      .filter((entry) => this.sessions.owns(session, entry.projectPath));
     const controller = controllers.filter((entry) => ref.name.startsWith(`${entry.name}-`))
       .sort((a, b) => b.name.length - a.name.length)[0];
     if (!controller) { return undefined; }
@@ -248,7 +248,7 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
   private withGeneratedMembers(session: ProjectSession, path: string, source: string,
     offset: number, query: Query | undefined): Query | undefined {
     const owned = session.frontend.controllers.some((controller) => controller.projectPath === path &&
-      ownsFrontendPath(this.sessions, session, controller.projectPath));
+      this.sessions.owns(session, controller.projectPath));
     if (!owned) { return query; }
 
     const info = stimulusSource(source);
@@ -291,7 +291,7 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
     // name depends on which configured directory it sits under, and its
     // project path does not carry that.
     return session.frontend.controllers
-      .filter((controller) => ownsFrontendPath(this.sessions, session, controller.projectPath))
+      .filter((controller) => this.sessions.owns(session, controller.projectPath))
       .flatMap((controller) => {
         const file = index.get(controller.projectPath);
         if (!file?.stimulus) { return []; }
@@ -365,7 +365,7 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       const action = routeAction(this.sessions, session, route);
       return (action?.action.templates ?? []).flatMap((name): Target[] => {
         const template = session.lookup(name);
-        return template && ownsFrontendPath(this.sessions, session, template.projectPath)
+        return template && this.sessions.owns(session, template.projectPath)
           ? [{ projectPath: template.projectPath, range: { start: 0, end: 0 }, label: `Renders ${name}` }] : [];
       });
     }), candidates: routes.flatMap((route): Candidate[] => {
@@ -375,7 +375,7 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
     }) };
   }
   private async stimulusQuery(session: ProjectSession, ref: FrontendReference, offset: number): Promise<Query> {
-    const controllers = session.frontend.controllers.filter((controller) => ownsFrontendPath(this.sessions, session, controller.projectPath));
+    const controllers = session.frontend.controllers.filter((controller) => this.sessions.owns(session, controller.projectPath));
     if (ref.kind === 'controller') {
       const query: Query = { name: ref.name, range: ref.range, candidates: controllers.map((controller) => ({ ...controller,
         range: { start: 0, end: 0 }, label: `Stimulus controller · ${controller.projectPath}`, kind: vscode.CompletionItemKind.Class })) };

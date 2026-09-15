@@ -23,7 +23,7 @@ import { ProcessConsoleRunner } from './console.js';
 import { discoverComponents, type ComponentDiscovery } from './componentDiscovery.js';
 import { VsCodeFileSystem } from './fileSystem.js';
 import type { LoaderPathMemory } from './loaderPathMemory.js';
-import { enginePathOf } from './paths.js';
+import { enginePathOf, inIgnoredDirectory } from './paths.js';
 import { RenderSiteTracker } from './renderSiteTracker.js';
 import { TemplateContextTracker } from './templateContextTracker.js';
 import { FrontendTracker } from './frontendTracker.js';
@@ -293,8 +293,7 @@ export class ProjectSession implements vscode.Disposable {
   private affectsTwigEnvironment(uri: vscode.Uri): boolean {
     if (uri.scheme !== this.rootUri.scheme || uri.authority !== this.rootUri.authority) { return false; }
     const path = this.relativePathOf(enginePathOf(uri));
-    return path !== undefined &&
-      !path.split('/').some((part) => ['vendor', 'var', 'node_modules', '.git'].includes(part)) &&
+    return path !== undefined && !inIgnoredDirectory(path) &&
       (path.endsWith('.php') || /^config\/.*\.(?:ya?ml|xml)$/.test(path) ||
         ['composer.json', 'composer.lock', 'symfony.lock', '.env', '.env.local', '.env.dev', '.env.dev.local'].includes(path));
   }
@@ -512,6 +511,19 @@ export class SessionManager implements vscode.Disposable {
     return best;
   }
 
+  /**
+   * Whether a project-relative path belongs to this session.
+   *
+   * Decided in one place, because a parent project borrowing a nested
+   * project's controllers or templates produces answers that look like data
+   * rather than like a bug.
+   */
+  owns(session: ProjectSession, projectPath: string): boolean {
+    return this.sessionFor({
+      uri: session.fileSystem.toUri(joinProjectPath(session.project.root, projectPath)),
+    }) === session;
+  }
+
   /** Direct render sites owned by the same project as this template. */
   renderSitesFor(document: Pick<vscode.TextDocument, 'uri'>): readonly RenderSite[] {
     const session = this.sessionFor(document);
@@ -537,7 +549,7 @@ export class SessionManager implements vscode.Disposable {
     if (session === undefined || path === undefined) { return []; }
     session.templateContexts.update(document);
     return session.templateContexts.index.variablesFor(path, offset, session.index, session.renderSites.index,
-      (source) => this.sessionFor({ uri: session.fileSystem.toUri(joinProjectPath(session.project.root, source)) }) === session);
+      (source) => this.owns(session, source));
   }
 
   async refreshAll(): Promise<void> {

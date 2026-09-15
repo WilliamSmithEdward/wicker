@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { joinProjectPath, outletAccessAt, outletUseRanges, resolveOutletReference, stimulusOutletProperties, stimulusOutletStem, stimulusSource,
   type FrontendReference, type StimulusController, type StimulusSource } from '@wicker/core';
 import type { ProjectSession, SessionManager } from './session.js';
-import { frontendIndex, ownsFrontendPath } from './frontendProject.js';
+import { frontendIndex } from './frontendProject.js';
 import type { FrontendCandidate, FrontendQuery, FrontendTarget, OutletConnection } from './frontendQueries.js';
 
 /** Outlet relationships use registered identifiers and current source buffers.
@@ -84,7 +84,7 @@ export class OutletQueries {
   }
 
   private controllers(session: ProjectSession): readonly StimulusController[] {
-    return session.frontend.controllers.filter((controller) => ownsFrontendPath(this.sessions, session, controller.projectPath));
+    return session.frontend.controllers.filter((controller) => this.sessions.owns(session, controller.projectPath));
   }
   private async controllerSource(session: ProjectSession, name: string): Promise<{ controller: StimulusController; info: StimulusSource } | undefined> {
     const controller = this.controllers(session).find((controller) => controller.name === name);

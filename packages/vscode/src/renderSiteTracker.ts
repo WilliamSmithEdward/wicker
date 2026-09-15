@@ -3,10 +3,7 @@ import * as vscode from 'vscode';
 import { joinProjectPath, RenderSiteIndex, toProjectPath } from '@wicker/core';
 
 import type { VsCodeFileSystem } from './fileSystem.js';
-import { enginePathOf } from './paths.js';
-
-const EXCLUDED_DIRECTORIES = new Set(['vendor', 'var', 'node_modules', '.git']);
-const EXCLUDE_GLOB = `{${[...EXCLUDED_DIRECTORIES].map((name) => `**/${name}/**`).join(',')}}`;
+import { enginePathOf, inIgnoredDirectory, IGNORED_GLOB } from './paths.js';
 
 /** Maintains disk records with open PHP buffers taking precedence, even before saving. */
 export class RenderSiteTracker implements vscode.Disposable {
@@ -54,7 +51,7 @@ export class RenderSiteTracker implements vscode.Disposable {
     }));
     for (const uri of await vscode.workspace.findFiles(
       new vscode.RelativePattern(this.rootUri, '**/*.php'),
-      EXCLUDE_GLOB,
+      IGNORED_GLOB,
     )) {
       uris.set(uri.toString(), uri);
     }
@@ -75,9 +72,7 @@ export class RenderSiteTracker implements vscode.Disposable {
       return undefined;
     }
     const path = toProjectPath(this.root, enginePathOf(uri));
-    return path?.endsWith('.php') &&
-      !path.split('/').some((segment) => EXCLUDED_DIRECTORIES.has(segment))
-      ? path : undefined;
+    return path?.endsWith('.php') && !inIgnoredDirectory(path) ? path : undefined;
   }
 
   private updateDocument(document: vscode.TextDocument): void {

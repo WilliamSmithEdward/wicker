@@ -1,4 +1,4 @@
-import { fetchValueReferences, joinProjectPath, scanFrontend, type FrontendIndex, type FrontendScan, type EndpointAction, type EndpointUse, type OffsetRange, type SymfonyRoute, type PhpTypeDeclaration, type PhpDependency } from '@wicker/core';
+import { fetchValueReferences, scanFrontend, type FrontendIndex, type FrontendScan, type EndpointAction, type EndpointUse, type OffsetRange, type SymfonyRoute, type PhpTypeDeclaration, type PhpDependency } from '@wicker/core';
 import { isEnabled, type ProjectSession, type SessionManager } from './session.js';
 
 /**
@@ -22,10 +22,6 @@ export function fetchValuesOf(session: ProjectSession, path: string, source: str
   return indexed?.source === source ? indexed.fetchValues : fetchValueReferences(source, scan.scripts);
 }
 
-export function ownsFrontendPath(sessions: SessionManager, session: ProjectSession, path: string): boolean {
-  return sessions.sessionFor({ uri: session.fileSystem.toUri(joinProjectPath(session.project.root, path)) }) === session;
-}
-
 /**
  * The scoped copy of the index, kept until something can change it.
  *
@@ -47,7 +43,7 @@ export function frontendIndex(sessions: SessionManager, session: ProjectSession)
     found.layout === sessions.layoutVersion && found.enabled === enabled) {
     return found.index;
   }
-  const index = source.filtered((path) => ownsFrontendPath(sessions, session, path));
+  const index = source.filtered((path) => sessions.owns(session, path));
   scoped.set(session, { version: source.version, layout: sessions.layoutVersion, enabled, index });
   return index;
 }

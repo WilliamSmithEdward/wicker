@@ -1,6 +1,6 @@
 import { resolveOutletReference, typescriptSourceForJavascript, type FrontendIndex } from '@wicker/core';
 import type { ProjectSession, SessionManager } from './session.js';
-import { frontendIndex, ownsFrontendPath, routeAction } from './frontendProject.js';
+import { frontendIndex, routeAction } from './frontendProject.js';
 
 export interface RelatedScript {
   readonly projectPath: string;
@@ -16,7 +16,7 @@ export function templateScripts(sessions: SessionManager, session: ProjectSessio
 
 export function controllerScripts(sessions: SessionManager, session: ProjectSession,
   controller: { projectPath: string; className: string }): readonly RelatedScript[] {
-  if (!ownsFrontendPath(sessions, session, controller.projectPath)) { return []; }
+  if (!sessions.owns(session, controller.projectPath)) { return []; }
   const index = frontendIndex(sessions, session);
   const names = session.renderSites.index.controllers().find((entry) =>
     entry.projectPath === controller.projectPath && entry.className === controller.className)?.sites.map((site) => site.templateName) ?? [];
@@ -65,14 +65,14 @@ function scriptsFromTemplates(sessions: SessionManager, session: ProjectSession,
       const outlet = resolveOutletReference(ref, session.frontend.controllers);
       const controllerName = ref.kind === 'controller' ? ref.name : outlet?.controller ?? ref.controller;
       const target = outlet && session.frontend.controllers.find((controller) => controller.name === outlet.name);
-      if (target && ownsFrontendPath(sessions, session, target.projectPath)) {
+      if (target && sessions.owns(session, target.projectPath)) {
         result.push({ projectPath: target.projectPath, reason: `Outlet ${outlet.controller} → ${outlet.name} in ${name}` });
       }
       const matches = session.frontend.controllers.filter((controller) => controller.name === controllerName ||
         !controllerName && ['value', 'class'].includes(ref.kind) && ref.name.startsWith(`${controller.name}-`));
       // A raw data-value or data-class prefix can match two identifiers. Keep only the longest.
       const controller = matches.sort((a, b) => b.name.length - a.name.length)[0];
-      if (controller && ownsFrontendPath(sessions, session, controller.projectPath)) {
+      if (controller && sessions.owns(session, controller.projectPath)) {
         result.push({ projectPath: controller.projectPath, reason: `Stimulus ${controller.name} in ${name}` });
       }
     }

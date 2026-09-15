@@ -229,6 +229,14 @@ rewrote the marker last, so the race was won by accident until the second pass
 went away. `a PHP change during a slow console run is not lost` now writes its
 marker from the root project only.
 
+**A keystroke schedules a re-parse; `sessionFor` applies it.** Each tracker
+defers a changed document's re-index 300ms, and `SessionManager.sessionFor`
+settles the matched session before returning it, which is what keeps every
+provider exact mid-typing. A reader that reaches a tracker's index without
+going through `sessionFor` sees the text as it was up to 300ms ago. Five tests
+that assert a provider result immediately after an unsaved edit fail without
+the settle, which is how the guarantee is kept honest.
+
 **Shiki identifies a language by the grammar's `name` field**, which in
 `twig.tmLanguage.json` is the display name `Twig`. The demo app re-registers it
 as `twig`. The worse bug was the silent `catch` around it, which made a broken

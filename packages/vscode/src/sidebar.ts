@@ -110,7 +110,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
         }
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
-        if (event.affectsConfiguration('wicker.enable')) {
+        if (event.affectsConfiguration('wicker.enable') || event.affectsConfiguration('wicker.sidebar.colors')) {
           this.refresh();
         }
       }),

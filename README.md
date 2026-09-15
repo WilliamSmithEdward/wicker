@@ -242,6 +242,12 @@ Turning off `wicker.enable` replaces the tree with a link to settings so it can
 be enabled again. In an empty workspace, the sidebar offers to open a Symfony
 application folder.
 
+Rows are coloured by what they are: green for templates, purple for PHP,
+yellow for JavaScript, blue for TypeScript, cyan for API routes, orange for
+Stimulus, magenta for stylesheets and red for components.
+`wicker.sidebar.colors` turns the colours off and draws every icon in the
+theme's icon colour.
+
 ### Navigating back to PHP
 
 Open a Twig template and click a `Rendered by Controller::method` link above

@@ -10,7 +10,7 @@ import { LoaderPathMemory } from '../loaderPathMemory.js';
 import { SessionManager } from '../session.js';
 import { SIDEBAR_ICONS, sidebarIcon, type SidebarRole } from '../sidebarIcons.js';
 import { isBundleNamespace, ProjectTreeProvider, type SidebarNode } from '../sidebar.js';
-import { tooltipOf } from './support.js';
+import { tooltipOf, until } from './support.js';
 
 const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
 const rootUri = vscode.Uri.file(ROOT);
@@ -675,6 +675,41 @@ class SidebarCreatedController {
         .map((uri) => `${role}: "${id}" is not an inline SVG: ${uri.toString(true).slice(0, 48)}`);
     });
     assert.deepEqual(broken, []);
+  });
+
+  test('wicker.sidebar.colors off draws every icon in the plain icon colour', async () => {
+    // A codicon takes a theme colour and a drawn leaf carries its stroke
+    // inline, so both must follow the setting, and the tree must redraw when
+    // it changes or the old colours stay on screen.
+    const codiconColour = (role: SidebarRole): vscode.ThemeColor | undefined => {
+      const icon = sidebarIcon(role);
+      assert.ok(!('dark' in icon), `${role} should be a ThemeIcon`);
+      return icon.color;
+    };
+    const leafStroke = (role: SidebarRole): string | undefined => {
+      const icon = sidebarIcon(role);
+      assert.ok('dark' in icon, `${role} should be drawn`);
+      const svg = Buffer.from(icon.dark.toString(true).split(',')[1] ?? '', 'base64').toString('utf8');
+      return /stroke="(#[0-9a-f]{6})"/.exec(svg)?.[1];
+    };
+    assert.ok(codiconColour('controller'));
+    assert.equal(leafStroke('template'), '#89d185');
+
+    const settings = vscode.workspace.getConfiguration('wicker');
+    const previous = settings.inspect<boolean>('sidebar.colors')?.workspaceValue;
+    let changes = 0;
+    const listener = provider.onDidChangeTreeData(() => { changes += 1; });
+    try {
+      await settings.update('sidebar.colors', false, vscode.ConfigurationTarget.Workspace);
+      await until(() => changes > 0, 'the tree should redraw when colours are turned off');
+      assert.equal(codiconColour('controller'), undefined);
+      assert.equal(leafStroke('template'), '#c5c5c5');
+      assert.equal(leafStroke('templateRoute'), '#c5c5c5');
+    } finally {
+      listener.dispose();
+      await settings.update('sidebar.colors', previous, vscode.ConfigurationTarget.Workspace);
+    }
+    assert.ok(codiconColour('controller'));
   });
 
   test('has an empty tree when no Symfony project is detected', async () => {

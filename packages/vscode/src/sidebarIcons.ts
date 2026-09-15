@@ -94,12 +94,32 @@ const ARROW = 'M13 21h9m-3-3 3 3-3 2';
  * A drawn icon cannot take a theme colour, so the leaves carry the scheme's
  * own values: the template leaf the green every theme uses for charts.green,
  * the route leaf the brighter green of terminal.ansiBrightGreen, each in the
- * theme's own shade.
+ * theme's own shade. With colours off they take the icon foreground each
+ * theme gives a plain codicon.
  */
 const STROKES = {
   'template-leaf': { light: '#388a34', dark: '#89d185' },
   'route-leaf': { light: '#14ce14', dark: '#23d18b' },
 } as const;
+const PLAIN_STROKE = { light: '#424242', dark: '#c5c5c5' } as const;
+
+/**
+ * Whether rows are coloured, read once per turn of the event loop.
+ *
+ * Every row asks on every draw, and a configuration snapshot per row is the
+ * cost this table was built to avoid. Held for the current turn only, so a
+ * setting changed between turns is never answered from the previous one; the
+ * tree redraws on the change in any case.
+ */
+let colored: boolean | undefined;
+
+function colorsOn(): boolean {
+  if (colored === undefined) {
+    colored = vscode.workspace.getConfiguration('wicker').get<boolean>('sidebar.colors', true);
+    queueMicrotask(() => { colored = undefined; });
+  }
+  return colored;
+}
 
 /**
  * The icon as a data URI, rather than a file inside the extension.
@@ -112,10 +132,11 @@ const STROKES = {
  * Base64 rather than percent-encoding, because the `#` beginning each colour
  * would otherwise start a URI fragment and truncate the image.
  */
-function leafIcon(name: keyof typeof STROKES, theme: 'light' | 'dark'): vscode.Uri {
+function leafIcon(name: keyof typeof STROKES, theme: 'light' | 'dark', plain: boolean): vscode.Uri {
   const strokes = `${VEINS}${name === 'route-leaf' ? ARROW : ''}`;
+  const stroke = plain ? PLAIN_STROKE[theme] : STROKES[name][theme];
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" ' +
-    `fill="none" stroke="${STROKES[name][theme]}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">` +
+    `fill="none" stroke="${stroke}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">` +
     `<path d="${LEAF}"/><path d="${strokes}"/></svg>`;
   return vscode.Uri.parse(`data:image/svg+xml;base64,${Buffer.from(svg, 'utf8').toString('base64')}`);
 }
@@ -125,14 +146,16 @@ const leaves = new Map<string, { light: vscode.Uri; dark: vscode.Uri }>();
 
 export function sidebarIcon(role: SidebarRole): vscode.ThemeIcon | { light: vscode.Uri; dark: vscode.Uri } {
   const entry: { readonly id: string; readonly hue?: Hue } = SIDEBAR_ICONS[role];
-  const { id, hue } = entry;
+  const { id } = entry;
+  const hue = colorsOn() ? entry.hue : undefined;
   if (id !== 'template-leaf' && id !== 'route-leaf') {
     return hue === undefined ? new vscode.ThemeIcon(id) : new vscode.ThemeIcon(id, new vscode.ThemeColor(HUES[hue]));
   }
-  let drawn = leaves.get(id);
+  const key = `${id}:${hue === undefined ? 'plain' : 'coloured'}`;
+  let drawn = leaves.get(key);
   if (drawn === undefined) {
-    drawn = { light: leafIcon(id, 'light'), dark: leafIcon(id, 'dark') };
-    leaves.set(id, drawn);
+    drawn = { light: leafIcon(id, 'light', hue === undefined), dark: leafIcon(id, 'dark', hue === undefined) };
+    leaves.set(key, drawn);
   }
   return drawn;
 }

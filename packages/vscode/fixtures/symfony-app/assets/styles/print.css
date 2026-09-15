@@ -1,0 +1,7 @@
+/* Reached only by a bare @import naming a logical asset path, which is the
+   form that needs the asset map rather than a relative resolution. */
+@media print {
+    body {
+        color: black;
+    }
+}

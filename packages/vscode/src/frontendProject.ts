@@ -1,4 +1,4 @@
-import { fetchValueReferences, scanFrontend, type FrontendIndex, type FrontendScan, type EndpointAction, type EndpointUse, type OffsetRange, type SymfonyRoute, type PhpTypeDeclaration, type PhpDependency } from '@wicker/core';
+import { fetchValueReferences, resolveRelativeImport, scanFrontend, type FrontendIndex, type FrontendScan, type EndpointAction, type EndpointUse, type OffsetRange, type SymfonyRoute, type PhpTypeDeclaration, type PhpDependency } from '@wicker/core';
 import { isEnabled, type ProjectSession, type SessionManager } from './session.js';
 
 /**
@@ -20,6 +20,30 @@ export function fetchValuesOf(session: ProjectSession, path: string, source: str
   scan: FrontendScan): readonly { name: string; range: OffsetRange }[] {
   const indexed = session.frontendSources.index.get(path);
   return indexed?.source === source ? indexed.fetchValues : fetchValueReferences(source, scan.scripts);
+}
+
+export function isStylesheet(projectPath: string): boolean {
+  return projectPath.toLowerCase().endsWith('.css');
+}
+
+/**
+ * The file a specifier written in one file resolves to.
+ *
+ * A relative specifier names a file directly. A bare one is resolved by the
+ * mechanism belonging to the file it was written in: `importmap.php` declares
+ * the browser's bare module specifiers, while a stylesheet's bare reference is
+ * a logical asset path, which is how a bundled font or icon set is written.
+ *
+ * Reaching for the other one invents a resolution the browser would not make.
+ * Written out separately, the loading chain came to draw an edge for a bare
+ * script import that the import diagnostics were reporting as unresolvable at
+ * the same moment, and the stylesheet list could not follow a bare `@import`
+ * at all.
+ */
+export function resolveSpecifier(session: ProjectSession, from: string, specifier: string): string | undefined {
+  return resolveRelativeImport(from, specifier) ?? (isStylesheet(from)
+    ? session.assets.map.lookup(specifier)?.projectPath
+    : session.assets.importMap.find((entry) => entry.specifier === specifier)?.projectPath);
 }
 
 /**

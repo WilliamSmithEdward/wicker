@@ -1,6 +1,6 @@
-import { cssImports, importSpecifiers, resolveRelativeImport, type FrontendIndex } from '@wicker/core';
+import { cssImports, importSpecifiers, type FrontendIndex } from '@wicker/core';
 
-import { frontendIndex } from './frontendProject.js';
+import { frontendIndex, isStylesheet, resolveSpecifier } from './frontendProject.js';
 import { templateScripts, walkTemplates } from './relatedScripts.js';
 import type { ProjectSession, SessionManager } from './session.js';
 
@@ -91,8 +91,7 @@ function stylesheetsFrom(session: ProjectSession, index: FrontendIndex, seed: st
       : importSpecifiers(source).map((entry) => entry.specifier);
 
     for (const specifier of specifiers) {
-      const target = resolveRelativeImport(path, specifier)
-        ?? session.assets.importMap.find((candidate) => candidate.specifier === specifier)?.projectPath;
+      const target = resolveSpecifier(session, path, specifier);
       if (target !== undefined && !visited.has(target)) { queue.push(target); }
     }
   }
@@ -100,6 +99,3 @@ function stylesheetsFrom(session: ProjectSession, index: FrontendIndex, seed: st
   return stylesheets;
 }
 
-function isStylesheet(path: string): boolean {
-  return path.toLowerCase().endsWith('.css');
-}

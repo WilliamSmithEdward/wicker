@@ -752,9 +752,10 @@ class WickerFrontendTestController {
       const styles = tree.getChildren(template).filter((child) => child.kind === 'style');
       // theme.css is named in no template and no script: it is reached only by
       // app.css importing it, which is the common shape and the easy one to
-      // miss.
+      // miss. print.css is reached by a bare @import, which only the asset map
+      // resolves, so it also pins which mechanism a stylesheet's specifiers use.
       assert.deepEqual(styles.map((style) => style.kind === 'style' ? style.projectPath : ''),
-        ['assets/styles/app.css', 'assets/styles/theme.css']);
+        ['assets/styles/app.css', 'assets/styles/print.css', 'assets/styles/theme.css']);
       assert.match(tooltipOf(tree.getTreeItem(styles[0]!)), /through the app entrypoint/);
     } finally {
       tree.dispose();
@@ -947,10 +948,11 @@ class WickerFrontendTestController {
         ['assets/styles/app.css']);
       assert.match(tooltipOf(tree.getTreeItem(imported[0]!)), /imported by app\.js/);
 
-      // Step three: a stylesheet's own imports keep going.
+      // Step three: a stylesheet's own imports keep going, relative and bare
+      // alike, the bare one resolved as a logical asset path.
       const deeper = tree.getChildren(imported[0]);
       assert.deepEqual(deeper.map((child) => child.kind === 'loaded' ? child.projectPath : ''),
-        ['assets/styles/theme.css']);
+        ['assets/styles/print.css', 'assets/styles/theme.css']);
     } finally {
       tree.dispose();
       sessions.dispose();

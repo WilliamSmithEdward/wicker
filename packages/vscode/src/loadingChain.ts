@@ -1,6 +1,6 @@
-import { cssImports, cssUrls, importSpecifiers, resolveRelativeImport } from '@wicker/core';
+import { cssImports, cssUrls, importSpecifiers } from '@wicker/core';
 
-import { frontendIndex } from './frontendProject.js';
+import { frontendIndex, isStylesheet, resolveSpecifier } from './frontendProject.js';
 import { walkTemplates } from './relatedScripts.js';
 import type { ProjectSession, SessionManager } from './session.js';
 
@@ -60,7 +60,7 @@ export function chainChildren(sessions: SessionManager, session: ProjectSession,
   const source = index.get(projectPath)?.source;
   if (source === undefined) { return []; }
 
-  const stylesheet = projectPath.toLowerCase().endsWith('.css');
+  const stylesheet = isStylesheet(projectPath);
   const specifiers = stylesheet
     ? [...cssImports(source), ...cssUrls(source)].map((entry) => ({ text: entry.specifier, how: 'imported by' }))
     : importSpecifiers(source).map((entry) => ({ text: entry.specifier, how: entry.dynamic ? 'imported on demand by' : 'imported by' }));
@@ -68,9 +68,7 @@ export function chainChildren(sessions: SessionManager, session: ProjectSession,
   const file = projectPath.slice(projectPath.lastIndexOf('/') + 1);
   const found = new Map<string, string>();
   for (const specifier of specifiers) {
-    const target = resolveRelativeImport(projectPath, specifier.text)
-      ?? session.assets.importMap.find((candidate) => candidate.specifier === specifier.text)?.projectPath
-      ?? session.assets.map.lookup(specifier.text)?.projectPath;
+    const target = resolveSpecifier(session, projectPath, specifier.text);
     // A specifier resolving to nothing is reported where it is written, by the
     // import diagnostics. A row here would say it twice and explain it less.
     if (target === undefined || target === projectPath) { continue; }

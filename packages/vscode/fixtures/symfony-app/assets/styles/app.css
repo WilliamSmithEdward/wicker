@@ -1,5 +1,8 @@
 /* Linked from a template through asset(), and imports the rest. */
 @import './theme.css';
+/* Bare, so it is a logical asset path rather than a relative one. Only the
+   asset map resolves this; importmap.php is a script mechanism. */
+@import 'styles/print.css';
 
 body {
     margin: 0;

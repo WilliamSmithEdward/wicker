@@ -6,7 +6,7 @@ import { ACTION_OPTIONS, COMMON_EVENTS, EVENT_TARGETS, KEY_FILTERS,
   type SymfonyRoute } from '@wicker/core';
 import { enginePathOf } from './paths.js';
 import type { ProjectSession, SessionManager } from './session.js';
-import { fetchValuesOf, frontendIndex, routeAction, routeConsumers, scanOf } from './frontendProject.js';
+import { fetchValuesOf, frontendIndex, resolveSpecifier, routeAction, routeConsumers, scanOf } from './frontendProject.js';
 import { OutletQueries } from './outletQueries.js';
 import type { FrontendTarget as Target, FrontendCandidate as Candidate, FrontendQuery as Query } from './frontendQueries.js';
 
@@ -194,10 +194,7 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       .find((entry) => offset >= entry.range.start && offset <= entry.range.end);
     if (!found) { return undefined; }
 
-    const target = resolveRelativeImport(path, found.specifier)
-      // A bare specifier in a stylesheet is a logical asset path rather than a
-      // relative one, which is how a bundled font or icon set is written.
-      ?? session.assets.map.lookup(found.specifier)?.projectPath;
+    const target = resolveSpecifier(session, path, found.specifier);
     if (target === undefined) { return { name: found.specifier, range: found.range, candidates: [] }; }
 
     return { name: found.specifier, range: found.range, candidates: [{

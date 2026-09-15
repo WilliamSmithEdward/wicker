@@ -491,6 +491,41 @@ suite('Wicker sidebar', () => {
     assert.ok(!await includesNewFile());
   });
 
+  /*
+   * A controller added to a project has to appear without a reload. The list
+   * of controllers is derived from the whole PHP index and held until the
+   * index changes, so a change that did not say so would leave the tree
+   * showing the project as it was when it was opened.
+   */
+  test('lists a controller created on disk, and drops it again when it goes', async () => {
+    const file = vscode.Uri.joinPath(rootUri, 'src/Controller/SidebarCreatedController.php');
+    const listed = async (): Promise<boolean> => {
+      const project = (await provider.getChildren()).find((node) => node.root.toString() === rootUri.toString());
+      const rows = await provider.getChildren(await section(provider, project, 'controllers'));
+      return rows.some((node) => node.kind === 'controller' && node.className.endsWith('SidebarCreatedController'));
+    };
+    // Without a rebuild: a created file is read on its own, so this is the
+    // path a stale derived list would survive a full refresh and still fail.
+    const eventually = async (want: boolean, message: string): Promise<void> => {
+      const deadline = Date.now() + 10000;
+      while (await listed() !== want) {
+        assert.ok(Date.now() < deadline, message);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    };
+    assert.ok(!await listed());
+    try {
+      await vscode.workspace.fs.writeFile(file, Buffer.from(`<?php namespace App\\Controller;
+class SidebarCreatedController {
+  public function index() { return $this->render('task/index.html.twig'); }
+}`));
+      await eventually(true, 'a controller created on disk should appear in the tree');
+    } finally {
+      await vscode.workspace.fs.delete(file);
+    }
+    await eventually(false, 'a deleted controller should leave the tree');
+  });
+
   test('reveals deeply nested folders, keeps namespaces separate and removes empty folders', async () => {
     const directories = [
       vscode.Uri.joinPath(rootUri, 'templates', '__sidebar_tree_test'),

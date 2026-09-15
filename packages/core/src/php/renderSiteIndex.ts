@@ -22,6 +22,12 @@ export interface RenderingController {
 export class RenderSiteIndex {
   private readonly bySource = new Map<string, readonly RenderSite[]>();
   private readonly byTemplateName = new Map<string, Set<RenderSite>>();
+  /** Bumped whenever the sites change, so a derived list can tell it is stale. */
+  private revision = 0;
+  private controllerMemo?: { revision: number; controllers: readonly RenderingController[] };
+
+  /** What the index is on now, for a caller holding something derived from it. */
+  get version(): number { return this.revision; }
 
   update(projectPath: string, source: string): void {
     const path = normalizeProjectPath(projectPath);
@@ -36,6 +42,7 @@ export class RenderSiteIndex {
     if (sites.length === 0) {
       return;
     }
+    this.revision++;
     this.bySource.set(path, sites);
     for (const site of sites) {
       let entries = this.byTemplateName.get(site.templateName);
@@ -51,6 +58,9 @@ export class RenderSiteIndex {
     const path = normalizeProjectPath(projectPath);
     if (path === undefined) {
       return;
+    }
+    if (this.bySource.has(path)) {
+      this.revision++;
     }
     for (const site of this.bySource.get(path) ?? []) {
       const entries = this.byTemplateName.get(site.templateName);
@@ -72,6 +82,21 @@ export class RenderSiteIndex {
    * route index: services, dynamic names and methods without renders stay out.
    */
   controllers(): readonly RenderingController[] {
+    if (this.controllerMemo?.revision !== this.revision) {
+      this.controllerMemo = { revision: this.revision, controllers: this.buildControllers() };
+    }
+    return this.controllerMemo.controllers;
+  }
+
+  /**
+   * Derived once per change, because the list does not depend on who asks.
+   *
+   * The sidebar needs it to draw a controller row, and again to find that
+   * controller's render sites for the row's label, its actions and each of its
+   * templates, so a project's whole PHP index was regrouped and re-sorted
+   * several times per row on screen.
+   */
+  private buildControllers(): readonly RenderingController[] {
     const controllers: RenderingController[] = [];
     for (const [projectPath, sites] of this.bySource) {
       const byClass = new Map<string, RenderSite[]>();

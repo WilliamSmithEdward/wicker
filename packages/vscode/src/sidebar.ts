@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { joinProjectPath, parseTemplateName, type IncomingReference, type TwigTemplateIndex, type LoaderPathEntry, type LoaderPathSource, type RenderingController, type RenderSite, type SymfonyRoute, type TwigComponent, type TwigReferenceKind } from '@wicker/core';
 
 import { enginePathOf } from './paths.js';
-import type { ProjectSession, SessionManager } from './session.js';
+import { isEnabled, type ProjectSession, type SessionManager } from './session.js';
 import { apiRoutes, compareRoutePaths, controllerDependencies, frontendIndex, routeAction, routeConsumers, stimulusControllers, templateRoutes, templatesBinding } from './frontendProject.js';
 import { dependencyKind, sidebarIcon, SIDEBAR_ICONS as icons } from './sidebarIcons.js';
 import { controllerScripts, templateControllers, templateScripts, type BoundController, type BoundWiring, type RelatedScript } from './relatedScripts.js';
@@ -1263,9 +1263,27 @@ function componentClassPath(sessions: SessionManager, session: ProjectSession, c
   return declarations.length === 1 ? declarations[0] : undefined;
 }
 
+/**
+ * The controllers this session owns, decided once per change.
+ *
+ * Every row under the Controllers section resolves its controller through
+ * here, and deciding ownership is a question per controller, so the answer for
+ * a whole project was rebuilt once per row drawn.
+ */
+const owned = new WeakMap<ProjectSession,
+  { version: number; layout: number; enabled: boolean; controllers: readonly RenderingController[] }>();
+
 function controllersInProject(sessions: SessionManager, session: ProjectSession): readonly RenderingController[] {
-  return session.renderSites.index.controllers()
+  const version = session.renderSites.index.version;
+  const enabled = isEnabled();
+  const found = owned.get(session);
+  if (found?.version === version && found.layout === sessions.layoutVersion && found.enabled === enabled) {
+    return found.controllers;
+  }
+  const controllers = session.renderSites.index.controllers()
     .filter((controller) => sessions.owns(session, controller.projectPath));
+  owned.set(session, { version, layout: sessions.layoutVersion, enabled, controllers });
+  return controllers;
 }
 
 function controllerSites(sessions: SessionManager, session: ProjectSession, node: ControllerNode): readonly RenderSite[] {

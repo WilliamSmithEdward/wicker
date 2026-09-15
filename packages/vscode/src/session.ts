@@ -49,13 +49,25 @@ const GENERATED_DIRECTORIES = ['var', 'node_modules', '.git'];
 const MAX_REFRESH_PASSES = 3;
 
 /**
- * Whether Wicker's editor features are switched on.
+ * Whether Wicker's editor features are switched on, read once per turn of the
+ * event loop.
  *
- * Read at each query rather than cached, so toggling the setting takes effect
- * on the next hover instead of on the next window reload.
+ * Ownership is decided once per controller, render site, binding and script
+ * connection, and each answer asked this, so building a configuration snapshot
+ * was the largest single cost in drawing the tree.
+ *
+ * Held for the current turn only. A synchronous pass over a project reads it
+ * once; anything that has awaited since, which includes every caller that
+ * could observe a setting the user has just changed, reads it again.
  */
+let enabled: boolean | undefined;
+
 export function isEnabled(): boolean {
-  return vscode.workspace.getConfiguration('wicker').get<boolean>('enable', true);
+  if (enabled === undefined) {
+    enabled = vscode.workspace.getConfiguration('wicker').get<boolean>('enable', true);
+    queueMicrotask(() => { enabled = undefined; });
+  }
+  return enabled;
 }
 
 /**
@@ -572,10 +584,24 @@ export class SessionManager implements vscode.Disposable {
    * project's controllers or templates produces answers that look like data
    * rather than like a bug.
    */
+  /**
+   * The same answer as `sessionFor`, without going through a URI.
+   *
+   * The caller already holds a path, and building a URI from it only for
+   * `sessionFor` to turn it back into a path was most of the cost of a
+   * question asked once per controller, render site and binding.
+   */
   owns(session: ProjectSession, projectPath: string): boolean {
-    return this.sessionFor({
-      uri: session.fileSystem.toUri(joinProjectPath(session.project.root, projectPath)),
-    }) === session;
+    if (!isEnabled()) { return false; }
+    const path = joinProjectPath(session.project.root, projectPath);
+    let best: ProjectSession | undefined;
+    for (const other of this.sessions.values()) {
+      // Deepest root wins, so a nested project beats the repository around it.
+      if (other.contains(path) && (best === undefined || other.project.root.length > best.project.root.length)) {
+        best = other;
+      }
+    }
+    return best === session;
   }
 
   /** Direct render sites owned by the same project as this template. */

@@ -47,7 +47,7 @@ export function scanFrontend(source: string, twig: boolean): FrontendScan {
   if (!twig) { const requests = fetchReferences(source, 0, source.length); return { references: requests, requests, bindings: [], scripts: [{ start: 0, end: source.length }] }; }
   const references: FrontendReference[] = [], requests: FrontendReference[] = [], bindings: StimulusEndpointBinding[] = [], scripts: OffsetRange[] = [];
   const comments: OffsetRange[] = [...source.matchAll(/<!--[\s\S]*?(?:-->|$)/g)].map((match) => ({ start: match.index, end: match.index + match[0].length }));
-  const masked = source.split('');
+  const blanked: OffsetRange[] = [];
   let verbatim = false;
   for (const region of lexTwigRegions(source)) {
     const body = source.slice(region.innerStart, region.innerEnd).trim();
@@ -124,11 +124,30 @@ export function scanFrontend(source: string, twig: boolean): FrontendScan {
         }
       }
     }
-    if (region.kind !== 'text' || verbatim) { masked.fill(' ', region.start, region.end); }
+    if (region.kind !== 'text' || verbatim) { blanked.push({ start: region.start, end: region.end }); }
     if (region.kind === 'statement' && /^verbatim\b/.test(body)) { verbatim = true; }
     else if (region.kind === 'statement' && /^endverbatim\b/.test(body)) { verbatim = false; }
   }
-  let html = masked.join('');
+  /*
+   * The Twig blanked out, so what is left is the HTML alone and every offset
+   * still lines up with the source.
+   *
+   * Assembled from slices rather than by holding one string per source
+   * character: that array cost half a millisecond of pure allocation on a
+   * 50 KB template, paid for every file the index scans and again for every
+   * document parsed without a cached scan. The regions arrive in order and do
+   * not overlap, and the clamp keeps it correct if that ever stops being true.
+   */
+  const pieces: string[] = [];
+  let mask = 0;
+  for (const region of blanked) {
+    if (region.end <= mask) { continue; }
+    const start = Math.max(mask, region.start);
+    pieces.push(source.slice(mask, start), ' '.repeat(region.end - start));
+    mask = region.end;
+  }
+  pieces.push(source.slice(mask));
+  let html = pieces.join('');
   html = html.replace(/<!--[\s\S]*?(?:-->|$)/g, (comment) => ' '.repeat(comment.length));
   const tag = /<([a-z][\w:-]*)\b/gi;
   let match: RegExpExecArray | null;

@@ -8,6 +8,21 @@ import { enginePathOf } from './paths.js';
 const decoder = new TextDecoder('utf-8');
 
 /**
+ * Text already read during this rebuild, if any.
+ *
+ * Three indexes cover overlapping files: the render sites read every PHP file,
+ * the template contexts every template, and the frontend sources both plus the
+ * scripts and stylesheets. Each used to read from disk itself, so a project's
+ * PHP and Twig were read twice to build it once. Reading through the editor
+ * costs about five times what node does, and about half what parsing the same
+ * file costs, so the second read is not free.
+ *
+ * Undefined means nothing has read it yet and the caller should, which is also
+ * what a watcher event gets, since it concerns one file that has just changed.
+ */
+export type KnownSources = (projectPath: string) => string | undefined;
+
+/**
  * Reads a set of files a few at a time, stopping when the caller goes away.
  *
  * Every tracker rebuilds by reading its whole file set, and issuing all of

@@ -21,7 +21,7 @@ import {
 
 import { ProcessConsoleRunner } from './console.js';
 import { discoverComponents, type ComponentDiscovery } from './componentDiscovery.js';
-import { VsCodeFileSystem } from './fileSystem.js';
+import { VsCodeFileSystem, type KnownSources } from './fileSystem.js';
 import type { LoaderPathMemory } from './loaderPathMemory.js';
 import { enginePathOf, inIgnoredDirectory } from './paths.js';
 import { RenderSiteTracker } from './renderSiteTracker.js';
@@ -157,14 +157,28 @@ export class ProjectSession implements vscode.Disposable {
       memory,
     );
     try {
-      await session.renderSites.refresh();
-      await session.templateContexts.refresh(built.index);
-      await session.frontendSources.refresh();
+      await session.rebuildIndexes(built.index);
       return session;
     } catch (error) {
       session.dispose();
       throw error;
     }
+  }
+
+  /**
+   * Rebuilds the three file indexes, reading each file once.
+   *
+   * The frontend sources go first because they cover every file the other two
+   * want and more, so both can take the text from there instead of reading it
+   * again. Before this, a project's PHP was read once for its render sites and
+   * once for the frontend index, and its templates once for their contexts and
+   * once more for the same index.
+   */
+  async rebuildIndexes(templates: TwigTemplateIndex, force = false): Promise<void> {
+    await this.frontendSources.refresh();
+    const known: KnownSources = (path) => this.frontendSources.index.get(path)?.source;
+    await this.renderSites.refresh(known);
+    await this.templateContexts.refresh(templates, force, known);
   }
 
   get index(): TwigTemplateIndex {
@@ -555,9 +569,7 @@ export class SessionManager implements vscode.Disposable {
   async refreshAll(): Promise<void> {
     await Promise.all(this.all().map(async (session) => {
       await session.refresh();
-      await session.renderSites.refresh();
-      await session.templateContexts.refresh(session.index, true);
-      await session.frontendSources.refresh();
+      await session.rebuildIndexes(session.index, true);
     }));
   }
 

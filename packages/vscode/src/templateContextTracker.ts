@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 
 import { joinProjectPath, TemplateContextIndex, type TwigTemplateIndex } from '@wicker/core';
 
-import { readInBatches, type VsCodeFileSystem } from './fileSystem.js';
+import { readInBatches, type KnownSources, type VsCodeFileSystem } from './fileSystem.js';
 import { enginePathOf } from './paths.js';
 
 /** Twig text stays current independently of console discovery and template-name indexing. */
@@ -32,7 +32,7 @@ export class TemplateContextTracker implements vscode.Disposable {
   }
 
   /** Read new loader files; watcher events maintain files already loaded. */
-  async refresh(templates: TwigTemplateIndex, force = false): Promise<void> {
+  async refresh(templates: TwigTemplateIndex, force = false, known?: KnownSources): Promise<void> {
     const paths = new Set(templates.allNames().flatMap((name) => templates.candidatesFor(name).map((entry) => entry.projectPath)));
     for (const path of this.known) {
       if (!paths.has(path)) { this.pending.delete(path); this.index.remove(path); }
@@ -41,7 +41,7 @@ export class TemplateContextTracker implements vscode.Disposable {
     this.known = paths;
     // Smaller batches than the other trackers: a template carries its whole
     // inheritance chain into the parse, so these reads are the heavier ones.
-    await readInBatches(added, (path) => this.load(path), () => this.disposed, 16);
+    await readInBatches(added, (path) => this.load(path, known), () => this.disposed, 16);
   }
 
   update(document: vscode.TextDocument): void {
@@ -58,7 +58,15 @@ export class TemplateContextTracker implements vscode.Disposable {
     return path?.endsWith('.twig') ? path : undefined;
   }
 
-  private async load(path: string): Promise<void> {
+  private async load(path: string, known?: KnownSources): Promise<void> {
+    const shared = known?.(path);
+    if (shared !== undefined) {
+      // Already read this rebuild, with the same precedence an open buffer
+      // would get, so reading it again returns the same text.
+      this.pending.delete(path);
+      this.index.update(path, shared);
+      return;
+    }
     const request = {};
     this.pending.set(path, request);
     const text = await this.fileSystem.readFile(joinProjectPath(this.root, path));

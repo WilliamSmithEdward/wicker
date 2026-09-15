@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 
 import { joinProjectPath, RenderSiteIndex, toProjectPath } from '@wicker/core';
 
-import { readInBatches, type VsCodeFileSystem } from './fileSystem.js';
+import { readInBatches, type KnownSources, type VsCodeFileSystem } from './fileSystem.js';
 import { enginePathOf, inIgnoredDirectory, IGNORED_GLOB } from './paths.js';
 
 /** Maintains disk records with open PHP buffers taking precedence, even before saving. */
@@ -42,7 +42,7 @@ export class RenderSiteTracker implements vscode.Disposable {
     ];
   }
 
-  async refresh(): Promise<void> {
+  async refresh(known?: KnownSources): Promise<void> {
     // Include old paths so a rebuild also removes deleted sources, and open
     // buffers so an unsaved file is never replaced by its older disk contents.
     const uris = new Map(this.index.sourcePaths().map((path) => {
@@ -60,7 +60,7 @@ export class RenderSiteTracker implements vscode.Disposable {
         uris.set(document.uri.toString(), document.uri);
       }
     }
-    await readInBatches([...uris.values()], (uri) => this.load(uri), () => this.disposed);
+    await readInBatches([...uris.values()], (uri) => this.load(uri, known), () => this.disposed);
   }
 
   private sourcePath(uri: vscode.Uri): string | undefined {
@@ -82,9 +82,18 @@ export class RenderSiteTracker implements vscode.Disposable {
     this.changed.fire();
   }
 
-  private async load(uri: vscode.Uri): Promise<void> {
+  private async load(uri: vscode.Uri, known?: KnownSources): Promise<void> {
     const path = this.sourcePath(uri);
     if (path === undefined || this.disposed) {
+      return;
+    }
+    const shared = known?.(path);
+    if (shared !== undefined) {
+      // Already read this rebuild, with the same precedence an open buffer
+      // would get, so reading it again returns the same text.
+      this.pending.delete(path);
+      this.index.update(path, shared);
+      this.changed.fire();
       return;
     }
     const request = {};

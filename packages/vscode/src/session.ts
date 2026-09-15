@@ -16,6 +16,8 @@ import {
   type LoaderPathsResolution,
   type RenderSite,
   type SymfonyProject,
+  type ConsoleResult,
+  type ConsoleRunner,
   type TwigContextVariable,
 } from '@wicker/core';
 
@@ -103,6 +105,8 @@ export class ProjectSession implements vscode.Disposable {
   private pendingScope: RefreshScope = 'templates';
   /** The revision the last pass to finish cleanly had answered for. */
   private completedRevision = 0;
+  /** Configuration answers from the console, kept until configuration changes. */
+  private readonly consoleAnswers = new Map<string, ConsoleResult>();
   private discoveryPending = false;
   /** Files read from disk on demand, cleared whenever the project is rebuilt. */
   private readonly sourceMaps = new Map<string, string | undefined>();
@@ -320,9 +324,10 @@ export class ProjectSession implements vscode.Disposable {
         // runs widens the next one rather than being lost.
         const scope = this.pendingScope;
         this.pendingScope = 'templates';
-        const environment: Environment = scope === 'environment'
-          ? await discoverEnvironment(this.fileSystem, this.project, this.memory)
-          : { loaderPaths: this.loaderPathInfo, components: this.componentInfo, frontend: this.frontend, assets: this.assets };
+        if (scope === 'environment') { this.consoleAnswers.clear(); }
+        const environment: Environment = scope === 'templates'
+          ? { loaderPaths: this.loaderPathInfo, components: this.componentInfo, frontend: this.frontend, assets: this.assets }
+          : await discoverEnvironment(this.fileSystem, this.project, this.memory, this.rememberingRunner());
         if (this.disposed) { return; }
         const index = await indexTemplates(this.fileSystem, this.project, environment.loaderPaths);
         if (this.disposed) { return; }
@@ -376,7 +381,28 @@ export class ProjectSession implements vscode.Disposable {
 
   /** Two changes waiting together are answered by the wider of the two. */
   private widenRefresh(scope: RefreshScope): void {
-    if (scope === 'environment') { this.pendingScope = 'environment'; }
+    if (SCOPE_WIDTH[scope] > SCOPE_WIDTH[this.pendingScope]) { this.pendingScope = scope; }
+  }
+
+  /** The console, answering configuration questions from the last time it was asked. */
+  private rememberingRunner(): ConsoleRunner | undefined {
+    const inner = ProcessConsoleRunner.create(this.project.root);
+    return inner === undefined ? undefined : new RememberingRunner(inner, this.consoleAnswers);
+  }
+
+  /**
+   * How much a changed file can have invalidated, or nothing when it is not
+   * one the environment is read from.
+   *
+   * PHP can register an extension, a route or a component and a script can be
+   * a Stimulus controller, so those ask the console again for what PHP can
+   * change. Configuration, dependencies and the environment files can move
+   * anything, including where the console's own answers come from.
+   */
+  private scopeOfChange(uri: vscode.Uri): RefreshScope | undefined {
+    if (!this.affectsTwigEnvironment(uri)) { return undefined; }
+    const path = this.relativePathOf(enginePathOf(uri));
+    return path !== undefined && path.endsWith('.php') ? 'php' : 'environment';
   }
 
   private affectsTwigEnvironment(uri: vscode.Uri): boolean {
@@ -452,7 +478,7 @@ export class ProjectSession implements vscode.Disposable {
     // lists it. A new script can be a Stimulus controller, which discovery
     // finds by walking the configured directories, so that one always asks.
     watch('**/*.twig', refreshForFile((path) => this.isComponentTemplate(path) ? 'environment' : 'templates'));
-    watch('**/*.{js,ts}', refreshForFile(() => 'environment'));
+    watch('**/*.{js,ts}', refreshForFile(() => 'php'));
     // Maps are not indexed, but one that changes still has to invalidate what
     // was read from it. Watching is not reading: nothing here opens a file, it
     // only forgets one, so a deleted map stops pointing a row at a TypeScript
@@ -475,7 +501,8 @@ export class ProjectSession implements vscode.Disposable {
       new vscode.RelativePattern(this.rootUri, '**/{*.php,*.yaml,*.yml,*.xml,composer.json,composer.lock,symfony.lock,.env,.env.*}'),
     );
     const refreshEnvironment = (uri: vscode.Uri): void => {
-      if (this.affectsTwigEnvironment(uri)) { this.scheduleRefresh(); }
+      const scope = this.scopeOfChange(uri);
+      if (scope !== undefined) { this.scheduleRefresh(scope); }
     };
     configWatcher.onDidCreate(refreshEnvironment);
     configWatcher.onDidDelete(refreshEnvironment);
@@ -528,22 +555,55 @@ interface Environment {
 }
 
 /**
- * What a change can invalidate.
+ * What a change can invalidate, narrowest first.
  *
  * A template created or deleted changes which names resolve and nothing the
- * console knows: routes, controllers, components and asset roots all come from
- * PHP and configuration. Asking the console again on every new partial cost
- * six kernel boots per file, which on a container is most of a minute of
- * waiting for answers that could not have changed.
+ * console knows. A PHP or script change can add a route, a component, a Twig
+ * extension or a Stimulus controller, so those three are asked again, but it
+ * cannot move where the framework keeps its assets, where Stimulus looks for
+ * controllers or where the project directory is: those come from
+ * configuration, and their answers are kept until configuration changes.
+ * Asking everything on every save cost six kernel boots per keystroke-and-save
+ * in a controller, which on a container is most of a minute of waiting for
+ * answers that could not have changed.
  */
-type RefreshScope = 'templates' | 'environment';
+type RefreshScope = 'templates' | 'php' | 'environment';
+const SCOPE_WIDTH: Record<RefreshScope, number> = { templates: 0, php: 1, environment: 2 };
+
+/**
+ * Console commands whose answers only configuration can change.
+ *
+ * Held by the session across PHP-scoped refreshes and dropped on an
+ * environment one. Matched on the exact argument list, so a command asked in
+ * any other form is asked afresh.
+ */
+const CONFIGURATION_COMMANDS: readonly string[] = [
+  JSON.stringify(['debug:config', 'stimulus', '--format=json', '--no-ansi', '--no-interaction']),
+  JSON.stringify(['debug:config', 'framework', 'asset_mapper', '--format=json', '--no-ansi', '--no-interaction']),
+  JSON.stringify(['debug:container', '--parameter=kernel.project_dir', '--format=json', '--no-ansi', '--no-interaction']),
+];
+
+/** A runner that answers the configuration commands from what it was told. */
+class RememberingRunner implements ConsoleRunner {
+  constructor(private readonly inner: ConsoleRunner, private readonly answers: Map<string, ConsoleResult>) {}
+
+  async run(args: readonly string[]): Promise<ConsoleResult> {
+    const key = JSON.stringify(args);
+    const remembered = CONFIGURATION_COMMANDS.includes(key) ? this.answers.get(key) : undefined;
+    if (remembered !== undefined) { return remembered; }
+    const result = await this.inner.run(args);
+    // Only a good answer is kept: a container that was down is asked again.
+    if (result.ok && CONFIGURATION_COMMANDS.includes(key)) { this.answers.set(key, result); }
+    return result;
+  }
+}
 
 async function buildIndex(
   fileSystem: VsCodeFileSystem,
   project: SymfonyProject,
   memory: LoaderPathMemory,
 ): Promise<Environment & { index: TwigTemplateIndex }> {
-  const environment = await discoverEnvironment(fileSystem, project, memory);
+  const environment = await discoverEnvironment(fileSystem, project, memory, ProcessConsoleRunner.create(project.root));
   return { ...environment, index: await indexTemplates(fileSystem, project, environment.loaderPaths) };
 }
 
@@ -551,6 +611,7 @@ async function discoverEnvironment(
   fileSystem: VsCodeFileSystem,
   project: SymfonyProject,
   memory: LoaderPathMemory,
+  runner: ConsoleRunner | undefined,
 ): Promise<Environment> {
   const raw = await fileSystem.readFile(joinProjectPath(project.root, TWIG_CONFIG_PATH));
   const config = parseTwigConfig(raw ?? '');
@@ -559,7 +620,6 @@ async function discoverEnvironment(
   // itself. Bundle namespaces such as @Twig exist nowhere in configuration, so
   // the console is asked first, an earlier console answer is the fallback, and
   // the configuration is the last resort.
-  const runner = ProcessConsoleRunner.create(project.root);
   const [loaderPaths, components, frontend, assets] = await Promise.all([resolveLoaderPaths(
     runner,
     loaderPathsFromTwigConfig(config),

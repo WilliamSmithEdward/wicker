@@ -22,6 +22,7 @@ suite('console', () => {
     const marker = path.join(ROOT, 'wicker-console-boots.txt');
     const template = vscode.Uri.file(path.join(ROOT, 'templates/wicker_console_probe.html.twig'));
     const php = vscode.Uri.file(path.join(ROOT, 'src/WickerConsoleProbe.php'));
+    const config = vscode.Uri.file(path.join(ROOT, 'config/packages/wicker_console_probe.yaml'));
     const boots = (): number => { try { return fs.readFileSync(marker, 'utf8').length; } catch { return 0; } };
     const settled = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 1200));
     try {
@@ -38,11 +39,19 @@ suite('console', () => {
       await settled();
       assert.equal(boots(), before, 'a new template must not boot the console');
 
+      // PHP can register an extension, a route or a component: three questions.
+      // Where assets live, where controllers are looked for and where the
+      // project is come from configuration, and those answers are kept.
       await vscode.workspace.fs.writeFile(php, Buffer.from('<?php class WickerConsoleProbe {}'));
       await settled();
-      assert.ok(boots() > before, 'a new PHP file may carry a route or a component, so the console is asked');
+      assert.equal(boots(), before + 3, 'a PHP file asks for extensions, routes and components only');
+
+      // Configuration can move anything, so every answer is asked for again.
+      await vscode.workspace.fs.writeFile(config, Buffer.from('wicker_probe: {}\n'));
+      await settled();
+      assert.equal(boots(), before + 3 + 6, 'a configuration change asks everything again');
     } finally {
-      for (const uri of [template, php]) { try { await vscode.workspace.fs.delete(uri); } catch { /* never written */ } }
+      for (const uri of [template, php, config]) { try { await vscode.workspace.fs.delete(uri); } catch { /* never written */ } }
       fs.rmSync(marker, { force: true });
       await settings.update('console.command', previousCommand, vscode.ConfigurationTarget.Workspace);
       await settings.update('console.enabled', previousEnabled, vscode.ConfigurationTarget.Workspace);

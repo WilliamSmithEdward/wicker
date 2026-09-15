@@ -229,6 +229,13 @@ rewrote the marker last, so the race was won by accident until the second pass
 went away. `a PHP change during a slow console run is not lost` now writes its
 marker from the root project only.
 
+**`session.uriOf()` takes a project-relative path; the root is not one.** It
+joins its argument onto the project root, so `uriOf(session.project.root)`
+names `root/root`, matches nothing, and the whole tree comes up empty. The
+root's own URI is `session.fileSystem.toUri(session.project.root)`, which is
+what the seven places that need it use. Nine sidebar tests failed the one time
+this was written the other way, which is the right number.
+
 **`vscode.executeCodeLensProvider` costs about ten milliseconds of its own.**
 A benchmark through that command showed 14ms a call and the provider was
 suspected; timed inside, `provideCodeLenses` costs 0.03ms. The command's own

@@ -11,19 +11,19 @@
  * Runs as vscode:prepublish, so a package or a publish cannot skip it, and it
  * fails rather than warns when a file is missing.
  */
-const fs = require('node:fs');
-const path = require('node:path');
+import { copyFileSync, existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const here = __dirname;
-const packageDir = path.resolve(here, '..');
-const repositoryRoot = path.resolve(packageDir, '..', '..');
+const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const repositoryRoot = resolve(packageDir, '..', '..');
 
 for (const name of ['README.md', 'CHANGELOG.md', 'LICENSE']) {
-  const source = path.join(repositoryRoot, name);
-  if (!fs.existsSync(source)) {
+  const source = join(repositoryRoot, name);
+  if (!existsSync(source)) {
     console.error(`prepublish: ${name} is missing from ${repositoryRoot}`);
     process.exit(1);
   }
-  fs.copyFileSync(source, path.join(packageDir, name));
+  copyFileSync(source, join(packageDir, name));
 }
 console.log('prepublish: README.md, CHANGELOG.md and LICENSE copied into the package');

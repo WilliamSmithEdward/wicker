@@ -5,8 +5,8 @@ import { javascriptTokens } from './javascript.js';
 /** Only local, one-source maps can replace generated JS in the tree. Bundles,
  * missing sources and external maps keep their JS identity. No code is run and
  * no remote URLs are read. This is file navigation, not offset mapping. */
-export function typescriptSourceForJavascript(projectPath: string, source: string,
-  read: (path: string) => string | undefined): string | undefined {
+export async function typescriptSourceForJavascript(projectPath: string, source: string,
+  read: (path: string) => Promise<string | undefined>): Promise<string | undefined> {
   if (!projectPath.endsWith('.js')) { return undefined; }
   const reference = sourceMappingUrl(source);
   if (!reference) { return undefined; }
@@ -19,7 +19,9 @@ export function typescriptSourceForJavascript(projectPath: string, source: strin
   } else {
     const path = relativeSource(projectPath, reference);
     if (!path || !path.endsWith('.map')) { return undefined; }
-    raw = read(path); base = path;
+    // The only I/O: a map is read when something asks about the file that
+    // points at it, rather than every map in the project being read up front.
+    raw = await read(path); base = path;
   }
   if (!raw || raw.length > 1_000_000) { return undefined; }
   let map: unknown;
@@ -32,7 +34,10 @@ export function typescriptSourceForJavascript(projectPath: string, source: strin
   const sourceRoot = typeof data['sourceRoot'] === 'string' ? data['sourceRoot'] : '';
   if (!localRelative(sourceRoot) || !localRelative(data['sources'][0])) { return undefined; }
   const target = relativeSource(base, `${sourceRoot ? `${sourceRoot}/` : ''}${data['sources'][0]}`);
-  return target?.endsWith('.ts') && !target.endsWith('.d.ts') && read(target) !== undefined ? target : undefined;
+  if (target === undefined || !target.endsWith('.ts') || target.endsWith('.d.ts')) { return undefined; }
+  // The named source has to exist: a map can name a file that was never
+  // shipped, and pointing navigation at it would open nothing.
+  return await read(target) === undefined ? undefined : target;
 }
 
 function localRelative(path: string): boolean { return !/^(?:[a-z][a-z\d+.-]*:|[/\\])/i.test(path) && !/[?#\0]/.test(path); }

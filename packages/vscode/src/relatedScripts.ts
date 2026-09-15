@@ -9,14 +9,14 @@ export interface RelatedScript {
 }
 
 /** Explicit Stimulus bindings in a template and its literal includes/layouts. */
-export function templateScripts(sessions: SessionManager, session: ProjectSession, names: readonly string[]): readonly RelatedScript[] {
+export function templateScripts(sessions: SessionManager, session: ProjectSession, names: readonly string[]): Promise<readonly RelatedScript[]> {
   const index = frontendIndex(sessions, session);
-  return mergeScripts(index, scriptsFromTemplates(sessions, session, index, names));
+  return mergeScripts(session, index, scriptsFromTemplates(sessions, session, index, names));
 }
 
 export function controllerScripts(sessions: SessionManager, session: ProjectSession,
-  controller: { projectPath: string; className: string }): readonly RelatedScript[] {
-  if (!sessions.owns(session, controller.projectPath)) { return []; }
+  controller: { projectPath: string; className: string }): Promise<readonly RelatedScript[]> {
+  if (!sessions.owns(session, controller.projectPath)) { return Promise.resolve([]); }
   const index = frontendIndex(sessions, session);
   const names = session.renderSites.index.controllers().find((entry) =>
     entry.projectPath === controller.projectPath && entry.className === controller.className)?.sites.map((site) => site.templateName) ?? [];
@@ -28,7 +28,7 @@ export function controllerScripts(sessions: SessionManager, session: ProjectSess
       if (/\.[jt]s$/.test(use.projectPath)) { scripts.push({ projectPath: use.projectPath, reason: `Uses ${route.methods} ${route.path}` }); }
     }
   }
-  return mergeScripts(index, scripts);
+  return mergeScripts(session, index, scripts);
 }
 
 interface ScriptConnection { readonly projectPath: string; readonly reason: string }
@@ -80,14 +80,15 @@ function scriptsFromTemplates(sessions: SessionManager, session: ProjectSession,
   return result;
 }
 
-function mergeScripts(index: FrontendIndex, connections: readonly ScriptConnection[]): RelatedScript[] {
+async function mergeScripts(session: ProjectSession, index: FrontendIndex,
+  connections: readonly ScriptConnection[]): Promise<RelatedScript[]> {
   const result = new Map<string, { projectPath: string; reasons: Set<string>; generatedPaths: Set<string> }>();
   for (const connection of connections) {
     const source = index.get(connection.projectPath)?.source;
     // Vendor Stimulus registrations are authoritative but excluded from the
     // editable source index; they can still be opened at their registered path.
-    const preferred = source === undefined ? undefined : typescriptSourceForJavascript(connection.projectPath, source,
-      (path) => index.get(path)?.source);
+    const preferred = source === undefined ? undefined : await typescriptSourceForJavascript(
+      connection.projectPath, source, (path) => session.sourceOf(path));
     const path = preferred ?? connection.projectPath;
     let entry = result.get(path);
     if (!entry) { entry = { projectPath: path, reasons: new Set(), generatedPaths: new Set() }; result.set(path, entry); }

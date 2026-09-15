@@ -283,25 +283,25 @@ suite('Stimulus and API connections', () => {
     await sessions.initialize();
     const tree = new ProjectTreeProvider(sessions);
     try {
-      const root = tree.getChildren().find((node) => node.root.toString() === uri('').toString())!;
-      const controllers = tree.getChildren(root).find((node) => node.kind === 'section' && node.section === 'controllers');
+      const root = (await tree.getChildren()).find((node) => node.root.toString() === uri('').toString())!;
+      const controllers = (await tree.getChildren(root)).find((node) => node.kind === 'section' && node.section === 'controllers');
       assert.ok(controllers);
-      const controller = tree.getChildren(controllers).find((node) => node.kind === 'controller' && node.className === 'App\\Controller\\WickerFrontendTestController');
+      const controller = (await tree.getChildren(controllers)).find((node) => node.kind === 'controller' && node.className === 'App\\Controller\\WickerFrontendTestController');
       assert.ok(controller);
-      const controllerActions = tree.getChildren(controller).filter((node) => node.kind === 'controllerMethod');
+      const controllerActions = (await tree.getChildren(controller)).filter((node) => node.kind === 'controllerMethod');
       // The JSON endpoint renders nothing, so it has no render site. It is
       // still an action of this controller, and listing its route under API
       // routes while omitting the action itself leaves the tree disagreeing
       // with itself about what the controller contains.
-      assert.deepEqual(controllerActions.map((node) => tree.getTreeItem(node).label),
+      assert.deepEqual(await Promise.all(controllerActions.map(async (node) => (await tree.getTreeItem(node)).label)),
         ['GET /_wicker-test/alpha', 'GET /_wicker-test/api', 'GET /_wicker-test/fragment', 'GET /_wicker-test/zebra']);
       // And it carries the icon its route carries in the API section. A leaf
       // here would claim a template is rendered, which is the one thing this
       // action does not do.
       const jsonAction = controllerActions.find((node) => node.kind === 'controllerMethod' && node.methodName === 'data')!;
-      assert.equal((tree.getTreeItem(jsonAction).iconPath as vscode.ThemeIcon).id, 'symbol-object');
+      assert.equal(((await tree.getTreeItem(jsonAction)).iconPath as vscode.ThemeIcon).id, 'symbol-object');
       const action = controllerActions.find((node) => node.kind === 'controllerMethod' && node.methodName === 'fragment')!;
-      const actionItem = tree.getTreeItem(action);
+      const actionItem = await tree.getTreeItem(action);
       assert.equal(actionItem.label, 'GET /_wicker-test/fragment');
       assert.equal(actionItem.description, 'fragment()');
       assert.equal(leafIconName(actionItem), 'route-leaf');
@@ -312,7 +312,7 @@ suite('Stimulus and API connections', () => {
       const discovered = owningSession.frontend;
       try {
         owningSession.frontend = { ...discovered, routes: [] };
-        const fallback = tree.getTreeItem(action);
+        const fallback = await tree.getTreeItem(action);
         assert.equal(fallback.id, actionItem.id);
         assert.equal(fallback.label, 'fragment()');
         assert.equal(fallback.description, 'wicker_frontend_test.html.twig');
@@ -320,29 +320,29 @@ suite('Stimulus and API connections', () => {
       await vscode.commands.executeCommand(actionItem.command!.command, ...actionItem.command!.arguments!);
       assert.equal(vscode.window.activeTextEditor?.document.uri.toString(), php.uri.toString());
       assert.equal(vscode.window.activeTextEditor?.document.getText(vscode.window.activeTextEditor.selection), 'wicker_frontend_test.html.twig');
-      const section = tree.getChildren(root).find((node) => node.kind === 'section' && node.section === 'api'); assert.ok(section);
-      const entries = tree.getChildren(section);
-      assert.deepEqual(entries.map((node) => tree.getTreeItem(node).label), ['GET /_wicker-test/api', 'GET /_wicker-test/fragment']);
-      assert.equal((tree.getTreeItem(entries[0]!).iconPath as vscode.ThemeIcon).id, 'symbol-object');
-      assert.equal(leafIconName(tree.getTreeItem(entries[1]!)), 'route-leaf');
-      const json = tree.getChildren(entries[0]);
+      const section = (await tree.getChildren(root)).find((node) => node.kind === 'section' && node.section === 'api'); assert.ok(section);
+      const entries = await tree.getChildren(section);
+      assert.deepEqual(await Promise.all(entries.map(async (node) => (await tree.getTreeItem(node)).label)), ['GET /_wicker-test/api', 'GET /_wicker-test/fragment']);
+      assert.equal(((await tree.getTreeItem(entries[0]!)).iconPath as vscode.ThemeIcon).id, 'symbol-object');
+      assert.equal(leafIconName(await tree.getTreeItem(entries[1]!)), 'route-leaf');
+      const json = await tree.getChildren(entries[0]);
       assert.ok(json.some((node) => node.kind === 'routeConsumer' && node.projectPath === JS));
-      const html = tree.getChildren(entries[1]);
+      const html = await tree.getChildren(entries[1]);
       assert.ok(html.some((node) => node.kind === 'routeTemplate' && node.templateName === TWIG.slice(10)));
-      const templateSection = tree.getChildren(root).find((node) => node.kind === 'section' && node.section === 'templateRoutes');
+      const templateSection = (await tree.getChildren(root)).find((node) => node.kind === 'section' && node.section === 'templateRoutes');
       assert.ok(templateSection);
-      assert.equal(tree.getTreeItem(templateSection).label, 'Template routes');
-      const templateEntries = tree.getChildren(templateSection);
-      assert.deepEqual(templateEntries.map((node) => tree.getTreeItem(node).label),
+      assert.equal((await tree.getTreeItem(templateSection)).label, 'Template routes');
+      const templateEntries = await tree.getChildren(templateSection);
+      assert.deepEqual(await Promise.all(templateEntries.map(async (node) => (await tree.getTreeItem(node)).label)),
         ['GET /_wicker-test/alpha', 'GET /_wicker-test/fragment', 'GET /_wicker-test/zebra']);
       const templateRoute = templateEntries.find((node) => node.kind === 'route' && node.name === 'wicker_test_fragment')!;
-      assert.equal(leafIconName(tree.getTreeItem(templateRoute)), 'route-leaf');
-      assert.notEqual(tree.getTreeItem(templateRoute).id, tree.getTreeItem(entries[1]!).id);
+      assert.equal(leafIconName(await tree.getTreeItem(templateRoute)), 'route-leaf');
+      assert.notEqual((await tree.getTreeItem(templateRoute)).id, (await tree.getTreeItem(entries[1]!)).id);
       assert.deepEqual(tree.getParent(templateRoute), templateSection);
-      const renderedTemplate = tree.getChildren(templateRoute).find((node) => node.kind === 'routeTemplate');
+      const renderedTemplate = (await tree.getChildren(templateRoute)).find((node) => node.kind === 'routeTemplate');
       assert.ok(renderedTemplate);
-      assert.equal(leafIconName(tree.getTreeItem(renderedTemplate)), 'template-leaf');
-      for (const treeItem of [tree.getTreeItem(renderedTemplate), tree.getTreeItem(templateRoute)]) {
+      assert.equal(leafIconName(await tree.getTreeItem(renderedTemplate)), 'template-leaf');
+      for (const treeItem of [await tree.getTreeItem(renderedTemplate), await tree.getTreeItem(templateRoute)]) {
         const icon = treeItem.iconPath as { light: vscode.Uri; dark: vscode.Uri };
         for (const theme of [icon.light, icon.dark]) {
           const svg = leafSvg(theme);
@@ -359,7 +359,7 @@ suite('Stimulus and API connections', () => {
       assert.equal(vscode.window.activeTextEditor?.document.uri.toString(), php.uri.toString());
       assert.equal(vscode.window.activeTextEditor?.document.getText(vscode.window.activeTextEditor.selection), 'data');
       await replace(php, phpSource.replaceAll("$this->render('wicker_frontend_test.html.twig')", "$this->json(['message' => 'changed'])"));
-      assert.ok(!tree.getChildren(root).some((node) => node.kind === 'section' && node.section === 'templateRoutes'), 'Unsaved response changes update the route section');
+      assert.ok(!(await tree.getChildren(root)).some((node) => node.kind === 'section' && node.section === 'templateRoutes'), 'Unsaved response changes update the route section');
     } finally { tree.dispose(); sessions.dispose(); }
   });
   test('wicker.enable disables the new surfaces', async () => {
@@ -409,22 +409,22 @@ class WickerFrontendTestController {
       await replace(php, injected);
       await vscode.commands.executeCommand('wicker.reindex');
       await sessions.initialize();
-      const root = tree.getChildren().find((node) => node.root.toString() === uri('').toString())!;
-      const controllers = tree.getChildren(root).find((node) => node.kind === 'section' && node.section === 'controllers')!;
-      const controller = tree.getChildren(controllers).find((node) => node.kind === 'controller' && node.className.endsWith('WickerFrontendTestController'))!;
-      const group = tree.getChildren(controller).find((node) => node.kind === 'controllerDependencies');
+      const root = (await tree.getChildren()).find((node) => node.root.toString() === uri('').toString())!;
+      const controllers = (await tree.getChildren(root)).find((node) => node.kind === 'section' && node.section === 'controllers')!;
+      const controller = (await tree.getChildren(controllers)).find((node) => node.kind === 'controller' && node.className.endsWith('WickerFrontendTestController'))!;
+      const group = (await tree.getChildren(controller)).find((node) => node.kind === 'controllerDependencies');
       assert.ok(group);
-      assert.equal(tree.getTreeItem(group).label, 'Dependencies');
+      assert.equal((await tree.getTreeItem(group)).label, 'Dependencies');
       assert.deepEqual(tree.getParent(group), controller);
-      const entries = tree.getChildren(group);
-      assert.deepEqual(entries.map((node) => tree.getTreeItem(node).label), [
+      const entries = await tree.getChildren(group);
+      assert.deepEqual(await Promise.all(entries.map(async (node) => (await tree.getTreeItem(node)).label)), [
         'WickerDependencyContract', 'WickerDependencyEntity', 'WickerDependencyOther',
         'WickerDependencyRepository', 'WickerDependencyService', 'WickerDependencyStatus',
       ]);
-      const iconIds = [...entries, controller, group].map((node) => (tree.getTreeItem(node).iconPath as vscode.ThemeIcon).id);
+      const iconIds = await Promise.all([...entries, controller, group].map(async (node) => ((await tree.getTreeItem(node)).iconPath as vscode.ThemeIcon).id));
       assert.equal(new Set(iconIds).size, iconIds.length, 'Each kind of object has a distinct icon');
       const service = entries.find((node) => node.kind === 'controllerDependency' && node.typeName.endsWith('WickerDependencyService'))!;
-      const item = tree.getTreeItem(service);
+      const item = await tree.getTreeItem(service);
       assert.equal(item.description, '$worker, $alsoWorker');
       assert.ok(typeof item.tooltip === 'string' && item.tooltip.includes('__construct()') && item.tooltip.includes('related()'));
       assert.deepEqual(tree.getParent(service), group);
@@ -436,21 +436,21 @@ class WickerFrontendTestController {
       await vscode.commands.executeCommand(item.command!.command, ...item.command!.arguments!);
       assert.equal(target.getText(vscode.window.activeTextEditor!.selection), 'WickerDependencyService');
       await replace(target, target.getText().replace('class WickerDependencyService', 'class RenamedService'));
-      assert.ok(!tree.getChildren(group).some((node) => node.kind === 'controllerDependency' && node.typeName.endsWith('WickerDependencyService')));
+      assert.ok(!(await tree.getChildren(group)).some((node) => node.kind === 'controllerDependency' && node.typeName.endsWith('WickerDependencyService')));
       await replace(target, files[0][1]);
       const duplicate = uri('src/Controller/WickerDependencyDuplicate.php');
       try {
         await vscode.workspace.fs.writeFile(duplicate, Buffer.from(files[0][1]));
-        await eventually(() => !tree.getChildren(group).some((node) => node.kind === 'controllerDependency' && node.typeName.endsWith('WickerDependencyService')));
+        await eventually(async () => !(await tree.getChildren(group)).some((node) => node.kind === 'controllerDependency' && node.typeName.endsWith('WickerDependencyService')));
       } finally { await vscode.workspace.fs.delete(duplicate); }
-      await eventually(() => tree.getChildren(group).some((node) => node.kind === 'controllerDependency' && node.typeName.endsWith('WickerDependencyService')));
+      await eventually(async () => (await tree.getChildren(group)).some((node) => node.kind === 'controllerDependency' && node.typeName.endsWith('WickerDependencyService')));
       await vscode.workspace.fs.delete(uri(files[1][0]));
-      await eventually(() => !tree.getChildren(group).some((node) => node.kind === 'controllerDependency' && node.typeName.endsWith('WickerDependencyRepository')));
+      await eventually(async () => !(await tree.getChildren(group)).some((node) => node.kind === 'controllerDependency' && node.typeName.endsWith('WickerDependencyRepository')));
       await replace(php, phpSource);
-      assert.ok(!tree.getChildren(controller).some((node) => node.kind === 'controllerDependencies'), 'Empty dependency groups disappear after unsaved edits');
+      assert.ok(!(await tree.getChildren(controller)).some((node) => node.kind === 'controllerDependencies'), 'Empty dependency groups disappear after unsaved edits');
       await replace(php, injected);
       await settings.update('enable', false, vscode.ConfigurationTarget.Workspace);
-      assert.deepEqual(tree.getChildren(group), []);
+      assert.deepEqual(await tree.getChildren(group), []);
       await vscode.window.showTextDocument(page);
       await vscode.commands.executeCommand(item.command!.command, ...item.command!.arguments!);
       assert.equal(vscode.window.activeTextEditor?.document.uri.toString(), page.uri.toString(), 'Stale commands respect wicker.enable');
@@ -474,47 +474,53 @@ class WickerFrontendTestController {
     let ts: vscode.TextDocument | undefined;
     try {
       await sessions.initialize();
-      const root = tree.getChildren().find((node) => node.root.toString() === uri('').toString())!;
+      const root = (await tree.getChildren()).find((node) => node.root.toString() === uri('').toString())!;
       const leaf = { kind: 'template' as const, root: root.root, name: TWIG.slice(10) };
-      const initial = tree.getChildren(leaf);
+      const initial = await tree.getChildren(leaf);
       assert.equal(initial.length, 1);
       assert.equal(initial[0]!.kind, 'script');
-      assert.equal(tree.getTreeItem(initial[0]!).label, 'wicker_test_controller.js');
+      assert.equal((await tree.getTreeItem(initial[0]!)).label, 'wicker_test_controller.js');
       assert.deepEqual(tree.getParent(initial[0]!), leaf);
-      assert.equal(tree.getTreeItem(leaf).collapsibleState, vscode.TreeItemCollapsibleState.Collapsed);
-      assert.equal(leafIconName(tree.getTreeItem(leaf)), 'template-leaf');
-      const controllers = tree.getChildren(root).find((node) => node.kind === 'section' && node.section === 'controllers')!;
-      const controller = tree.getChildren(controllers).find((node) => node.kind === 'controller' && node.className.endsWith('WickerFrontendTestController'))!;
-      const group = tree.getChildren(controller).find((node) => node.kind === 'controllerScripts');
+      assert.equal((await tree.getTreeItem(leaf)).collapsibleState, vscode.TreeItemCollapsibleState.Collapsed);
+      assert.equal(leafIconName(await tree.getTreeItem(leaf)), 'template-leaf');
+      const controllers = (await tree.getChildren(root)).find((node) => node.kind === 'section' && node.section === 'controllers')!;
+      const controller = (await tree.getChildren(controllers)).find((node) => node.kind === 'controller' && node.className.endsWith('WickerFrontendTestController'))!;
+      const group = (await tree.getChildren(controller)).find((node) => node.kind === 'controllerScripts');
       assert.ok(group);
-      assert.equal(tree.getTreeItem(group).label, 'Scripts');
+      assert.equal((await tree.getTreeItem(group)).label, 'Scripts');
       assert.deepEqual(tree.getParent(group), controller);
-      const controllerScript = tree.getChildren(group).find((node) => node.kind === 'script' && node.projectPath === JS);
+      const controllerScript = (await tree.getChildren(group)).find((node) => node.kind === 'script' && node.projectPath === JS);
       assert.ok(controllerScript);
-      assert.notEqual(tree.getTreeItem(controllerScript).id, tree.getTreeItem(initial[0]!).id);
-      const item = tree.getTreeItem(controllerScript);
+      assert.notEqual((await tree.getTreeItem(controllerScript)).id, (await tree.getTreeItem(initial[0]!)).id);
+      const item = await tree.getTreeItem(controllerScript);
       await vscode.commands.executeCommand(item.command!.command, ...item.command!.arguments!);
       assert.equal(vscode.window.activeTextEditor?.document.uri.toString(), js.uri.toString());
       // A same-named TS file that independently calls the route is kept until
       // the compiled JS explicitly names a map pointing at that source.
       await vscode.workspace.fs.writeFile(uri(tsPath), Buffer.from("fetch('/_wicker-test/fragment');"));
       ts = await vscode.workspace.openTextDocument(uri(tsPath));
-      assert.equal(tree.getChildren(leaf).length, 1);
-      await eventually(() => tree.getChildren(group).filter((node) => node.kind === 'script').length === 2);
-      const scriptIcons = tree.getChildren(group).map((node) => (tree.getTreeItem(node).iconPath as vscode.ThemeIcon).id);
+      assert.equal((await tree.getChildren(leaf)).length, 1);
+      await eventually(async () => (await tree.getChildren(group)).filter((node) => node.kind === 'script').length === 2);
+      const scriptIcons = await Promise.all((await tree.getChildren(group)).map(async (node) => ((await tree.getTreeItem(node)).iconPath as vscode.ThemeIcon).id));
       assert.equal(new Set(scriptIcons).size, 2, 'Independent JS and TS files have distinct icons');
       await vscode.workspace.fs.writeFile(uri(mapPath), Buffer.from(JSON.stringify({ version: 3,
         sources: ['wicker_test_controller.ts'], names: [], mappings: '' })));
       await replace(js, `${jsSource}\n//# sourceMappingURL=wicker_test_controller.js.map`);
-      await eventually(() => tree.getChildren(leaf).some((node) => node.kind === 'script' && node.projectPath === tsPath));
-      assert.equal(tree.getChildren(group).length, 1, 'Generated JS and its TS source collapse into one entry');
-      const preferred = tree.getChildren(leaf)[0]!;
-      const preferredItem = tree.getTreeItem(preferred);
+      await eventually(async () => (await tree.getChildren(leaf)).some((node) => node.kind === 'script' && node.projectPath === tsPath));
+      assert.equal((await tree.getChildren(group)).length, 1, 'Generated JS and its TS source collapse into one entry');
+      // The map resolved the row without ever being indexed. Source maps are
+      // the largest files a project has and nothing is parsed out of them, so
+      // reading every one of them to open a project bought nothing; this is
+      // what keeps them off that path.
+      assert.equal(sessions.sessionFor({ uri: uri(mapPath) })?.frontendSources.index.get(mapPath), undefined,
+        'a source map should be read on demand, not indexed');
+      const preferred = (await tree.getChildren(leaf))[0]!;
+      const preferredItem = await tree.getTreeItem(preferred);
       assert.ok(typeof preferredItem.tooltip === 'string' && preferredItem.tooltip.includes(JS));
       await vscode.commands.executeCommand(preferredItem.command!.command, ...preferredItem.command!.arguments!);
       assert.equal(vscode.window.activeTextEditor?.document.uri.toString(), ts.uri.toString());
       await replace(page, '<p>No scripts here</p>');
-      assert.deepEqual(tree.getChildren(leaf), []);
+      assert.deepEqual(await tree.getChildren(leaf), []);
       await vscode.window.showTextDocument(page);
       await vscode.commands.executeCommand(preferredItem.command!.command, ...preferredItem.command!.arguments!);
       assert.equal(vscode.window.activeTextEditor?.document.uri.toString(), page.uri.toString(), 'Stale associations do not navigate');
@@ -523,10 +529,10 @@ class WickerFrontendTestController {
       await replace(page, `{% include '${includedPath.slice(10)}' %}`);
       await vscode.commands.executeCommand('wicker.reindex');
       await sessions.refreshAll();
-      await eventually(() => tree.getChildren(leaf).length === 1);
-      assert.equal(leafIconName(tree.getTreeItem(leaf)), 'template-leaf');
+      await eventually(async () => (await tree.getChildren(leaf)).length === 1);
+      assert.equal(leafIconName(await tree.getTreeItem(leaf)), 'template-leaf');
       await vscode.workspace.fs.delete(uri(mapPath));
-      await eventually(() => tree.getChildren(leaf).some((node) => node.kind === 'script' && node.projectPath === JS));
+      await eventually(async () => (await tree.getChildren(leaf)).some((node) => node.kind === 'script' && node.projectPath === JS));
     } finally {
       await replace(page, pageSource); await replace(js, jsSource);
       if (ts) { await vscode.window.showTextDocument(ts); await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor'); }
@@ -738,25 +744,25 @@ class WickerFrontendTestController {
       await replace(page, `{{ importmap('app') }}`);
       await eventually(() => true);
 
-      const find = (node: SidebarNode | undefined, depth = 0): SidebarNode | undefined => {
-        for (const child of tree.getChildren(node)) {
+      const find = async (node: SidebarNode | undefined, depth = 0): Promise<SidebarNode | undefined> => {
+        for (const child of await tree.getChildren(node)) {
           if (child.kind === 'template' && child.name === 'wicker_frontend_test.html.twig') { return child; }
-          const found = depth < 6 ? find(child, depth + 1) : undefined;
+          const found = depth < 6 ? await find(child, depth + 1) : undefined;
           if (found) { return found; }
         }
         return undefined;
       };
-      const template = find(undefined);
+      const template = await find(undefined);
       assert.ok(template, 'the edited template should appear in the tree');
 
-      const styles = tree.getChildren(template).filter((child) => child.kind === 'style');
+      const styles = (await tree.getChildren(template)).filter((child) => child.kind === 'style');
       // theme.css is named in no template and no script: it is reached only by
       // app.css importing it, which is the common shape and the easy one to
       // miss. print.css is reached by a bare @import, which only the asset map
       // resolves, so it also pins which mechanism a stylesheet's specifiers use.
       assert.deepEqual(styles.map((style) => style.kind === 'style' ? style.projectPath : ''),
         ['assets/styles/app.css', 'assets/styles/print.css', 'assets/styles/theme.css']);
-      assert.match(tooltipOf(tree.getTreeItem(styles[0]!)), /through the app entrypoint/);
+      assert.match(tooltipOf(await tree.getTreeItem(styles[0]!)), /through the app entrypoint/);
     } finally {
       tree.dispose();
       sessions.dispose();
@@ -925,32 +931,32 @@ class WickerFrontendTestController {
       await replace(page, `{{ importmap('app') }}`);
       await eventually(() => true);
 
-      const find = (node: SidebarNode | undefined, depth = 0): SidebarNode | undefined => {
-        for (const child of tree.getChildren(node)) {
+      const find = async (node: SidebarNode | undefined, depth = 0): Promise<SidebarNode | undefined> => {
+        for (const child of await tree.getChildren(node)) {
           if (child.kind === 'template' && child.name === 'wicker_frontend_test.html.twig') { return child; }
-          const found = depth < 6 ? find(child, depth + 1) : undefined;
+          const found = depth < 6 ? await find(child, depth + 1) : undefined;
           if (found) { return found; }
         }
         return undefined;
       };
-      const template = find(undefined);
+      const template = await find(undefined);
       assert.ok(template);
 
       // Step one: the entrypoint the template names.
-      const entry = tree.getChildren(template).find((child) =>
+      const entry = (await tree.getChildren(template)).find((child) =>
         child.kind === 'loaded' && child.projectPath === 'assets/app.js');
       assert.ok(entry, 'the entrypoint should head the chain');
-      assert.match(tooltipOf(tree.getTreeItem(entry)), /importmap\('app'\)/);
+      assert.match(tooltipOf(await tree.getTreeItem(entry)), /importmap\('app'\)/);
 
       // Step two: what that file imports, named in no template.
-      const imported = tree.getChildren(entry);
+      const imported = await tree.getChildren(entry);
       assert.deepEqual(imported.map((child) => child.kind === 'loaded' ? child.projectPath : ''),
         ['assets/styles/app.css']);
-      assert.match(tooltipOf(tree.getTreeItem(imported[0]!)), /imported by app\.js/);
+      assert.match(tooltipOf(await tree.getTreeItem(imported[0]!)), /imported by app\.js/);
 
       // Step three: a stylesheet's own imports keep going, relative and bare
       // alike, the bare one resolved as a logical asset path.
-      const deeper = tree.getChildren(imported[0]);
+      const deeper = await tree.getChildren(imported[0]);
       assert.deepEqual(deeper.map((child) => child.kind === 'loaded' ? child.projectPath : ''),
         ['assets/styles/print.css', 'assets/styles/theme.css']);
     } finally {

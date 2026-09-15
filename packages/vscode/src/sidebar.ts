@@ -104,7 +104,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     return this.showBundles || !isBundleNamespace(session.loaderPaths.paths.all(), namespace);
   }
 
-  getChildren(node?: SidebarNode): SidebarNode[] {
+  async getChildren(node?: SidebarNode): Promise<SidebarNode[]> {
     if (node === undefined) {
       return this.sessions.all().flatMap((session) => {
         const root = session.fileSystem.toUri(session.project.root);
@@ -146,12 +146,12 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     }
     if (isScriptOwner(node)) {
       return [
-        ...scriptsForOwner(this.sessions, session, node).map((script) => ({
+        ...(await scriptsForOwner(this.sessions, session, node)).map((script) => ({
           kind: 'script' as const, root: node.root, projectPath: script.projectPath, parent: node,
         })),
         // Stylesheets after scripts, since the link almost always sits in a
         // layout rather than the page and is the less expected of the two.
-        ...stylesForOwner(this.sessions, session, node).map((style) => ({
+        ...(await stylesForOwner(this.sessions, session, node)).map((style) => ({
           kind: 'style' as const, root: node.root, projectPath: style.projectPath, parent: node,
         })),
         // The chain the page actually loads, expandable one import at a time.
@@ -178,7 +178,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
           ...actions.map(({ methodName }) => ({ ...node, kind: 'controllerMethod' as const, methodName })),
           ...(controllerDependencies(this.sessions, session, node).length
             ? [{ ...node, kind: 'controllerDependencies' as const }] : []),
-          ...(controllerScripts(this.sessions, session, node).length
+          ...((await controllerScripts(this.sessions, session, node)).length
             ? [{ ...node, kind: 'controllerScripts' as const }] : []),
         ];
       }
@@ -280,12 +280,12 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       ? session : undefined;
   }
 
-  getTreeItem(node: SidebarNode): vscode.TreeItem {
+  async getTreeItem(node: SidebarNode): Promise<vscode.TreeItem> {
     const session = this.sessionForRoot(node.root);
     if (session === undefined) {
       return new vscode.TreeItem('Project unavailable');
     }
-    const item = this.describe(node, session);
+    const item = await this.describe(node, session);
     item.id = nodeId(node);
     item.contextValue = `wicker.${node.kind}`;
     // Without an explicit accessible name, VS Code reads the path-heavy tooltip
@@ -297,16 +297,16 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     return item;
   }
 
-  private describe(node: SidebarNode, session: ProjectSession): vscode.TreeItem {
+  private async describe(node: SidebarNode, session: ProjectSession): Promise<vscode.TreeItem> {
     if (node.kind === 'controllerScripts') {
-      const item = new vscode.TreeItem('Scripts', this.getChildren(node).length
+      const item = new vscode.TreeItem('Scripts', (await this.getChildren(node)).length
         ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
       item.iconPath = new vscode.ThemeIcon(icons.scripts);
       item.tooltip = 'Scripts associated through rendered templates, Stimulus bindings or route consumers.';
       return item;
     }
     if (node.kind === 'script') {
-      const script = scriptsForOwner(this.sessions, session, node.parent).find((entry) => entry.projectPath === node.projectPath);
+      const script = (await scriptsForOwner(this.sessions, session, node.parent)).find((entry) => entry.projectPath === node.projectPath);
       const item = new vscode.TreeItem(basename(node.projectPath));
       item.description = node.projectPath.slice(0, node.projectPath.lastIndexOf('/'));
       item.iconPath = new vscode.ThemeIcon(scriptIcon(node.projectPath));
@@ -317,7 +317,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       return item;
     }
     if (node.kind === 'style') {
-      const style = stylesForOwner(this.sessions, session, node.parent).find((entry) => entry.projectPath === node.projectPath);
+      const style = (await stylesForOwner(this.sessions, session, node.parent)).find((entry) => entry.projectPath === node.projectPath);
       const item = new vscode.TreeItem(basename(node.projectPath));
       item.description = node.projectPath.slice(0, node.projectPath.lastIndexOf('/'));
       item.iconPath = new vscode.ThemeIcon(icons.stylesheet);
@@ -364,7 +364,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       const rowIcon = route ? routeIcon(this.sessions, session, route) : icons.route;
       const label = node.kind === 'route' ? `${route?.methods ?? ''} ${route?.path ?? node.name}` :
         node.kind === 'routeTemplate' ? node.templateName : node.projectPath;
-      const item = new vscode.TreeItem(label, (node.kind === 'route' || node.kind === 'routeTemplate') && this.getChildren(node).length
+      const item = new vscode.TreeItem(label, (node.kind === 'route' || node.kind === 'routeTemplate') && (await this.getChildren(node)).length
         ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
       item.iconPath = sidebarIcon(node.kind === 'route' ? rowIcon : node.kind === 'routeTemplate' ? icons.template :
         /\.[jt]s$/.test(node.projectPath) ? scriptIcon(node.projectPath) : node.projectPath.endsWith('.twig') ? icons.template : icons.consumer);
@@ -397,7 +397,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       const templateNames = [...new Set(sites.map((site) => site.templateName))];
       const item = new vscode.TreeItem(template ? node.name : controller ? node.className.split('\\').at(-1)! :
         routeLabels.length ? routeLabels.join(' · ') : `${node.methodName}()`,
-        (template ? this.getChildren(node).length === 0 : sites.length === 0) ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Collapsed);
+        (template ? (await this.getChildren(node)).length === 0 : sites.length === 0) ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Collapsed);
       const actionIcon = actionRouteIcon(routes.map((route) => routeIcon(this.sessions, session, route)));
       item.iconPath = sidebarIcon(template ? icons.template : controller ? icons.controller : actionIcon);
       item.tooltip = `${node.className}${controller ? '' : `::${node.methodName}()`}\n${node.projectPath}`;
@@ -514,7 +514,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       return item;
     }
     const template = session.lookup(node.name);
-    const item = new vscode.TreeItem(basename(templatePath(node.name)), this.getChildren(node).length
+    const item = new vscode.TreeItem(basename(templatePath(node.name)), (await this.getChildren(node)).length
       ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
     item.iconPath = sidebarIcon(icons.template);
     if (template !== undefined) {
@@ -678,12 +678,13 @@ export class WickerSidebar implements vscode.Disposable {
     if (node?.kind !== 'script') { return; }
     const session = this.sessions.sessionFor({ uri: node.root });
     if (!session || session.fileSystem.toUri(session.project.root).toString() !== node.root.toString()) { return; }
-    const connected = (): boolean => scriptsForOwner(this.sessions, session, node.parent).some((entry) => entry.projectPath === node.projectPath);
-    if (!connected()) { return; }
+    const connected = async (): Promise<boolean> =>
+      (await scriptsForOwner(this.sessions, session, node.parent)).some((entry) => entry.projectPath === node.projectPath);
+    if (!await connected()) { return; }
     const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath));
     if (this.sessions.sessionFor({ uri }) !== session) { return; }
     const document = await vscode.workspace.openTextDocument(uri);
-    if (connected() && this.sessions.sessionFor({ uri }) === session) {
+    if (await connected() && this.sessions.sessionFor({ uri }) === session) {
       await vscode.window.showTextDocument(document, { preview: true });
     }
   }
@@ -809,11 +810,11 @@ function entrypointsForOwner(sessions: SessionManager, session: ProjectSession, 
 }
 
 /** Stylesheets for the same owners, from the same template walk as scripts. */
-function stylesForOwner(sessions: SessionManager, session: ProjectSession, node: ScriptOwner): readonly RelatedStyle[] {
+function stylesForOwner(sessions: SessionManager, session: ProjectSession, node: ScriptOwner): Promise<readonly RelatedStyle[]> {
   return templateStyles(sessions, session, templatesForOwner(sessions, session, node));
 }
 
-function scriptsForOwner(sessions: SessionManager, session: ProjectSession, node: ScriptOwner): readonly RelatedScript[] {
+function scriptsForOwner(sessions: SessionManager, session: ProjectSession, node: ScriptOwner): Promise<readonly RelatedScript[]> {
   // The only owner that is not a template: its scripts come from the
   // controller's own registrations rather than from anything a page renders.
   return node.kind === 'controllerScripts'

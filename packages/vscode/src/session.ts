@@ -88,6 +88,8 @@ export class ProjectSession implements vscode.Disposable {
   private refreshInFlight: Promise<void> | undefined;
   private refreshRevision = 0;
   private discoveryPending = false;
+  /** Files read from disk on demand, cleared whenever the project is rebuilt. */
+  private readonly sourceMaps = new Map<string, string | undefined>();
   private disposed = false;
 
   /** Fires after the index has been rebuilt. */
@@ -175,10 +177,36 @@ export class ProjectSession implements vscode.Disposable {
    * once more for the same index.
    */
   async rebuildIndexes(templates: TwigTemplateIndex, force = false): Promise<void> {
+    // A map read before this point described files as they were then.
+    this.sourceMaps.clear();
     await this.frontendSources.refresh();
     const known: KnownSources = (path) => this.frontendSources.index.get(path)?.source;
     await this.renderSites.refresh(known);
     await this.templateContexts.refresh(templates, force, known);
+  }
+
+  /**
+   * A file's text, from the index when it is there and from disk when it is
+   * not.
+   *
+   * Resolving a source map wants two files: the map itself, which is not
+   * indexed, and the TypeScript it names, which is. Maps are the largest files
+   * a project has and nothing is parsed out of them; they matter only when a
+   * script row turns out to be compiled output, so reading every one of them
+   * to open a project was paying the whole cost for a question usually never
+   * asked.
+   *
+   * What comes off disk is kept, because the tree asks about the same map
+   * repeatedly while it is drawn, and dropped whenever the project rebuilds.
+   */
+  async sourceOf(projectPath: string): Promise<string | undefined> {
+    const indexed = this.frontendSources.index.get(projectPath)?.source;
+    if (indexed !== undefined) { return indexed; }
+    if (!this.sourceMaps.has(projectPath)) {
+      this.sourceMaps.set(projectPath,
+        await this.fileSystem.readFile(joinProjectPath(this.project.root, projectPath)));
+    }
+    return this.sourceMaps.get(projectPath);
   }
 
   get index(): TwigTemplateIndex {
@@ -346,6 +374,18 @@ export class ProjectSession implements vscode.Disposable {
     };
     watch('**/*.twig', refreshForFile);
     watch('**/*.{js,ts}', refreshForFile);
+    // Maps are not indexed, but one that changes still has to invalidate what
+    // was read from it. Watching is not reading: nothing here opens a file, it
+    // only forgets one, so a deleted map stops pointing a row at a TypeScript
+    // source that no longer describes it.
+    const mapWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(this.rootUri, '**/*.map'));
+    const forgetMap = (uri: vscode.Uri): void => {
+      const path = this.relativePathOf(enginePathOf(uri));
+      if (path !== undefined && this.sourceMaps.delete(path)) { this.changed.fire(); }
+    };
+    this.watchers.push(mapWatcher, mapWatcher.onDidCreate(forgetMap),
+      mapWatcher.onDidChange(forgetMap), mapWatcher.onDidDelete(forgetMap));
+
     const stimulusWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(this.rootUri, '**/controllers.json'));
     this.watchers.push(stimulusWatcher, stimulusWatcher.onDidCreate(() => this.scheduleRefresh()),
       stimulusWatcher.onDidChange(() => this.scheduleRefresh()), stimulusWatcher.onDidDelete(() => this.scheduleRefresh()));

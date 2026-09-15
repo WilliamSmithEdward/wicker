@@ -26,8 +26,8 @@ export interface RelatedStyle {
  * be associated with a page makes its CSS reachable without changing anything
  * here.
  */
-export function templateStyles(sessions: SessionManager, session: ProjectSession,
-  names: readonly string[]): readonly RelatedStyle[] {
+export async function templateStyles(sessions: SessionManager, session: ProjectSession,
+  names: readonly string[]): Promise<readonly RelatedStyle[]> {
   const index = frontendIndex(sessions, session);
   const seeds = new Map<string, string>();
 
@@ -48,7 +48,7 @@ export function templateStyles(sessions: SessionManager, session: ProjectSession
 
   // Everything already associated with the page: Stimulus controllers bound in
   // its markup, route consumers, and whatever else that list grows to cover.
-  for (const script of templateScripts(sessions, session, names)) {
+  for (const script of await templateScripts(sessions, session, names)) {
     seeds.set(script.projectPath, script.reasons[0] ?? 'Associated script');
   }
 

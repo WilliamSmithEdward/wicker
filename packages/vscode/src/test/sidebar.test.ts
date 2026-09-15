@@ -24,15 +24,15 @@ function tooltipText(item: vscode.TreeItem): string {
   return typeof item.tooltip === 'string' ? item.tooltip : item.tooltip?.value ?? '';
 }
 
-function section(tree: ProjectTreeProvider, project: SidebarNode | undefined, name: 'controllers' | 'templates'): SidebarNode {
+async function section(tree: ProjectTreeProvider, project: SidebarNode | undefined, name: 'controllers' | 'templates'): Promise<SidebarNode> {
   assert.ok(project);
-  const node = tree.getChildren(project).find((child) => child.kind === 'section' && child.section === name);
+  const node = (await tree.getChildren(project)).find((child) => child.kind === 'section' && child.section === name);
   assert.ok(node);
   return node;
 }
 
-function templateGroups(tree: ProjectTreeProvider, project: SidebarNode | undefined): SidebarNode[] {
-  return tree.getChildren(section(tree, project, 'templates'));
+async function templateGroups(tree: ProjectTreeProvider, project: SidebarNode | undefined): Promise<SidebarNode[]> {
+  return tree.getChildren(await section(tree, project, 'templates'));
 }
 
 suite('Wicker sidebar', () => {
@@ -59,55 +59,56 @@ suite('Wicker sidebar', () => {
     sessions?.dispose();
   });
 
-  test('groups each project by namespace and shows resolution source and real template targets', () => {
-    const roots = provider.getChildren();
+  test('groups each project by namespace and shows resolution source and real template targets', async () => {
+    const roots = await provider.getChildren();
     assert.equal(roots.length, 2);
     const project = roots.find((node) => node.root.toString() === rootUri.toString());
     assert.ok(project);
-    const children = provider.getChildren(project);
-    assert.ok(children.every((node) => provider.getTreeItem(node).label !== 'Namespaces'));
-    assert.match(tooltipText(provider.getTreeItem(project)), /Namespaces: Configuration only/);
+    const children = await provider.getChildren(project);
+    assert.ok((await Promise.all(children.map(async (node) => (await provider.getTreeItem(node)).label !== 'Namespaces'))).every(Boolean));
+    assert.match(tooltipText(await provider.getTreeItem(project)), /Namespaces: Configuration only/);
     const warning = children.find((node) => node.kind === 'warning' && node.reason === 'namespaces');
     assert.ok(warning);
-    const warningItem = provider.getTreeItem(warning);
+    const warningItem = await provider.getTreeItem(warning);
     assert.equal(warningItem.label, 'Bundle namespaces unavailable');
     assert.equal(warningItem.command, undefined);
     assert.equal(warningItem.collapsibleState, vscode.TreeItemCollapsibleState.Expanded);
-    assert.deepEqual(provider.getChildren(warning).map((node) => provider.getTreeItem(node).label),
+    assert.deepEqual(await Promise.all((await provider.getChildren(warning)).map(async (node) => (await provider.getTreeItem(node)).label)),
       ['Retry', 'Open console settings']);
-    for (const action of provider.getChildren(warning)) {
-      assert.equal(provider.getTreeItem(provider.getParent(action)!).id, warningItem.id);
+    for (const action of await provider.getChildren(warning)) {
+      assert.equal((await provider.getTreeItem(provider.getParent(action)!)).id, warningItem.id);
     }
-    assert.deepEqual(children.filter((node) => node.kind === 'section').map((node) => provider.getTreeItem(node).label),
+    assert.deepEqual(await Promise.all(children.filter((node) => node.kind === 'section').map(async (node) => (await provider.getTreeItem(node)).label)),
       ['Controllers', 'Templates']);
-    const groups = templateGroups(provider, project).filter((node) => node.kind === 'namespace');
+    const groups = (await templateGroups(provider, project)).filter((node) => node.kind === 'namespace');
     assert.deepEqual(groups.map((node) => node.namespace), ['', '@Design']);
     const main = groups[0];
     const design = groups[1];
     assert.ok(main && design);
-    assert.equal(provider.getTreeItem(main).label, 'Application');
-    assert.equal(provider.getTreeItem(design).accessibilityInformation?.label, '@Design, 1');
-    const namespaced = provider.getChildren(design);
+    assert.equal((await provider.getTreeItem(main)).label, 'Application');
+    assert.equal((await provider.getTreeItem(design)).accessibilityInformation?.label, '@Design, 1');
+    const namespaced = await provider.getChildren(design);
     assert.equal(namespaced.length, 1);
     const leaf = namespaced[0];
     assert.ok(leaf);
-    const item = provider.getTreeItem(leaf);
+    const item = await provider.getTreeItem(leaf);
     assert.equal(item.label, 'badge.html.twig');
     assert.equal(item.resourceUri?.toString(), vscode.Uri.joinPath(rootUri, 'design/badge.html.twig').toString());
-    assert.equal(provider.getTreeItem(provider.getParent(leaf)!).id, provider.getTreeItem(design).id);
-    const templates = section(provider, project, 'templates');
-    assert.equal(provider.getTreeItem(provider.getParent(design)!).id, provider.getTreeItem(templates).id);
-    assert.equal(provider.getTreeItem(provider.getParent(templates)!).id, provider.getTreeItem(project).id);
-    const application = provider.getChildren(main);
-    assert.deepEqual(application.map((node) => provider.getTreeItem(node).label), ['components', 'task', 'base.html.twig']);
-    const task = application.find((node) => provider.getTreeItem(node).label === 'task');
+    assert.equal((await provider.getTreeItem(provider.getParent(leaf)!)).id, (await provider.getTreeItem(design)).id);
+    const templates = await section(provider, project, 'templates');
+    assert.equal((await provider.getTreeItem(provider.getParent(design)!)).id, (await provider.getTreeItem(templates)).id);
+    assert.equal((await provider.getTreeItem(provider.getParent(templates)!)).id, (await provider.getTreeItem(project)).id);
+    const application = await provider.getChildren(main);
+    assert.deepEqual(await Promise.all(application.map(async (node) => (await provider.getTreeItem(node)).label)), ['components', 'task', 'base.html.twig']);
+    const applicationLabels = await Promise.all(application.map(async (node) => (await provider.getTreeItem(node)).label));
+    const task = application[applicationLabels.indexOf('task')];
     assert.ok(task);
-    assert.equal(provider.getTreeItem(task).description, '2');
-    const taskFiles = provider.getChildren(task);
-    assert.deepEqual(taskFiles.map((node) => provider.getTreeItem(node).label), ['_row.html.twig', 'index.html.twig']);
+    assert.equal((await provider.getTreeItem(task)).description, '2');
+    const taskFiles = await provider.getChildren(task);
+    assert.deepEqual(await Promise.all(taskFiles.map(async (node) => (await provider.getTreeItem(node)).label)), ['_row.html.twig', 'index.html.twig']);
     assert.ok(taskFiles.some((node) => node.kind === 'template' && node.name === 'task/index.html.twig'));
-    assert.equal(provider.getTreeItem(provider.getParent(taskFiles[0]!)!).id, provider.getTreeItem(task).id);
-    assert.equal(provider.getTreeItem(provider.getParent(task)!).id, provider.getTreeItem(main).id);
+    assert.equal((await provider.getTreeItem(provider.getParent(taskFiles[0]!)!)).id, (await provider.getTreeItem(task)).id);
+    assert.equal((await provider.getTreeItem(provider.getParent(task)!)).id, (await provider.getTreeItem(main)).id);
   });
 
   test('opens a namespaced template through the registered sidebar command', async () => {
@@ -117,30 +118,30 @@ suite('Wicker sidebar', () => {
   });
 
   test('browses controller actions, opens current targets and keeps nested projects separate', async () => {
-    const project = provider.getChildren().find((node) => node.root.toString() === rootUri.toString());
-    const controllers = section(provider, project, 'controllers');
-    const rows = provider.getChildren(controllers);
-    assert.deepEqual(rows.map((node) => provider.getTreeItem(node).label), ['TaskController']);
+    const project = (await provider.getChildren()).find((node) => node.root.toString() === rootUri.toString());
+    const controllers = await section(provider, project, 'controllers');
+    const rows = await provider.getChildren(controllers);
+    assert.deepEqual(await Promise.all(rows.map(async (node) => (await provider.getTreeItem(node)).label)), ['TaskController']);
     const controller = rows[0]!;
-    assert.equal(provider.getTreeItem(provider.getParent(controller)!).id, provider.getTreeItem(controllers).id);
-    const controllerItem = provider.getTreeItem(controller);
+    assert.equal((await provider.getTreeItem(provider.getParent(controller)!)).id, (await provider.getTreeItem(controllers)).id);
+    const controllerItem = await provider.getTreeItem(controller);
     assert.ok(controllerItem.command);
     await vscode.commands.executeCommand(controllerItem.command.command, ...controllerItem.command.arguments!);
     assert.equal(vscode.window.activeTextEditor?.document.uri.toString(),
       vscode.Uri.joinPath(rootUri, 'src/Controller/TaskController.php').toString());
-    const actions = provider.getChildren(controller);
-    assert.deepEqual(actions.map((node) => provider.getTreeItem(node).label), ['index()', 'missing()', 'badNamespace()']);
+    const actions = await provider.getChildren(controller);
+    assert.deepEqual(await Promise.all(actions.map(async (node) => (await provider.getTreeItem(node)).label)), ['index()', 'missing()', 'badNamespace()']);
     for (const action of actions) {
-      const leaf = provider.getChildren(action)[0]!;
+      const leaf = (await provider.getChildren(action))[0]!;
       assert.ok(leaf.kind === 'controllerTemplate');
-      assert.equal(provider.getTreeItem(provider.getParent(action)!).id, controllerItem.id);
-      assert.equal(provider.getTreeItem(provider.getParent(leaf)!).id, provider.getTreeItem(action).id);
-      const command = provider.getTreeItem(action).command!;
+      assert.equal((await provider.getTreeItem(provider.getParent(action)!)).id, controllerItem.id);
+      assert.equal((await provider.getTreeItem(provider.getParent(leaf)!)).id, (await provider.getTreeItem(action)).id);
+      const command = (await provider.getTreeItem(action)).command!;
       await vscode.commands.executeCommand(command.command, ...command.arguments!);
       const editor: vscode.TextEditor | undefined = vscode.window.activeTextEditor;
       assert.ok(editor);
       assert.equal(editor.document.getText(editor.selection), leaf.name);
-      const item = provider.getTreeItem(leaf);
+      const item = await provider.getTreeItem(leaf);
       if (leaf.name === 'task/index.html.twig') {
         assert.ok(item.command);
         await vscode.commands.executeCommand(item.command.command, ...item.command.arguments!);
@@ -151,8 +152,8 @@ suite('Wicker sidebar', () => {
         assert.equal(item.command, undefined);
       }
     }
-    const nested = provider.getChildren().find((node) => node.root.toString() === vscode.Uri.joinPath(rootUri, 'nested-app').toString());
-    assert.deepEqual(provider.getChildren(section(provider, nested, 'controllers')).map((node) => provider.getTreeItem(node).label),
+    const nested = (await provider.getChildren()).find((node) => node.root.toString() === vscode.Uri.joinPath(rootUri, 'nested-app').toString());
+    assert.deepEqual(await Promise.all((await provider.getChildren(await section(provider, nested, 'controllers'))).map(async (node) => (await provider.getTreeItem(node)).label)),
       ['NestedController']);
     // A forged parent-root node must not open a nested project's source.
     const before = vscode.window.activeTextEditor;
@@ -165,8 +166,8 @@ suite('Wicker sidebar', () => {
   test('tracks unsaved controller edits, attributes and duplicate names without stale navigation', async () => {
     const php = await openTemplate('src', 'Controller', 'TaskController.php');
     const original = php.getText();
-    const project = provider.getChildren().find((node) => node.root.toString() === rootUri.toString());
-    const controllers = section(provider, project, 'controllers');
+    const project = (await provider.getChildren()).find((node) => node.root.toString() === rootUri.toString());
+    const controllers = await section(provider, project, 'controllers');
     const replace = async (source: string): Promise<void> => {
       const edit = new vscode.WorkspaceEdit();
       edit.replace(php.uri, new vscode.Range(php.positionAt(0), php.positionAt(php.getText().length)), source);
@@ -198,35 +199,35 @@ suite('Wicker sidebar', () => {
         assert.ok(Date.now() < deadline, 'PHP changes should refresh the sidebar');
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
-      const rows = provider.getChildren(controllers);
+      const rows = await provider.getChildren(controllers);
       assert.equal(rows.length, 2);
-      assert.notEqual(provider.getTreeItem(rows[0]!).id, provider.getTreeItem(rows[1]!).id);
+      assert.notEqual((await provider.getTreeItem(rows[0]!)).id, (await provider.getTreeItem(rows[1]!)).id);
       const controller = rows.find((node) => node.kind === 'controller' && node.className === 'App\\Controller\\PageController')!;
-      const actions = provider.getChildren(controller);
-      assert.deepEqual(actions.map((node) => provider.getTreeItem(node).label), ['index()', 'attribute()']);
+      const actions = await provider.getChildren(controller);
+      assert.deepEqual(await Promise.all(actions.map(async (node) => (await provider.getTreeItem(node)).label)), ['index()', 'attribute()']);
       const action = actions[0]!;
-      const leaves = provider.getChildren(action);
-      assert.deepEqual(leaves.map((node) => provider.getTreeItem(node).label),
+      const leaves = await provider.getChildren(action);
+      assert.deepEqual(await Promise.all(leaves.map(async (node) => (await provider.getTreeItem(node)).label)),
         ['task/index.html.twig', '@Infrastructure/status.html.twig']);
-      const item = provider.getTreeItem(action);
+      const item = await provider.getTreeItem(action);
       // Old nodes/commands should resolve fresh offsets after unrelated edits.
       await replace(source.replace('<?php', '<?php\n// shifted 💚\n'));
-      assert.equal(provider.getTreeItem(action).id, item.id);
+      assert.equal((await provider.getTreeItem(action)).id, item.id);
       await vscode.commands.executeCommand(item.command!.command, ...item.command!.arguments!);
       assert.equal(php.getText(vscode.window.activeTextEditor!.selection), 'task/index.html.twig');
-      const attribute = provider.getTreeItem(actions[1]!);
+      const attribute = await provider.getTreeItem(actions[1]!);
       await vscode.commands.executeCommand(attribute.command!.command, ...attribute.command!.arguments!);
       const editor = vscode.window.activeTextEditor!;
       assert.match(php.lineAt(editor.selection.start.line).text, /#\[Template/);
       assert.equal(php.getText(editor.selection), 'task/_row.html.twig');
-      const bundle = provider.getTreeItem(leaves[1]!);
+      const bundle = await provider.getTreeItem(leaves[1]!);
       assert.ok(bundle.command, 'explicit render targets stay available when bundle browsing is hidden');
       await vscode.commands.executeCommand(bundle.command.command, ...bundle.command.arguments!);
       assert.equal(vscode.window.activeTextEditor?.document.uri.toString(),
         vscode.Uri.joinPath(rootUri, 'vendor/sidebar-fixture/templates/status.html.twig').toString());
       await replace('<?php // controllers removed');
-      assert.deepEqual(provider.getChildren(controllers), []);
-      assert.equal(provider.getTreeItem(controller).command, undefined);
+      assert.deepEqual(await provider.getChildren(controllers), []);
+      assert.equal((await provider.getTreeItem(controller)).command, undefined);
       const before = vscode.window.activeTextEditor;
       await vscode.commands.executeCommand(item.command!.command, ...item.command!.arguments!);
       await vscode.commands.executeCommand(bundle.command.command, ...bundle.command.arguments!);
@@ -237,7 +238,7 @@ suite('Wicker sidebar', () => {
       await vscode.window.showTextDocument(php);
       await vscode.commands.executeCommand('workbench.action.files.revert');
     }
-    assert.deepEqual(provider.getChildren(controllers).map((node) => provider.getTreeItem(node).label), ['TaskController']);
+    assert.deepEqual(await Promise.all((await provider.getChildren(controllers)).map(async (node) => (await provider.getTreeItem(node)).label)), ['TaskController']);
   });
 
   test('diagnostics from a project row describe only that project and reject stale roots', async () => {
@@ -253,7 +254,7 @@ suite('Wicker sidebar', () => {
   });
 
   test('warning actions recover console resolution and saved answers stay in the tooltip', async () => {
-    const project = provider.getChildren().find((node) => node.root.toString() === rootUri.toString());
+    const project = (await provider.getChildren()).find((node) => node.root.toString() === rootUri.toString());
     assert.ok(project);
     const settings = vscode.workspace.getConfiguration('wicker');
     const previousCommand = settings.inspect<string[]>('console.command')?.workspaceValue;
@@ -264,11 +265,11 @@ suite('Wicker sidebar', () => {
     try {
       await settings.update('console.enabled', false, vscode.ConfigurationTarget.Workspace);
       await sessions.refreshAll();
-      const warning = provider.getChildren(project).find((child) => child.kind === 'warning' && child.reason === 'namespaces');
+      const warning = (await provider.getChildren(project)).find((child) => child.kind === 'warning' && child.reason === 'namespaces');
       assert.ok(warning);
-      const retry = provider.getChildren(warning).find((child) => child.kind === 'action' && child.action === 'retry');
+      const retry = (await provider.getChildren(warning)).find((child) => child.kind === 'action' && child.action === 'retry');
       assert.ok(retry);
-      const command = provider.getTreeItem(retry).command;
+      const command = (await provider.getTreeItem(retry)).command;
       assert.ok(command);
       assert.equal(await vscode.commands.executeCommand(command.command, ...command.arguments!), true);
       const limitedReport = await vscode.commands.executeCommand<string>('wicker.showProjectInfo', project);
@@ -280,16 +281,16 @@ suite('Wicker sidebar', () => {
       await settings.update('console.enabled', true, vscode.ConfigurationTarget.Workspace);
       await vscode.commands.executeCommand('wicker.reindex');
       await sessions.refreshAll();
-      assert.match(tooltipText(provider.getTreeItem(project)), /Namespaces: Symfony console/);
-      assert.ok(provider.getChildren(project).every((child) => child.kind === 'section'));
-      assert.deepEqual(provider.getChildren(warning), []);
-      assert.equal(provider.getTreeItem(retry).command, undefined);
+      assert.match(tooltipText(await provider.getTreeItem(project)), /Namespaces: Symfony console/);
+      assert.ok((await provider.getChildren(project)).every((child) => child.kind === 'section'));
+      assert.deepEqual(await provider.getChildren(warning), []);
+      assert.equal((await provider.getTreeItem(retry)).command, undefined);
       assert.equal(await vscode.commands.executeCommand(command.command, ...command.arguments!), false);
 
       await settings.update('console.command', [node, '-e', 'process.exit(1)', '--'], vscode.ConfigurationTarget.Workspace);
       await sessions.refreshAll();
-      assert.match(tooltipText(provider.getTreeItem(project)), /Namespaces: Saved from Symfony/);
-      assert.ok(provider.getChildren(project).every((child) => child.kind === 'section'));
+      assert.match(tooltipText(await provider.getTreeItem(project)), /Namespaces: Saved from Symfony/);
+      assert.ok((await provider.getChildren(project)).every((child) => child.kind === 'section'));
       await vscode.commands.executeCommand('workbench.action.closePanel');
     } finally {
       await settings.update('console.command', previousCommand, vscode.ConfigurationTarget.Workspace);
@@ -302,24 +303,24 @@ suite('Wicker sidebar', () => {
   });
 
   test('index truncation has a distinct warning with relevant settings and stable identities', async () => {
-    const project = provider.getChildren().find((node) => node.root.toString() === rootUri.toString());
+    const project = (await provider.getChildren()).find((node) => node.root.toString() === rootUri.toString());
     assert.ok(project);
     const settings = vscode.workspace.getConfiguration('wicker');
     const previousLimit = settings.inspect<number>('index.maxFiles')?.workspaceValue;
     try {
       await settings.update('index.maxFiles', 1, vscode.ConfigurationTarget.Workspace);
       await sessions.refreshAll();
-      const warning = provider.getChildren(project).find((node) => node.kind === 'warning' && node.reason === 'indexLimit');
+      const warning = (await provider.getChildren(project)).find((node) => node.kind === 'warning' && node.reason === 'indexLimit');
       assert.ok(warning);
-      assert.equal(provider.getTreeItem(warning).label, 'Template index limit reached');
-      const actions = provider.getChildren(warning);
-      assert.deepEqual(actions.map((node) => provider.getTreeItem(node).label), ['Retry', 'Open index settings']);
-      assert.notEqual(provider.getTreeItem(actions[0]!).id, provider.getTreeItem(actions[1]!).id);
+      assert.equal((await provider.getTreeItem(warning)).label, 'Template index limit reached');
+      const actions = await provider.getChildren(warning);
+      assert.deepEqual(await Promise.all(actions.map(async (node) => (await provider.getTreeItem(node)).label)), ['Retry', 'Open index settings']);
+      assert.notEqual((await provider.getTreeItem(actions[0]!)).id, (await provider.getTreeItem(actions[1]!)).id);
     } finally {
       await settings.update('index.maxFiles', previousLimit, vscode.ConfigurationTarget.Workspace);
       await sessions.refreshAll();
     }
-    assert.ok(provider.getChildren(project).every((node) => node.kind !== 'warning' || node.reason !== 'indexLimit'));
+    assert.ok((await provider.getChildren(project)).every((node) => node.kind !== 'warning' || node.reason !== 'indexLimit'));
   });
 
   test('identifies bundle namespaces without hiding application namespaces or overrides', () => {
@@ -340,12 +341,12 @@ suite('Wicker sidebar', () => {
   });
 
   test('shows bundles on request, keeps them indexed while hidden and reveals an open bundle file', async () => {
-    const project = provider.getChildren().find((node) => node.root.toString() === rootUri.toString());
+    const project = (await provider.getChildren()).find((node) => node.root.toString() === rootUri.toString());
     assert.ok(project);
-    const groups = () => templateGroups(provider, project)
+    const groups = async () => (await templateGroups(provider, project))
       .filter((node) => node.kind === 'namespace').map((node) => node.namespace);
-    assert.deepEqual(groups(), ['', '@Design']);
-    assert.equal(provider.getTreeItem(section(provider, project, 'templates')).description, '6');
+    assert.deepEqual(await groups(), ['', '@Design']);
+    assert.equal((await provider.getTreeItem(await section(provider, project, 'templates'))).description, '6');
     assert.ok(sessions.sessionFor({ uri: rootUri })?.lookup('@Infrastructure/status.html.twig'));
     let changes = 0;
     const listener = provider.onDidChangeTreeData(() => { changes += 1; });
@@ -354,17 +355,17 @@ suite('Wicker sidebar', () => {
       provider.setShowBundleTemplates(true);
       assert.equal(changes, beforeShow + 1);
       await vscode.commands.executeCommand('wicker.showBundleTemplates');
-      assert.deepEqual(groups(), ['', '@Design', '@Infrastructure']);
-      assert.equal(provider.getTreeItem(section(provider, project, 'templates')).description, '7');
-      const bundle = templateGroups(provider, project).find((node) => node.kind === 'namespace' && node.namespace === '@Infrastructure');
+      assert.deepEqual(await groups(), ['', '@Design', '@Infrastructure']);
+      assert.equal((await provider.getTreeItem(await section(provider, project, 'templates'))).description, '7');
+      const bundle = (await templateGroups(provider, project)).find((node) => node.kind === 'namespace' && node.namespace === '@Infrastructure');
       assert.ok(bundle);
-      assert.equal(provider.getChildren(bundle).length, 1);
+      assert.equal((await provider.getChildren(bundle)).length, 1);
       const beforeHide = changes;
       provider.setShowBundleTemplates(false);
       assert.equal(changes, beforeHide + 1);
       await vscode.commands.executeCommand('wicker.hideBundleTemplates');
-      assert.deepEqual(provider.getChildren(bundle), []);
-      assert.deepEqual(groups(), ['', '@Design']);
+      assert.deepEqual(await provider.getChildren(bundle), []);
+      assert.deepEqual(await groups(), ['', '@Design']);
       await vscode.commands.executeCommand('wicker.openTemplate', rootUri, '@Infrastructure/status.html.twig');
       assert.equal(vscode.window.activeTextEditor?.document.uri.toString(),
         vscode.Uri.joinPath(rootUri, 'vendor/sidebar-fixture/templates/status.html.twig').toString());
@@ -372,7 +373,7 @@ suite('Wicker sidebar', () => {
       // A provider restored with the saved "show" preference includes bundles immediately.
       const restored = new ProjectTreeProvider(sessions, true);
       try {
-        assert.ok(templateGroups(restored, project).some((node) => node.kind === 'namespace' && node.namespace === '@Infrastructure'));
+        assert.ok((await templateGroups(restored, project)).some((node) => node.kind === 'namespace' && node.namespace === '@Infrastructure'));
       } finally {
         restored.dispose();
       }
@@ -400,22 +401,22 @@ suite('Wicker sidebar', () => {
     const uri = vscode.Uri.joinPath(rootUri, 'templates', 'sidebar-test.html.twig');
     let changes = 0;
     const listener = provider.onDidChangeTreeData(() => { changes += 1; });
-    const includesNewFile = (): boolean => {
-      const root = provider.getChildren().find((node) => node.root.toString() === rootUri.toString());
-      const main = templateGroups(provider, root).find((node) => node.kind === 'namespace' && node.namespace === '');
-      return provider.getChildren(main).some((node) => node.kind === 'template' && node.name === 'sidebar-test.html.twig');
+    const includesNewFile = async (): Promise<boolean> => {
+      const root = (await provider.getChildren()).find((node) => node.root.toString() === rootUri.toString());
+      const main = (await templateGroups(provider, root)).find((node) => node.kind === 'namespace' && node.namespace === '');
+      return (await provider.getChildren(main)).some((node) => node.kind === 'template' && node.name === 'sidebar-test.html.twig');
     };
     try {
       await vscode.workspace.fs.writeFile(uri, Buffer.from('Sidebar test'));
       await sessions.refreshAll();
-      assert.ok(includesNewFile());
+      assert.ok(await includesNewFile());
       assert.ok(changes > 0);
     } finally {
       listener.dispose();
       await vscode.workspace.fs.delete(uri);
       await sessions.refreshAll();
     }
-    assert.ok(!includesNewFile());
+    assert.ok(!await includesNewFile());
   });
 
   test('reveals deeply nested folders, keeps namespaces separate and removes empty folders', async () => {
@@ -424,12 +425,12 @@ suite('Wicker sidebar', () => {
       vscode.Uri.joinPath(rootUri, 'design', '__sidebar_tree_test'),
       vscode.Uri.joinPath(rootUri, 'templates', '__sidebar_tree_test_extra'),
     ];
-    const findFolder = (namespace: string) => {
-      const root = provider.getChildren().find((node) => node.root.toString() === rootUri.toString());
+    const findFolder = async (namespace: string): Promise<SidebarNode | undefined> => {
+      const root = (await provider.getChildren()).find((node) => node.root.toString() === rootUri.toString());
       assert.ok(root);
-      const group = templateGroups(provider, root).find((node) => node.kind === 'namespace' && node.namespace === namespace);
+      const group = (await templateGroups(provider, root)).find((node) => node.kind === 'namespace' && node.namespace === namespace);
       assert.ok(group);
-      return provider.getChildren(group).find((node) => node.kind === 'folder' && node.path === '__sidebar_tree_test');
+      return (await provider.getChildren(group)).find((node) => node.kind === 'folder' && node.path === '__sidebar_tree_test');
     };
     try {
       for (const directory of directories) {
@@ -439,25 +440,25 @@ suite('Wicker sidebar', () => {
       }
       await sessions.refreshAll();
       await vscode.commands.executeCommand('wicker.reindex');
-      const main = findFolder('');
-      const design = findFolder('@Design');
+      const main = await findFolder('');
+      const design = await findFolder('@Design');
       assert.ok(main && design);
-      assert.notEqual(provider.getTreeItem(main).id, provider.getTreeItem(design).id);
+      assert.notEqual((await provider.getTreeItem(main)).id, (await provider.getTreeItem(design)).id);
       for (const folder of [main, design]) {
-        assert.equal(provider.getTreeItem(folder).description, '2');
-        const children = provider.getChildren(folder);
-        assert.deepEqual(children.map((node) => provider.getTreeItem(node).label), ['partials', 'index.html.twig']);
+        assert.equal((await provider.getTreeItem(folder)).description, '2');
+        const children = await provider.getChildren(folder);
+        assert.deepEqual(await Promise.all(children.map(async (node) => (await provider.getTreeItem(node)).label)), ['partials', 'index.html.twig']);
         const partials = children[0]!;
-        const card = provider.getChildren(partials)[0]!;
-        const item = provider.getTreeItem(card);
+        const card = (await provider.getChildren(partials))[0]!;
+        const item = await provider.getTreeItem(card);
         assert.equal(item.label, 'card.html.twig');
-        assert.equal(provider.getTreeItem(provider.getParent(card)!).id, provider.getTreeItem(partials).id);
-        assert.equal(provider.getTreeItem(provider.getParent(partials)!).id, provider.getTreeItem(folder).id);
+        assert.equal((await provider.getTreeItem(provider.getParent(card)!)).id, (await provider.getTreeItem(partials)).id);
+        assert.equal((await provider.getTreeItem(provider.getParent(partials)!)).id, (await provider.getTreeItem(folder)).id);
         assert.ok(item.command && item.resourceUri);
         await vscode.commands.executeCommand(item.command.command, ...item.command.arguments!);
         assert.equal(vscode.window.activeTextEditor?.document.uri.toString(), item.resourceUri.toString());
         assert.equal(await vscode.commands.executeCommand('wicker.revealTemplate'), true);
-        assert.equal(provider.getTreeItem(card).tooltip,
+        assert.equal((await provider.getTreeItem(card)).tooltip,
           `${folder === main ? '' : '@Design/'}__sidebar_tree_test/partials/card.html.twig\n${folder === main ? 'templates' : 'design'}/__sidebar_tree_test/partials/card.html.twig`);
       }
     } finally {
@@ -468,20 +469,20 @@ suite('Wicker sidebar', () => {
       await sessions.refreshAll();
       await vscode.commands.executeCommand('wicker.reindex');
     }
-    assert.equal(findFolder(''), undefined);
-    assert.equal(findFolder('@Design'), undefined);
+    assert.equal(await findFolder(''), undefined);
+    assert.equal(await findFolder('@Design'), undefined);
   });
 
   test('clears disabled projects and rejects stale open/reveal actions until enabled again', async () => {
     await openTemplate('templates', 'task', 'index.html.twig');
     const before = vscode.window.activeTextEditor?.document.uri.toString();
-    const project = provider.getChildren()[0];
+    const project = (await provider.getChildren())[0];
     assert.ok(project);
     const settings = vscode.workspace.getConfiguration('wicker');
     await settings.update('enable', false, vscode.ConfigurationTarget.Workspace);
     try {
-      assert.deepEqual(provider.getChildren(), []);
-      assert.deepEqual(provider.getChildren(project), []);
+      assert.deepEqual(await provider.getChildren(), []);
+      assert.deepEqual(await provider.getChildren(project), []);
       assert.equal(await vscode.commands.executeCommand('wicker.retryProject', {
         kind: 'action', root: project.root, reason: 'namespaces', action: 'retry',
       }), false);
@@ -496,7 +497,7 @@ suite('Wicker sidebar', () => {
     } finally {
       await settings.update('enable', undefined, vscode.ConfigurationTarget.Workspace);
     }
-    assert.equal(provider.getChildren().length, 2);
+    assert.equal((await provider.getChildren()).length, 2);
     assert.equal(await vscode.commands.executeCommand('wicker.revealTemplate'), true);
   });
 
@@ -530,14 +531,14 @@ suite('Wicker sidebar', () => {
     assert.deepEqual(broken, []);
   });
 
-  test('has an empty tree when no Symfony project is detected', () => {
+  test('has an empty tree when no Symfony project is detected', async () => {
     const empty = new SessionManager(new LoaderPathMemory({
       keys: () => [], get: <T>(_key: string, fallback?: T): T | undefined => fallback,
       update: () => Promise.resolve(),
     }));
     const tree = new ProjectTreeProvider(empty);
     try {
-      assert.deepEqual(tree.getChildren(), []);
+      assert.deepEqual(await tree.getChildren(), []);
     } finally {
       tree.dispose();
       empty.dispose();

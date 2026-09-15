@@ -10,8 +10,13 @@ import { enginePathOf, inIgnoredDirectory, IGNORED_GLOB } from './paths.js';
  *
  * CSS is included because a stylesheet's own @import chain is how most of a
  * page's styles are reached, and none of those names appear in a template.
+ *
+ * Source maps are deliberately absent. They are the largest files a project
+ * has, nothing is ever parsed out of them, and they are consulted only when a
+ * script row turns out to be compiled output, so they are read then instead of
+ * every one of them being read to open a project.
  */
-const EXTENSIONS = ['php', 'twig', 'js', 'ts', 'map', 'css'] as const;
+const EXTENSIONS = ['php', 'twig', 'js', 'ts', 'css'] as const;
 const PATTERN = `**/*.{${EXTENSIONS.join(',')}}`;
 const TRACKED = new RegExp(String.raw`\.(?:${EXTENSIONS.join('|')})$`);
 

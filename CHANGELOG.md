@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.6.1
+
+What a large project was waiting for.
+
+### Fixed
+
+- **The route sections no longer cost seconds.** Working out which files reach
+  a route walked every indexed file once per route, and the Stimulus half
+  walked them all again inside that. The sidebar ran it on every refresh, so a
+  project with 2000 files and 200 routes measured 9.3 seconds. The same work
+  now measures a millisecond.
+- **A rebuild interrupted by an edit is no longer thrown away.** It restarted
+  from nothing whenever a watched file changed while it ran, so where building
+  takes seconds the next change usually arrived first and the index could stay
+  empty for as long as someone kept working.
+- **Generated trees stop triggering rebuilds.** A file appearing under `var`,
+  `node_modules` or `.git` queued a full one. `vendor` is still watched, since
+  bundle templates and packaged Stimulus controllers are indexed from there.
+- **Hover, completion, definition and quick fixes reuse the parse** the index
+  already made of that exact text instead of re-reading the document, and the
+  scoped view of the index is kept until something can change it.
+- **The index has a ceiling.** It held every file's text plus every parsed
+  structure with no aggregate bound, roughly nine times the text it came from.
+  It stops at the same 32MB the template context index has always used.
+
 ## 0.6.0
 
 The connections Stimulus and AssetMapper make by naming convention alone.

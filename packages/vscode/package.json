@@ -284,6 +284,7 @@
   "scripts": {
     "build": "node esbuild.js --production",
     "compile": "node esbuild.js",
+    "vscode:prepublish": "node scripts/prepublish.cjs && npm run compile",
     "watch": "node esbuild.js --watch",
     "typecheck": "tsc -p tsconfig.json",
     "test:integration": "npm run compile && vscode-test",

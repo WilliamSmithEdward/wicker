@@ -6,9 +6,42 @@ export interface JsToken extends OffsetRange {
   readonly value?: string;
 }
 
+/**
+ * The last token stream, kept so indexing one file does not lex it repeatedly.
+ *
+ * A controller is lexed three times to be indexed once: the scan reads its
+ * requests, the fetch-value sites are read from it again, and the Stimulus
+ * declarations a third time. Each asks for the same source over the same
+ * range, one after another, so one entry is all the reuse they need.
+ *
+ * The range is part of the key because a Twig template's scripts are lexed as
+ * separate spans of one source, and answering with the wrong span would report
+ * declarations from another `<script>` block entirely.
+ */
+let lastSource: string | undefined;
+let lastStart = 0;
+let lastEnd = 0;
+let lastTokens: readonly JsToken[] | undefined;
+
+const MAX_RETAINED_SOURCE = 512 * 1024;
+
 /** A small lexical subset, not executable JS. Strings, comments and regex bodies
  * cannot introduce declarations. No runtime parser dependency is shipped. */
-export function javascriptTokens(source: string, start = 0, end = source.length): JsToken[] {
+export function javascriptTokens(source: string, start = 0, end = source.length): readonly JsToken[] {
+  if (lastTokens !== undefined && lastSource === source && lastStart === start && lastEnd === end) {
+    return lastTokens;
+  }
+  const tokens = lexJavascript(source, start, end);
+  if (source.length <= MAX_RETAINED_SOURCE) {
+    lastSource = source;
+    lastStart = start;
+    lastEnd = end;
+    lastTokens = tokens;
+  }
+  return tokens;
+}
+
+function lexJavascript(source: string, start: number, end: number): JsToken[] {
   const tokens: JsToken[] = [];
   let i = start;
   while (i < end) {

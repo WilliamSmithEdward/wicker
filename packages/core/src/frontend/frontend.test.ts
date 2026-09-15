@@ -290,6 +290,27 @@ describe('Twig/JavaScript frontend references', () => {
     expect(scanFrontend(`<script>const url = "{{ path('api_status') }}";</script>`, true).requests).toEqual([]);
     expect(scanFrontend(`<script>fetch("{{ path('api_status') }}")</script>`, true).requests[0]).toMatchObject({ kind: 'route', name: 'api_status' });
   });
+
+  /*
+   * Each block is lexed as its own span of the one template, so a reader that
+   * confuses two spans reports the first block's code as the second's. The
+   * offsets are checked as well as the names, because a wrong span still
+   * yields plausible-looking names while pointing at the wrong text.
+   */
+  it('keeps two script blocks in one template apart', () => {
+    const source = [
+      `<script>fetch('/api/first');</script>`,
+      `<p>between</p>`,
+      `<script>fetch('/api/second');</script>`,
+    ].join('\n');
+    const scan = scanFrontend(source, true);
+
+    expect(scan.requests.map((request) => request.name)).toEqual(['/api/first', '/api/second']);
+    for (const request of scan.requests) {
+      expect(source.slice(request.range.start, request.range.end)).toBe(request.name);
+    }
+    expect(scan.scripts.length).toBe(2);
+  });
 });
 
 describe('endpoint declarations', () => {

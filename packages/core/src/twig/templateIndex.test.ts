@@ -230,19 +230,18 @@ describe('TwigTemplateIndex queries', () => {
     expect(index.has('home/missing.html.twig')).toBe(false);
   });
 
-  it('lists names within one namespace', async () => {
+  it('sorts names once and keeps answering with the same list', async () => {
     const index = await TwigTemplateIndex.build(
       new InMemoryFileSystem({
+        '/app/templates/b.twig': 'x',
         '/app/templates/a.twig': 'x',
-        '/app/admin/b.twig': 'x',
       }),
       '/app',
-      TwigLoaderPaths.fromEntries([
-        { namespace: null, forcesBundleTemplate: false, directories: ['templates'] },
-        { namespace: 'Admin', forcesBundleTemplate: false, directories: ['admin'] },
-      ]),
+      TwigLoaderPaths.default(),
     );
-    expect(index.namesInNamespace(null)).toEqual(['a.twig']);
-    expect(index.namesInNamespace('Admin')).toEqual(['@Admin/b.twig']);
+    expect(index.allNames()).toEqual(['a.twig', 'b.twig']);
+    // Identity, because an index never changes after it is built and the
+    // sidebar asks for this while drawing every namespace.
+    expect(index.allNames()).toBe(index.allNames());
   });
 });

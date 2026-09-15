@@ -32,6 +32,9 @@ import { discoverFrontend, type FrontendDiscovery } from './frontendDiscovery.js
 
 const DEFAULT_EXTENSIONS = ['.twig'];
 
+/** The conventional Symfony layout, offered when scaffolding a new template. */
+const LAYOUT_TEMPLATE = 'base.html.twig';
+
 /** Trees that are generated or installed rather than written. */
 const GENERATED_DIRECTORIES = ['var', 'node_modules', '.git'];
 
@@ -217,7 +220,7 @@ export class ProjectSession implements vscode.Disposable {
 
   /** The template most likely to be a layout, used when scaffolding a new file. */
   layoutTemplateName(): string | undefined {
-    return this.templateIndex.allNames().find((name) => name === 'base.html.twig');
+    return this.templateIndex.lookup(LAYOUT_TEMPLATE) ? LAYOUT_TEMPLATE : undefined;
   }
 
   /** Coalesce requests, but repeat when a change arrived during an older build. */

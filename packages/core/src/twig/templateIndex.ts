@@ -60,6 +60,7 @@ export class TwigTemplateIndex {
   private readonly byProjectPath: ReadonlyMap<string, readonly IndexedTemplate[]>;
   /** True when the walk stopped early, so callers know the index is partial. */
   readonly truncated: boolean;
+  private sortedNames?: readonly string[];
 
   private constructor(
     byName: ReadonlyMap<string, readonly IndexedTemplate[]>,
@@ -161,20 +162,16 @@ export class TwigTemplateIndex {
     return this.byProjectPath.get(projectPath) ?? [];
   }
 
-  /** Every distinct name, sorted, for completion and diagnostics. */
+  /**
+   * Every distinct name, sorted, for completion and diagnostics.
+   *
+   * Sorted once. An index never changes after it is built, and the sidebar
+   * asks for this while drawing each namespace, so re-sorting every name on
+   * every call was the same answer bought repeatedly.
+   */
   allNames(): readonly string[] {
-    return [...this.byName.keys()].sort();
-  }
-
-  /** Names within one namespace, sorted. Pass null for the main namespace. */
-  namesInNamespace(namespace: string | null): readonly string[] {
-    const names: string[] = [];
-    for (const [name, entries] of this.byName) {
-      if (entries[0]?.namespace === namespace) {
-        names.push(name);
-      }
-    }
-    return names.sort();
+    this.sortedNames ??= [...this.byName.keys()].sort();
+    return this.sortedNames;
   }
 
   /**

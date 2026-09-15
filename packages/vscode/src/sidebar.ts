@@ -650,6 +650,12 @@ Extends ${node.name}.`;
         `Fetched by:\n${fetchers.map((use) => `${use.projectPath}${use.via === undefined ? '' : ` (${use.via})`}`).join('\n')}\n`
       }Open the endpoint action. Expand to explore its connections.` :
         node.kind === 'routeTemplate' ? `HTML rendered by ${node.name}` : `Explicit reference to ${node.name}\n${node.projectPath}`;
+      // Each row stands for a file, and says so, so a route whose action is
+      // untracked or a consumer that is modified carries its git state here
+      // as it does under its controller.
+      const file = node.kind === 'route' ? (route && routeAction(this.sessions, session, route)?.projectPath)
+        : node.kind === 'routeConsumer' ? node.projectPath : session.lookup(node.templateName)?.projectPath;
+      if (file !== undefined) { item.resourceUri = session.uriOf(file); }
       item.command = { command: 'wicker.openEndpoint', title: 'Open endpoint connection', arguments: [node] };
       return item;
     }
@@ -724,6 +730,8 @@ Extends ${node.name}.`;
         ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed);
       const visibleFiles = this.visibleFileCount(session);
       item.iconPath = sidebarIcon('project');
+      // The root, so the project row carries what the whole tree of files does.
+      item.resourceUri = node.root;
       item.tooltip = `${session.project.root}\n${counted(session.index.fileCount, 'file')}, ${counted(session.index.nameCount, 'template name')}`;
       const source = NAMESPACE_SOURCES[session.loaderPaths.source];
       item.tooltip += `\nNamespaces: ${source.label}\n${source.detail}`;
@@ -770,10 +778,13 @@ Extends ${node.name}.`;
         : vscode.TreeItemCollapsibleState.Collapsed);
       item.description = String(names.length);
       item.iconPath = sidebarIcon('namespace');
-      const directories = session.loaderPaths.paths.all().find((entry) =>
-        namespaceKey(entry.namespace, entry.forcesBundleTemplate) === node.namespace,
-      )?.directories ?? [];
+      const directories = loaderDirectories(session, node.namespace);
       item.tooltip = `${counted(names.length, 'template name')}\n${directories.join('\n')}`;
+      // With a directory to stand for, the row picks up what its files carry:
+      // a namespace holding a modified template shows the modified colour, as
+      // a folder does in Explorer. A namespace spread over several directories
+      // stands for none of them in particular.
+      if (directories.length === 1) { item.resourceUri = session.uriOf(directories[0]!); }
       if (names.length === 0) {
         item.tooltip += '\nAdd a template in one of these directories to see it here.';
       }
@@ -786,6 +797,8 @@ Extends ${node.name}.`;
       item.iconPath = sidebarIcon('folder');
       item.description = String(count);
       item.tooltip = `${node.namespace ? `${node.namespace}/` : ''}${node.path}/\n${counted(count, 'template name')}`;
+      const directories = loaderDirectories(session, node.namespace);
+      if (directories.length === 1) { item.resourceUri = session.uriOf(`${directories[0]!}/${node.path}`); }
       return item;
     }
     if (node.kind === 'loaded') {
@@ -1451,6 +1464,12 @@ function groupsOf(index: TwigTemplateIndex): ReadonlyMap<string, readonly string
     namespaceGroups.set(index, found);
   }
   return found;
+}
+
+/** The loader directories behind a namespace row, as the tree keys namespaces. */
+function loaderDirectories(session: ProjectSession, namespace: string): readonly string[] {
+  return session.loaderPaths.paths.all().find((entry) =>
+    namespaceKey(entry.namespace, entry.forcesBundleTemplate) === namespace)?.directories ?? [];
 }
 
 function namesInGroup(session: ProjectSession, namespace: string): readonly string[] {

@@ -311,6 +311,9 @@ suite('Stimulus and API connections', () => {
       assert.deepEqual(await Promise.all(entries.map(async (node) => (await tree.getTreeItem(node)).label)), ['GET /_wicker-test/api']);
       assert.equal(((await tree.getTreeItem(entries[0]!)).iconPath as vscode.ThemeIcon).id, 'symbol-object');
       assert.equal((await tree.getTreeItem(entries[0]!)).description, 'wicker_test_json', 'a JSON endpoint explains itself');
+      // A route row stands for its action's file, so its git state shows here
+      // as it does under the controller.
+      assert.equal((await tree.getTreeItem(entries[0]!)).resourceUri?.toString(), php.uri.toString());
       const json = await tree.getChildren(entries[0]);
       assert.ok(json.some((node) => node.kind === 'routeConsumer' && node.projectPath === JS));
       const templateSection = (await tree.getChildren(root)).find((node) => node.kind === 'section' && node.section === 'templateRoutes');

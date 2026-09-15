@@ -102,6 +102,11 @@ suite('Wicker sidebar', () => {
     const task = application[applicationLabels.indexOf('task')];
     assert.ok(task);
     assert.equal((await provider.getTreeItem(task)).description, '2');
+    // A folder and a namespace stand for their directory, so the git state of
+    // the templates inside reaches them the way it reaches an Explorer folder.
+    assert.equal((await provider.getTreeItem(task)).resourceUri?.toString(), vscode.Uri.joinPath(rootUri, 'templates/task').toString());
+    assert.equal((await provider.getTreeItem(main)).resourceUri?.toString(), vscode.Uri.joinPath(rootUri, 'templates').toString());
+    assert.equal((await provider.getTreeItem(project)).resourceUri?.toString(), rootUri.toString());
     const taskFiles = await provider.getChildren(task);
     assert.deepEqual(await Promise.all(taskFiles.map(async (node) => (await provider.getTreeItem(node)).label)), ['_row.html.twig', 'index.html.twig']);
     assert.ok(taskFiles.some((node) => node.kind === 'template' && node.name === 'task/index.html.twig'));

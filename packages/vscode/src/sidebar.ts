@@ -782,35 +782,43 @@ function isScriptOwner(node: SidebarNode): node is ScriptOwner {
 }
 
 /** The entrypoints a template renders, as the head of its loading chain. */
-function entrypointsForOwner(sessions: SessionManager, session: ProjectSession, node: ScriptOwner): readonly ChainEntry[] {
+/**
+ * The template a row stands for, or nothing when the row has gone stale.
+ *
+ * A node keeps the name it was built with, and the tree is asked about it
+ * again after the project moved underneath it: a controller whose render site
+ * has gone, or a route whose action no longer renders the template named here.
+ * Answering from the name alone would list the scripts and stylesheets of a
+ * page nothing renders any more.
+ */
+function templatesForOwner(sessions: SessionManager, session: ProjectSession, node: ScriptOwner): readonly string[] {
   if (node.kind === 'controllerScripts') { return []; }
-  if (node.kind === 'controllerTemplate' && !controllerSites(sessions, session, node).length) { return []; }
-  if (node.kind === 'routeTemplate') {
-    const route = session.frontend.routes.find((route) => route.name === node.name);
-    if (!route || !routeAction(sessions, session, route)?.action.templates.includes(node.templateName)) { return []; }
+  if (node.kind === 'controllerTemplate') {
+    return controllerSites(sessions, session, node).length ? [node.name] : [];
   }
-  return templateEntrypoints(sessions, session, [node.kind === 'routeTemplate' ? node.templateName : node.name]);
+  if (node.kind === 'routeTemplate') {
+    const route = session.frontend.routes.find((entry) => entry.name === node.name);
+    return route && routeAction(sessions, session, route)?.action.templates.includes(node.templateName)
+      ? [node.templateName] : [];
+  }
+  return [node.name];
+}
+
+function entrypointsForOwner(sessions: SessionManager, session: ProjectSession, node: ScriptOwner): readonly ChainEntry[] {
+  return templateEntrypoints(sessions, session, templatesForOwner(sessions, session, node));
 }
 
 /** Stylesheets for the same owners, from the same template walk as scripts. */
 function stylesForOwner(sessions: SessionManager, session: ProjectSession, node: ScriptOwner): readonly RelatedStyle[] {
-  if (node.kind === 'controllerScripts') { return []; }
-  if (node.kind === 'controllerTemplate' && !controllerSites(sessions, session, node).length) { return []; }
-  if (node.kind === 'routeTemplate') {
-    const route = session.frontend.routes.find((route) => route.name === node.name);
-    if (!route || !routeAction(sessions, session, route)?.action.templates.includes(node.templateName)) { return []; }
-  }
-  return templateStyles(sessions, session, [node.kind === 'routeTemplate' ? node.templateName : node.name]);
+  return templateStyles(sessions, session, templatesForOwner(sessions, session, node));
 }
 
 function scriptsForOwner(sessions: SessionManager, session: ProjectSession, node: ScriptOwner): readonly RelatedScript[] {
-  if (node.kind === 'controllerScripts') { return controllerScripts(sessions, session, node); }
-  if (node.kind === 'controllerTemplate' && !controllerSites(sessions, session, node).length) { return []; }
-  if (node.kind === 'routeTemplate') {
-    const route = session.frontend.routes.find((route) => route.name === node.name);
-    if (!route || !routeAction(sessions, session, route)?.action.templates.includes(node.templateName)) { return []; }
-  }
-  return templateScripts(sessions, session, [node.kind === 'routeTemplate' ? node.templateName : node.name]);
+  // The only owner that is not a template: its scripts come from the
+  // controller's own registrations rather than from anything a page renders.
+  return node.kind === 'controllerScripts'
+    ? controllerScripts(sessions, session, node)
+    : templateScripts(sessions, session, templatesForOwner(sessions, session, node));
 }
 
 function scriptIcon(path: string): string { return path.endsWith('.ts') ? icons.typescript : icons.javascript; }

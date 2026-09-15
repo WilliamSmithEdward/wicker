@@ -8,6 +8,26 @@ import { enginePathOf } from './paths.js';
 const decoder = new TextDecoder('utf-8');
 
 /**
+ * Reads a set of files a few at a time, stopping when the caller goes away.
+ *
+ * Every tracker rebuilds by reading its whole file set, and issuing all of
+ * those at once floods a container or a connection where each read is a round
+ * trip. Each tracker hand-rolled the same index arithmetic and the same
+ * disposal check, which is a loop that is easy to write slightly differently
+ * three times and hard to notice when one of them stops checking.
+ */
+export async function readInBatches<T>(
+  items: readonly T[],
+  read: (item: T) => Promise<void>,
+  abandoned: () => boolean,
+  size = 32,
+): Promise<void> {
+  for (let start = 0; start < items.length && !abandoned(); start += size) {
+    await Promise.all(items.slice(start, start + size).map(read));
+  }
+}
+
+/**
  * The engine's filesystem, backed by `vscode.workspace.fs`.
  *
  * Going through the editor rather than `node:fs` is what lets the same code

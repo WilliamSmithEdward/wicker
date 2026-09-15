@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 
 import { joinProjectPath, RenderSiteIndex, toProjectPath } from '@wicker/core';
 
-import type { VsCodeFileSystem } from './fileSystem.js';
+import { readInBatches, type VsCodeFileSystem } from './fileSystem.js';
 import { enginePathOf, inIgnoredDirectory, IGNORED_GLOB } from './paths.js';
 
 /** Maintains disk records with open PHP buffers taking precedence, even before saving. */
@@ -60,11 +60,7 @@ export class RenderSiteTracker implements vscode.Disposable {
         uris.set(document.uri.toString(), document.uri);
       }
     }
-    const files = [...uris.values()];
-    // Bound concurrent reads on remote filesystems.
-    for (let start = 0; start < files.length && !this.disposed; start += 32) {
-      await Promise.all(files.slice(start, start + 32).map((uri) => this.load(uri)));
-    }
+    await readInBatches([...uris.values()], (uri) => this.load(uri), () => this.disposed);
   }
 
   private sourcePath(uri: vscode.Uri): string | undefined {

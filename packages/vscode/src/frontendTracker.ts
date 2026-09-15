@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { FrontendIndex, joinProjectPath, toProjectPath } from '@wicker/core';
-import type { VsCodeFileSystem } from './fileSystem.js';
+import { readInBatches, type VsCodeFileSystem } from './fileSystem.js';
 import { enginePathOf, inIgnoredDirectory, IGNORED_GLOB } from './paths.js';
 
 /*
@@ -40,8 +40,7 @@ export class FrontendTracker implements vscode.Disposable {
     for (const uri of await vscode.workspace.findFiles(new vscode.RelativePattern(this.rootUri, PATTERN),
       IGNORED_GLOB, 20000)) { uris.set(uri.toString(), uri); }
     for (const doc of vscode.workspace.textDocuments) { if (this.path(doc.uri) && !doc.isClosed) { uris.set(doc.uri.toString(), doc.uri); } }
-    const files = [...uris.values()];
-    for (let i = 0; i < files.length && !this.disposed; i += 32) { await Promise.all(files.slice(i, i + 32).map((uri) => this.load(uri))); }
+    await readInBatches([...uris.values()], (uri) => this.load(uri), () => this.disposed);
   }
   private path(uri: vscode.Uri): string | undefined {
     if (uri.scheme !== this.rootUri.scheme || uri.authority !== this.rootUri.authority) { return undefined; }

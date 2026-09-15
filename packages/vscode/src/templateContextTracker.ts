@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 
 import { joinProjectPath, TemplateContextIndex, type TwigTemplateIndex } from '@wicker/core';
 
-import type { VsCodeFileSystem } from './fileSystem.js';
+import { readInBatches, type VsCodeFileSystem } from './fileSystem.js';
 import { enginePathOf } from './paths.js';
 
 /** Twig text stays current independently of console discovery and template-name indexing. */
@@ -39,9 +39,9 @@ export class TemplateContextTracker implements vscode.Disposable {
     }
     const added = [...paths].filter((path) => force || !this.known.has(path));
     this.known = paths;
-    for (let at = 0; at < added.length && !this.disposed; at += 16) {
-      await Promise.all(added.slice(at, at + 16).map((path) => this.load(path)));
-    }
+    // Smaller batches than the other trackers: a template carries its whole
+    // inheritance chain into the parse, so these reads are the heavier ones.
+    await readInBatches(added, (path) => this.load(path), () => this.disposed, 16);
   }
 
   update(document: vscode.TextDocument): void {

@@ -4,6 +4,7 @@ import { parseTemplateName, type IncomingReference, type TwigTemplateIndex, type
 
 import { enginePathOf } from './paths.js';
 import { isEnabled, type ProjectSession, type SessionManager } from './session.js';
+import { counted } from './text.js';
 import { apiRoutes, compareRoutePaths, controllerDependencies, frontendIndex, routeAction, routeConsumers, stimulusControllers, templateRoutes, templatesBinding } from './frontendProject.js';
 import { dependencyKind, sidebarIcon, SIDEBAR_ICONS as icons } from './sidebarIcons.js';
 import { controllerScripts, templateControllers, templateScripts, type BoundController, type BoundWiring, type RelatedScript } from './relatedScripts.js';
@@ -1445,9 +1446,6 @@ function namesInGroup(session: ProjectSession, namespace: string): readonly stri
   return groupsOf(session.index).get(namespace) ?? [];
 }
 
-function counted(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`;
-}
 
 /** Symfony's @! variant identifies bundle namespaces, including custom vendor roots. */
 export function isBundleNamespace(entries: readonly LoaderPathEntry[], namespace: string): boolean {

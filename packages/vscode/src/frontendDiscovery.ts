@@ -1,6 +1,5 @@
-import { joinProjectPath, normalizeProjectPath, parseComposerManifest, parseJsonLoosely, routesFromDebug,
+import { joinProjectPath, normalizeProjectPath, parseComposerManifest, objectOf, parseJsonLoosely, routesFromDebug,
   stimulusIdentifier, toProjectPath, type ConsoleRunner, type StimulusController, type SymfonyRoute, type WickerFileSystem } from '@wicker/core';
-import { objectOf } from './json.js';
 
 export interface FrontendDiscovery {
   readonly controllers: readonly StimulusController[];

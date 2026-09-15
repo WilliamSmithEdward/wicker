@@ -1,4 +1,5 @@
 import { parseJsonLoosely } from '../console/consoleRunner.js';
+import { isRecord } from '../util/json.js';
 import { significantTokens, type PhpToken } from '../php/lexer.js';
 import { scanTemplateReferences, type OffsetRange } from '../php/templateReferences.js';
 import { closingToken } from './javascript.js';
@@ -23,11 +24,11 @@ export interface EndpointAction {
 
 export function routesFromDebug(raw: string): readonly SymfonyRoute[] | undefined {
   const parsed: unknown = parseJsonLoosely(raw);
-  if (!record(parsed)) { return undefined; }
+  if (!isRecord(parsed)) { return undefined; }
   const routes: SymfonyRoute[] = [];
   for (const [name, value] of Object.entries(parsed)) {
-    if (!record(value) || typeof value['path'] !== 'string' || !value['path'].startsWith('/') ||
-      typeof value['method'] !== 'string' || !record(value['defaults'])) { continue; }
+    if (!isRecord(value) || typeof value['path'] !== 'string' || !value['path'].startsWith('/') ||
+      typeof value['method'] !== 'string' || !isRecord(value['defaults'])) { continue; }
     const controller = value['defaults']['_controller'];
     if (typeof controller !== 'string' || !/^[\w\\]+(?:::\w+)?$/.test(controller)) { continue; }
     routes.push({ name, path: value['path'], methods: value['method'], controller,
@@ -148,4 +149,3 @@ function intersectFields(responses: readonly (readonly ResponseField[])[]): read
   return (responses[0] ?? []).filter((field) => responses.every((response) => response.some((entry) => entry.name === field.name)))
     .map((field) => ({ ...field, fields: intersectFields(responses.map((response) => response.find((entry) => entry.name === field.name)!.fields)) }));
 }
-function record(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value); }

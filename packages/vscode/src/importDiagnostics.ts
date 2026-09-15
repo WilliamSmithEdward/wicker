@@ -1,4 +1,5 @@
 import { importSpecifiers, resolveRelativeImport } from '@wicker/core';
+import { severityFromSettings } from './severity.js';
 import * as vscode from 'vscode';
 
 import { enginePathOf } from './paths.js';
@@ -28,7 +29,7 @@ export function missingImportDiagnostics(
   session: ProjectSession,
   document: vscode.TextDocument,
 ): vscode.Diagnostic[] {
-  const severity = severityFromSettings();
+  const severity = severityFromSettings('missingImport', 'warning');
   const projectPath = session.relativePathOf(enginePathOf(document.uri));
   if (severity === undefined || projectPath === undefined) {
     return [];
@@ -76,11 +77,3 @@ export function missingImportDiagnostics(
   return sessions.sessionFor(document) === session ? result : [];
 }
 
-function severityFromSettings(): vscode.DiagnosticSeverity | undefined {
-  switch (vscode.workspace.getConfiguration('wicker').get<string>('diagnostics.missingImport', 'warning')) {
-    case 'error': return vscode.DiagnosticSeverity.Error;
-    case 'warning': return vscode.DiagnosticSeverity.Warning;
-    case 'information': return vscode.DiagnosticSeverity.Information;
-    default: return undefined;
-  }
-}

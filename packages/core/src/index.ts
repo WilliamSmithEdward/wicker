@@ -129,5 +129,6 @@ export {
   toPosixPath,
   toProjectPath,
 } from './util/paths.js';
+export { isRecord, objectOf } from './util/json.js';
 export { phpTypeDeclarations, type PhpTypeDeclaration, type PhpDependency } from './php/dependencies.js';
 export { typescriptSourceForJavascript } from './frontend/sourceMaps.js';

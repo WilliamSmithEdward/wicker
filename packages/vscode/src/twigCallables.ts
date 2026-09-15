@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { severityFromSettings } from './severity.js';
 
 import {
   callableGroup, findTwigCallable, isConcreteTwigCallable, scanTwigCallables, twigCallableContextAt,
@@ -44,10 +45,7 @@ export function twigCallableDiagnostics(session: ProjectSession, document: vscod
   const catalog = session.loaderPaths.callables;
   if (catalog === undefined || !session.canCheckCallables ||
       (document.languageId !== 'twig' && !document.uri.path.endsWith('.twig'))) { return []; }
-  const setting = vscode.workspace.getConfiguration('wicker', document.uri).get<string>('diagnostics.unknownCallable', 'warning');
-  const severity = setting === 'error' ? vscode.DiagnosticSeverity.Error
-    : setting === 'warning' ? vscode.DiagnosticSeverity.Warning
-      : setting === 'information' ? vscode.DiagnosticSeverity.Information : undefined;
+  const severity = severityFromSettings('unknownCallable', 'warning', document.uri);
   if (severity === undefined) { return []; }
   return scanTwigCallables(document.getText()).filter((reference) =>
     callableGroup(catalog, reference.kind).complete && findTwigCallable(catalog, reference.kind, reference.name) === undefined,

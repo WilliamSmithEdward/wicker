@@ -1,4 +1,5 @@
 import type { OffsetRange } from '../php/templateReferences.js';
+import { objectOf } from '../util/json.js';
 
 import { tokenizeTwigExpression, type TwigExpressionToken } from './expressionLexer.js';
 import { lexTwigRegions } from './twigLexer.js';
@@ -28,24 +29,20 @@ const PATTERN_NAME = /^[a-zA-Z_\u0080-\uffff*][a-zA-Z0-9_\u0080-\uffff*]*$/;
 
 /** Read only the small, documented debug:twig subset this feature needs. */
 export function twigCallablesFromDebug(payload: unknown): TwigCallableCatalog {
-  const object = record(payload);
+  const object = objectOf(payload);
   return {
     filters: readGroup(object?.['filters'], 'filter'),
     functions: readGroup(object?.['functions'], 'function'),
   };
 }
 
-function record(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown> : undefined;
-}
 
 function readGroup(value: unknown, kind: TwigCallableKind): TwigCallableGroup {
   // PHP encodes an empty array as [], and a populated name map as an object.
   if (Array.isArray(value) && value.length === 0) {
     return { entries: [], complete: true };
   }
-  const object = record(value);
+  const object = objectOf(value);
   if (object === undefined) {
     return { entries: [], complete: false };
   }

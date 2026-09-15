@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { counted } from './text.js';
 
 import type { RenderSite } from '@wicker/core';
 
@@ -54,7 +55,7 @@ export class RenderedByProvider implements vscode.CodeLensProvider, vscode.Dispo
     const count = this.sessions.extendingTemplateCount(document);
     if (count === 0) { return []; }
     return [new vscode.CodeLens(new vscode.Range(0, 0, 0, 0), {
-      title: `Extended by ${count} template${count === 1 ? '' : 's'}`,
+      title: `Extended by ${counted(count, 'template')}`,
       tooltip: 'Templates that inherit the blocks this one declares. Browse them in the Wicker sidebar.',
       command: 'wicker.revealTemplate',
     })];

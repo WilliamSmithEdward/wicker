@@ -1,6 +1,5 @@
-import { AssetMap, assetMapperSettings, joinProjectPath, parseImportMap, parseJsonLoosely,
+import { AssetMap, assetMapperSettings, joinProjectPath, parseImportMap, objectOf, parseJsonLoosely,
   type AssetMapperSettings, type ConsoleRunner, type ImportMapEntry, type WickerFileSystem } from '@wicker/core';
-import { objectOf } from './json.js';
 
 export interface AssetDiscovery {
   /** Logical path to file, for `asset()` and bare imports. */

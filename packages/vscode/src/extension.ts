@@ -17,6 +17,8 @@ import {
   type DocumentTemplateReference,
 } from './references.js';
 import { Deferred } from './debounce.js';
+import { severityFromSettings } from './severity.js';
+import { counted } from './text.js';
 import { missingImportDiagnostics } from './importDiagnostics.js';
 import { StimulusMemberActionProvider } from './stimulusActions.js';
 import { LoaderPathMemory } from './loaderPathMemory.js';
@@ -234,7 +236,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return [
           session.project.root,
           // A file can resolve under more than one template name.
-          `  templates      ${plural(session.index.fileCount, 'file')}, reachable under ${plural(
+          `  templates      ${counted(session.index.fileCount, 'file')}, reachable under ${counted(
             session.index.nameCount,
             'name',
           )}${session.index.truncated ? ' (truncated at the configured limit)' : ''}`,
@@ -419,7 +421,7 @@ function buildDiagnostics(
   session: ProjectSession,
   document: vscode.TextDocument,
 ): vscode.Diagnostic[] {
-  const severity = severityFromSettings();
+  const severity = severityFromSettings('missingTemplate', 'error');
   if (severity === undefined) {
     return [];
   }
@@ -450,23 +452,4 @@ function buildDiagnostics(
 }
 
 /** "1 template", "37 templates". */
-function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`;
-}
 
-function severityFromSettings(): vscode.DiagnosticSeverity | undefined {
-  const setting = vscode.workspace
-    .getConfiguration('wicker')
-    .get<string>('diagnostics.missingTemplate', 'error');
-
-  switch (setting) {
-    case 'error':
-      return vscode.DiagnosticSeverity.Error;
-    case 'warning':
-      return vscode.DiagnosticSeverity.Warning;
-    case 'information':
-      return vscode.DiagnosticSeverity.Information;
-    default:
-      return undefined;
-  }
-}

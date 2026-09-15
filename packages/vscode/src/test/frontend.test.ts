@@ -291,6 +291,13 @@ suite('Stimulus and API connections', () => {
       assert.ok(typeof actionItem.tooltip === 'string');
       assert.ok(actionItem.tooltip.includes('wicker_test_fragment'));
       assert.ok(actionItem.tooltip.includes('wicker_frontend_test.html.twig'));
+      // The same action under the template it renders wears the same icon it
+      // wears here, not a generic method: one entity, one icon.
+      const renders = (await tree.getChildren({ kind: 'template', root: root.root, name: TWIG.slice(10) }))
+        .find((node) => node.kind === 'renderedBy' && node.label === 'WickerFrontendTestController::fragment()');
+      assert.ok(renders, 'the template should list the action that renders it');
+      assert.equal(leafIconName(await tree.getTreeItem(renders)), 'route-leaf');
+      assert.match(tooltipOf(await tree.getTreeItem(renders)), /Routes:\nGET \/_wicker-test\/fragment/);
       const owningSession = sessions.sessionFor({ uri: uri('') })!;
       const discovered = owningSession.frontend;
       try {

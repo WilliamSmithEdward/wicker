@@ -520,8 +520,17 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     if (node.kind === 'renderedBy') {
       const item = new vscode.TreeItem(node.label);
       item.description = 'Renders this';
-      item.iconPath = sidebarIcon('method');
-      item.tooltip = `${node.projectPath}
+      // The same action wears the same icon here as under its controller: a
+      // route leaf when it renders, the object when it answers JSON, a method
+      // only when nothing routes to it.
+      const site = renderedBy(this.sessions, session, node.name)
+        .find((entry) => entry.projectPath === node.projectPath && entry.offset === node.offset);
+      const routes = site?.className !== undefined && site.methodName !== undefined
+        ? controllerRoutes(this.sessions, session, { root: node.root, projectPath: node.projectPath,
+          className: site.className, methodName: site.methodName }) : [];
+      item.iconPath = sidebarIcon(actionRouteIcon(routes.map((route) => routeIcon(this.sessions, session, route))));
+      item.tooltip = `${node.projectPath}${routes.length ? `\n\nRoutes:\n${
+        routes.map((route) => `${route.methods} ${route.path} (${route.name})`).join('\n')}` : ''}
 
 Open the render call that names ${node.name}.`;
       item.resourceUri = session.uriOf(node.projectPath);
@@ -1222,7 +1231,7 @@ function incomingTemplateRows(sessions: SessionManager, session: ProjectSession,
  * away behind an extra click.
  */
 function renderedBy(sessions: SessionManager, session: ProjectSession, templateName: string):
-readonly { projectPath: string; label: string; offset: number }[] {
+readonly { projectPath: string; label: string; offset: number; className?: string; methodName?: string }[] {
   const template = session.lookup(templateName);
   if (template === undefined) { return []; }
   return session.renderSites.index.forTemplate(template.projectPath, session.index)
@@ -1230,7 +1239,9 @@ readonly { projectPath: string; label: string; offset: number }[] {
     .map((site) => {
       const owner = site.className?.split('\\').at(-1) ?? site.projectPath;
       return { projectPath: site.projectPath, offset: site.nameRange.start,
-        label: site.methodName === undefined ? owner : `${owner}::${site.methodName}()` };
+        label: site.methodName === undefined ? owner : `${owner}::${site.methodName}()`,
+        ...(site.className === undefined ? {} : { className: site.className }),
+        ...(site.methodName === undefined ? {} : { methodName: site.methodName }) };
     })
     .sort((left, right) => left.label.localeCompare(right.label) || left.offset - right.offset);
 }

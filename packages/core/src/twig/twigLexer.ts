@@ -12,6 +12,8 @@
  * comment can contain anything at all, including unbalanced tags.
  */
 
+import { rememberLast } from '../util/rememberLast.js';
+
 export type TwigRegionKind = 'text' | 'comment' | 'statement' | 'expression';
 
 export interface TwigRegion {
@@ -39,7 +41,9 @@ const OPENERS: readonly { open: string; close: string; kind: TwigRegionKind }[] 
  * of the document, because a user mid-keystroke has one constantly and the
  * features built on this must keep working while they type.
  */
-export function lexTwigRegions(source: string): readonly TwigRegion[] {
+export const lexTwigRegions = rememberLast(lexRegions);
+
+function lexRegions(source: string): readonly TwigRegion[] {
   const regions: TwigRegion[] = [];
   let cursor = 0;
   let textStart = 0;

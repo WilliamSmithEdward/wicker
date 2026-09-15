@@ -39,6 +39,31 @@ describe('Stimulus declarations', () => {
     expect(stimulusSource('export default class { [method]() {} }').actions).toEqual([]);
     expect(stimulusSource('export function connect() {}').actions).toEqual([]);
   });
+
+  /*
+   * Names that also exist on Object.prototype. Bracket matching looked its
+   * table up as a plain object, so `constructor` answered with the Object
+   * constructor, counted as an opening bracket, and left the stack unbalanced
+   * for the rest of the class: a controller with a constructor reported no
+   * members whatsoever.
+   */
+  const prototypeNames = [
+    'constructor(...args) { super(...args); }',
+    'toString() { return \'\'; }',
+    'valueOf() { return 0; }',
+    'hasOwnProperty(name) { return false; }',
+  ];
+  it.each(prototypeNames)('reads members past a method named %s', (method) => {
+    const parsed = stimulusSource(`export default class extends Controller {
+        static targets = ['output'];
+        static values = { url: String };
+        ${method}
+        refresh() {}
+      }`);
+    expect(parsed.targets.map((entry) => entry.name)).toEqual(['output']);
+    expect(parsed.values.map((entry) => entry.name)).toEqual(['url']);
+    expect(parsed.actions.map((entry) => entry.name)).toContain('refresh');
+  });
 });
 
 describe('value types and defaults', () => {

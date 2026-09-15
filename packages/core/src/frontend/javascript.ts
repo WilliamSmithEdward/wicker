@@ -91,17 +91,32 @@ function lexJavascript(source: string, start: number, end: number): JsToken[] {
   return tokens;
 }
 
+/**
+ * Bracket pairs, as a Map rather than an object literal.
+ *
+ * A plain object answers for every name on `Object.prototype`, so a token
+ * reading `constructor`, `toString`, `valueOf` or `__proto__` came back
+ * truthy and was pushed onto the stack as though it opened a bracket. The
+ * matching then never balanced, and a Stimulus controller that declared a
+ * constructor reported no targets, values or actions at all.
+ *
+ * Built once. This is the innermost loop of both parsers, and the table and
+ * the closing list were being allocated again for every token scanned.
+ */
+const OPENERS = new Map([['(', ')'], ['[', ']'], ['#[', ']'], ['{', '}']]);
+const CLOSERS = new Set([')', ']', '}']);
+
 export function closingToken(tokens: readonly { text: string }[], at: number): number {
-  const close = ({ '(': ')', '[': ']', '#[': ']', '{': '}' } as Record<string, string>)[tokens[at]?.text ?? ''];
-  if (!close) { return -1; }
+  const close = OPENERS.get(tokens[at]?.text ?? '');
+  if (close === undefined) { return -1; }
   const stack = [close];
   for (let i = at + 1; i < tokens.length; i++) {
     const text = tokens[i]!.text;
-    const nested = ({ '(': ')', '[': ']', '#[': ']', '{': '}' } as Record<string, string>)[text];
-    if (nested) { stack.push(nested); }
-    else if ([')', ']', '}'].includes(text)) {
+    const nested = OPENERS.get(text);
+    if (nested !== undefined) { stack.push(nested); }
+    else if (CLOSERS.has(text)) {
       if (stack.pop() !== text) { return -1; }
-      if (!stack.length) { return i; }
+      if (stack.length === 0) { return i; }
     }
   }
   return -1;

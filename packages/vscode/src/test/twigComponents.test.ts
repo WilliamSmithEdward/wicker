@@ -1,12 +1,10 @@
 import * as assert from 'node:assert/strict';
-import * as path from 'node:path';
 
 import * as vscode from 'vscode';
 
 import { ProjectTreeProvider } from '../sidebar.js';
 import { completionItems, fixture, memorySessions, replace, until } from './support.js';
 
-const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
 const PHP = 'src/Twig/Components/Alert.php';
 const CONSOLE = `const fs = require('node:fs');
 if (!process.argv.includes('debug:twig-component')) {

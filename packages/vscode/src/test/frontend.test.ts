@@ -5,7 +5,6 @@ import { ProjectTreeProvider, type SidebarNode } from '../sidebar.js';
 import { completionItems, definitionsAt, fixture, memorySessions, replace, tooltipOf, until } from './support.js';
 import { sidebarIcon } from '../sidebarIcons.js';
 
-const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
 const JS = 'assets/controllers/wicker_test_controller.js';
 const PEER = 'assets/controllers/wicker_peer_controller.ts';
 const PHP = 'src/Controller/WickerFrontendTestController.php';

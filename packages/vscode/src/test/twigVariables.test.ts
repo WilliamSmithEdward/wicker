@@ -2,14 +2,10 @@ import * as assert from 'node:assert/strict';
 import * as path from 'node:path';
 
 import * as vscode from 'vscode';
+import { replace, until } from './support.js';
 
 const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
 
-async function replace(document: vscode.TextDocument, text: string): Promise<void> {
-  const edit = new vscode.WorkspaceEdit();
-  edit.replace(document.uri, new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)), text);
-  assert.ok(await vscode.workspace.applyEdit(edit));
-}
 
 async function completions(document: vscode.TextDocument, position: vscode.Position): Promise<vscode.CompletionItem[]> {
   const list = await vscode.commands.executeCommand<vscode.CompletionList>(
@@ -30,13 +26,8 @@ function hoverText(result: readonly vscode.Hover[]): string {
   return result.flatMap((item) => item.contents.map((content) => typeof content === 'string' ? content : content.value)).join('\n');
 }
 
-async function eventually(check: () => Promise<boolean>): Promise<void> {
-  const deadline = Date.now() + 8000;
-  while (!(await check())) {
-    assert.ok(Date.now() < deadline, 'controller edits should reach Twig providers');
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-}
+const eventually = (check: () => Promise<boolean>): Promise<void> =>
+  until(check, 'controller edits should reach Twig providers');
 
 suite('Twig controller variables', () => {
   let template: vscode.TextDocument;

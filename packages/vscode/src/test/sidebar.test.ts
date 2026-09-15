@@ -10,6 +10,7 @@ import { LoaderPathMemory } from '../loaderPathMemory.js';
 import { SessionManager } from '../session.js';
 import { SIDEBAR_ICONS, sidebarIcon } from '../sidebarIcons.js';
 import { isBundleNamespace, ProjectTreeProvider, type SidebarNode } from '../sidebar.js';
+import { tooltipOf } from './support.js';
 
 const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
 const rootUri = vscode.Uri.file(ROOT);
@@ -20,9 +21,6 @@ async function openTemplate(...segments: string[]): Promise<vscode.TextDocument>
   return document;
 }
 
-function tooltipText(item: vscode.TreeItem): string {
-  return typeof item.tooltip === 'string' ? item.tooltip : item.tooltip?.value ?? '';
-}
 
 async function section(tree: ProjectTreeProvider, project: SidebarNode | undefined, name: 'controllers' | 'templates'): Promise<SidebarNode> {
   assert.ok(project);
@@ -66,7 +64,7 @@ suite('Wicker sidebar', () => {
     assert.ok(project);
     const children = await provider.getChildren(project);
     assert.ok((await Promise.all(children.map(async (node) => (await provider.getTreeItem(node)).label !== 'Namespaces'))).every(Boolean));
-    assert.match(tooltipText(await provider.getTreeItem(project)), /Namespaces: Configuration only/);
+    assert.match(tooltipOf(await provider.getTreeItem(project)), /Namespaces: Configuration only/);
     const warning = children.find((node) => node.kind === 'warning' && node.reason === 'namespaces');
     assert.ok(warning);
     const warningItem = await provider.getTreeItem(warning);
@@ -343,7 +341,7 @@ suite('Wicker sidebar', () => {
       assert.ok(warning, 'a console that cannot answer should be reported');
       const item = await provider.getTreeItem(warning);
       assert.equal(item.label, 'Symfony console unavailable');
-      const tooltip = tooltipText(item);
+      const tooltip = tooltipOf(item);
       assert.match(tooltip, /Routes:/);
       assert.match(tooltip, /Stimulus:/);
       assert.match(tooltip, /wicker\.console\.command/);
@@ -389,7 +387,7 @@ suite('Wicker sidebar', () => {
       await settings.update('console.enabled', true, vscode.ConfigurationTarget.Workspace);
       await vscode.commands.executeCommand('wicker.reindex');
       await sessions.refreshAll();
-      assert.match(tooltipText(await provider.getTreeItem(project)), /Namespaces: Symfony console/);
+      assert.match(tooltipOf(await provider.getTreeItem(project)), /Namespaces: Symfony console/);
       assert.ok(!(await provider.getChildren(project)).some((child) => child.kind === 'warning' && child.reason === 'namespaces'));
       assert.deepEqual(await provider.getChildren(warning), []);
       assert.equal((await provider.getTreeItem(retry)).command, undefined);
@@ -397,7 +395,7 @@ suite('Wicker sidebar', () => {
 
       await settings.update('console.command', [node, '-e', 'process.exit(1)', '--'], vscode.ConfigurationTarget.Workspace);
       await sessions.refreshAll();
-      assert.match(tooltipText(await provider.getTreeItem(project)), /Namespaces: Saved from Symfony/);
+      assert.match(tooltipOf(await provider.getTreeItem(project)), /Namespaces: Saved from Symfony/);
       assert.ok(!(await provider.getChildren(project)).some((child) => child.kind === 'warning' && child.reason === 'namespaces'));
       await vscode.commands.executeCommand('workbench.action.closePanel');
     } finally {

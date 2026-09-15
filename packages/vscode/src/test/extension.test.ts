@@ -10,6 +10,7 @@ import './twigContext.test.js';
 import './twigComponents.test.js';
 import './frontend.test.js';
 import './console.test.js';
+import { definitionsAt, replace } from './support.js';
 
 /**
  * These tests drive the real extension inside a real VS Code instance against
@@ -37,18 +38,6 @@ function positionOf(document: vscode.TextDocument, needle: string, within = 1): 
   return document.positionAt(index + within);
 }
 
-async function definitionsAt(
-  document: vscode.TextDocument,
-  position: vscode.Position,
-): Promise<(vscode.Location | vscode.LocationLink)[]> {
-  return (
-    (await vscode.commands.executeCommand<(vscode.Location | vscode.LocationLink)[]>(
-      'vscode.executeDefinitionProvider',
-      document.uri,
-      position,
-    )) ?? []
-  );
-}
 
 function targetPath(link: vscode.Location | vscode.LocationLink): string {
   const uri = 'targetUri' in link ? link.targetUri : link.uri;
@@ -62,12 +51,6 @@ async function renderedBy(document: vscode.TextDocument): Promise<vscode.CodeLen
   return (lenses ?? []).filter((lens) => lens.command?.command === 'wicker.openRenderSite');
 }
 
-async function replaceText(document: vscode.TextDocument, text: string): Promise<void> {
-  const edit = new vscode.WorkspaceEdit();
-  edit.replace(document.uri, new vscode.Range(document.positionAt(0),
-    document.positionAt(document.getText().length)), text);
-  assert.ok(await vscode.workspace.applyEdit(edit));
-}
 
 async function deleteIfPresent(uri: vscode.Uri): Promise<void> {
   try {
@@ -444,7 +427,7 @@ suite('Wicker', () => {
       const template = await open('templates', 'task', '_row.html.twig');
       assert.equal((await renderedBy(template)).length, 0);
       try {
-        await replaceText(php, `<?php\r\n// Offset check\r\nclass UnsavedController {
+        await replace(php, `<?php\r\n// Offset check\r\nclass UnsavedController {
           public function row() { return $this->render('task/_row.html.twig', ['task' => []]); }
           #[Template('task/_row.html.twig')]
           public function attribute() {}
@@ -474,7 +457,7 @@ suite('Wicker', () => {
           'discarded render sites to disappear');
         assert.equal((await renderedBy(oldTemplate)).length, 1);
       } finally {
-        await replaceText(php, original);
+        await replace(php, original);
         await vscode.window.showTextDocument(php);
         await vscode.commands.executeCommand('workbench.action.files.revert');
       }

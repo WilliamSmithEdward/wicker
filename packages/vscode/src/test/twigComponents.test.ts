@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 import { ProjectTreeProvider } from '../sidebar.js';
-import { memorySessions } from './support.js';
+import { completionItems, fixture, memorySessions, replace, until } from './support.js';
 
 const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
 const PHP = 'src/Twig/Components/Alert.php';
@@ -22,23 +22,11 @@ if (!process.argv.includes('debug:twig-component')) {
   process.stdout.write(rows);
 }`;
 
-function uri(file: string): vscode.Uri { return vscode.Uri.file(path.join(ROOT, file)); }
-async function replace(document: vscode.TextDocument, text: string): Promise<void> {
-  const edit = new vscode.WorkspaceEdit();
-  edit.replace(document.uri, new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)), text);
-  assert.ok(await vscode.workspace.applyEdit(edit));
-}
-async function eventually(check: () => Promise<boolean>): Promise<void> {
-  const deadline = Date.now() + 10000;
-  while (!(await check())) {
-    assert.ok(Date.now() < deadline, 'Component surfaces should update');
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-}
-async function items(document: vscode.TextDocument, position: vscode.Position): Promise<vscode.CompletionItem[]> {
-  const result = await vscode.commands.executeCommand<vscode.CompletionList>('vscode.executeCompletionItemProvider', document.uri, position);
-  return result?.items.filter((item) => ['Wicker · Twig component', 'Wicker · Component prop'].includes(item.detail ?? '')) ?? [];
-}
+const uri = fixture;
+const eventually = (check: () => Promise<boolean>): Promise<void> =>
+  until(check, 'Component surfaces should update');
+const items = async (document: vscode.TextDocument, position: vscode.Position): Promise<vscode.CompletionItem[]> =>
+  (await completionItems(document, position)).filter((item) => ['Wicker · Twig component', 'Wicker · Component prop'].includes(item.detail ?? ''));
 
 suite('Twig Components', () => {
   let page: vscode.TextDocument;

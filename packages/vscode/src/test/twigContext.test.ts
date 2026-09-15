@@ -2,6 +2,7 @@ import * as assert from 'node:assert/strict';
 import * as path from 'node:path';
 
 import * as vscode from 'vscode';
+import { replace, until } from './support.js';
 
 const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
 
@@ -10,11 +11,6 @@ async function deleteIfPresent(uri: vscode.Uri): Promise<void> {
   catch (error) { if (!(error instanceof vscode.FileSystemError) || error.code !== 'FileNotFound') { throw error; } }
 }
 
-async function replace(document: vscode.TextDocument, text: string): Promise<void> {
-  const edit = new vscode.WorkspaceEdit();
-  edit.replace(document.uri, new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)), text);
-  assert.ok(await vscode.workspace.applyEdit(edit));
-}
 
 async function variables(document: vscode.TextDocument, position: vscode.Position): Promise<vscode.CompletionItem[]> {
   const list = await vscode.commands.executeCommand<vscode.CompletionList>('vscode.executeCompletionItemProvider', document.uri, position);
@@ -25,13 +21,8 @@ async function labels(document: vscode.TextDocument, position: vscode.Position):
   return (await variables(document, position)).map((item) => typeof item.label === 'string' ? item.label : item.label.label).sort();
 }
 
-async function eventually(check: () => Promise<boolean>): Promise<void> {
-  const deadline = Date.now() + 10000;
-  while (!(await check())) {
-    assert.ok(Date.now() < deadline, 'template edits should update context completion');
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-}
+const eventually = (check: () => Promise<boolean>): Promise<void> =>
+  until(check, 'template edits should update context completion');
 
 suite('Twig context across templates', () => {
   let page: vscode.TextDocument;

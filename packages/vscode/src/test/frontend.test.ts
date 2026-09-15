@@ -2,7 +2,7 @@ import * as assert from 'node:assert/strict';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { ProjectTreeProvider, type SidebarNode } from '../sidebar.js';
-import { memorySessions } from './support.js';
+import { completionItems, definitionsAt, fixture, memorySessions, replace, tooltipOf, until } from './support.js';
 import { sidebarIcon } from '../sidebarIcons.js';
 
 const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
@@ -49,28 +49,16 @@ const peerSource = `export default class { increment(): void {} reset(): void {}
 const outletSource = jsSource.replace('static targets', "static outlets = ['wicker-peer'];\n  static targets");
 const outletPage = `<div {{ stimulus_controller('wicker-test', controllerOutlets: {'wicker-peer': '#peer'}) }}></div>
 <output id="peer" {{ stimulus_controller('wicker-peer') }}></output>`;
-const uri = (file: string): vscode.Uri => vscode.Uri.file(path.join(ROOT, file));
-async function replace(doc: vscode.TextDocument, source: string): Promise<void> {
-  const edit = new vscode.WorkspaceEdit(); edit.replace(doc.uri, new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)), source);
-  assert.ok(await vscode.workspace.applyEdit(edit));
-}
+const uri = fixture;
 async function at(doc: vscode.TextDocument, marked: string): Promise<vscode.Position> {
   const offset = marked.indexOf('§'); assert.ok(offset >= 0);
   await replace(doc, marked.replace('§', '')); return doc.positionAt(offset);
 }
-async function items(doc: vscode.TextDocument, pos: vscode.Position): Promise<vscode.CompletionItem[]> {
-  return (await vscode.commands.executeCommand<vscode.CompletionList>('vscode.executeCompletionItemProvider', doc.uri, pos))?.items ?? [];
-}
-async function definitions(doc: vscode.TextDocument, pos: vscode.Position): Promise<vscode.LocationLink[]> {
-  return (await vscode.commands.executeCommand<(vscode.Location | vscode.LocationLink)[]>('vscode.executeDefinitionProvider', doc.uri, pos))?.filter((link): link is vscode.LocationLink => 'targetUri' in link) ?? [];
-}
-async function eventually(check: () => Promise<boolean> | boolean): Promise<void> {
-  const deadline = Date.now() + 10000;
-  while (!await check()) {
-    assert.ok(Date.now() < deadline, 'Frontend discovery should follow file changes');
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-}
+const items = completionItems;
+const definitions = async (doc: vscode.TextDocument, pos: vscode.Position): Promise<vscode.LocationLink[]> =>
+  (await definitionsAt(doc, pos)).filter((link): link is vscode.LocationLink => 'targetUri' in link);
+const eventually = (check: () => Promise<boolean> | boolean): Promise<void> =>
+  until(check, 'Frontend discovery should follow file changes');
 
 suite('Stimulus and API connections', () => {
   const settings = vscode.workspace.getConfiguration('wicker');
@@ -1233,6 +1221,3 @@ function leafSvg(uri: vscode.Uri): string {
   return Buffer.from(payload!, 'base64').toString('utf8');
 }
 
-function tooltipOf(item: vscode.TreeItem): string {
-  return typeof item.tooltip === 'string' ? item.tooltip : item.tooltip?.value ?? '';
-}

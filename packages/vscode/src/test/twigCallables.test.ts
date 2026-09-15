@@ -2,6 +2,7 @@ import * as assert from 'node:assert/strict';
 import * as path from 'node:path';
 
 import * as vscode from 'vscode';
+import { completionItems, replace, until } from './support.js';
 
 const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
 const PROBE = 'src/WickerCallableProbe.php';
@@ -19,24 +20,12 @@ const answer = { loader_paths: {'(None)': ['templates'], '@Design': ['design']},
   functions: {path: ['name', 'parameters'], 'render_*': ['strategy'], range: ['start', 'end']} };
 process.stdout.write(JSON.stringify(answer));`;
 
-async function replace(document: vscode.TextDocument, text: string): Promise<void> {
-  const edit = new vscode.WorkspaceEdit();
-  edit.replace(document.uri, new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)), text);
-  assert.ok(await vscode.workspace.applyEdit(edit));
-}
 
-async function eventually(check: () => Promise<boolean> | boolean): Promise<void> {
-  const deadline = Date.now() + 10000;
-  while (!(await check())) {
-    assert.ok(Date.now() < deadline, 'Twig callable discovery should reach the editor');
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-}
+const eventually = (check: () => Promise<boolean> | boolean): Promise<void> =>
+  until(check, 'Twig callable discovery should reach the editor');
 
-async function items(document: vscode.TextDocument, position: vscode.Position): Promise<vscode.CompletionItem[]> {
-  const list = await vscode.commands.executeCommand<vscode.CompletionList>('vscode.executeCompletionItemProvider', document.uri, position);
-  return list?.items.filter((item) => item.detail?.startsWith('Wicker · Twig ')) ?? [];
-}
+const items = async (document: vscode.TextDocument, position: vscode.Position): Promise<vscode.CompletionItem[]> =>
+  (await completionItems(document, position)).filter((item) => item.detail?.startsWith('Wicker · Twig '));
 
 function problems(document: vscode.TextDocument): vscode.Diagnostic[] {
   return vscode.languages.getDiagnostics(document.uri).filter((item) => typeof item.code === 'string' && item.code.startsWith('unknown-twig-'));

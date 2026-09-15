@@ -40,15 +40,18 @@ export function cssImports(source: string): readonly CssImport[] {
  * still point at the original text.
  */
 function blankComments(source: string): string {
-  const out = source.split('');
-  for (let i = 0; i < out.length - 1; i++) {
-    if (out[i] !== '/' || out[i + 1] !== '*') { continue; }
-    const end = source.indexOf('*/', i + 2);
-    const stop = end < 0 ? out.length : end + 2;
-    for (let j = i; j < stop; j++) { if (out[j] !== '\n') { out[j] = ' '; } }
-    i = stop - 1;
+  // Assembled from slices rather than one string per character. Newlines
+  // survive so a range still reports the line it came from, and an unterminated
+  // comment runs to the end of the file, which is what a browser does with it.
+  if (!source.includes('/*')) { return source; }
+  const pieces: string[] = [];
+  let at = 0;
+  for (const comment of source.matchAll(/\/\*[\s\S]*?(?:\*\/|$)/g)) {
+    pieces.push(source.slice(at, comment.index), comment[0].replace(/[^\n]/g, ' '));
+    at = comment.index + comment[0].length;
   }
-  return out.join('');
+  pieces.push(source.slice(at));
+  return pieces.join('');
 }
 
 /**

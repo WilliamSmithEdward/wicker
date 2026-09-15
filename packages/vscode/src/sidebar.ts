@@ -427,10 +427,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       // not in the file the reader started from.
       item.description = controller.boundIn.join(', ');
       item.tooltip = `${controller.projectPath}\n\nBound in:\n${controller.boundIn.join('\n')}`;
-      const uri = session.uriOf(controller.projectPath);
-      item.resourceUri = uri;
-      item.command = { command: 'vscode.open', title: 'Open controller', arguments: [uri] };
-      return item;
+      return opens(item, session.uriOf(controller.projectPath), 'Open controller');
     }
     const wire = wiringFor(this.sessions, session, node);
     const item = new vscode.TreeItem(node.event === undefined ? node.member : `${node.event} → ${node.member}`);
@@ -480,10 +477,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     item.iconPath = node.part === 'template' ? sidebarIcon(icons.template) : new vscode.ThemeIcon(icons.controller);
     item.tooltip = node.part === 'template' ? `${component.template}\n${path ?? ''}` : `${component.className}\n${path ?? ''}`;
     if (path === undefined) { return item; }
-    const uri = template ? session.uriFor(template) : session.uriOf(path);
-    item.resourceUri = uri;
-    item.command = { command: 'vscode.open', title: 'Open file', arguments: [uri] };
-    return item;
+    return opens(item, template ? session.uriFor(template) : session.uriOf(path), 'Open file');
   }
 
   /**
@@ -501,9 +495,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       item.description = node.projectPath.slice(0, Math.max(0, node.projectPath.lastIndexOf('/')));
       item.iconPath = sidebarIcon(icons.template);
       item.tooltip = `${node.projectPath}\n\nBinds ${node.name}.`;
-      item.resourceUri = uri;
-      item.command = { command: 'vscode.open', title: 'Open template', arguments: [uri] };
-      return item;
+      return opens(item, uri, 'Open template');
     }
     const controller = stimulusControllers(this.sessions, session).find((entry) => entry.name === node.name);
     const uses = templatesBinding(this.sessions, session, node.name);
@@ -514,10 +506,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     item.iconPath = new vscode.ThemeIcon(scriptIcon(controller.projectPath));
     item.tooltip = `${controller.projectPath}\n\nWritten in markup as data-controller="${node.name}".${
       uses.length ? '' : '\nNo indexed template binds it.'}`;
-    const uri = session.uriOf(controller.projectPath);
-    item.resourceUri = uri;
-    item.command = { command: 'vscode.open', title: 'Open controller', arguments: [uri] };
-    return item;
+    return opens(item, session.uriOf(controller.projectPath), 'Open controller');
   }
 
   private async describe(node: SidebarNode, session: ProjectSession): Promise<vscode.TreeItem> {
@@ -559,10 +548,7 @@ Open the render call that names ${node.name}.`;
       item.description = REFERENCE_VERBS[node.via];
       item.iconPath = sidebarIcon(icons.template);
       item.tooltip = `${node.projectPath}\n\n${REFERENCE_VERBS[node.via]} ${node.name}.`;
-      const uri = session.uriOf(node.projectPath);
-      item.resourceUri = uri;
-      item.command = { command: 'vscode.open', title: 'Open template', arguments: [uri] };
-      return item;
+      return opens(item, session.uriOf(node.projectPath), 'Open template');
     }
     if (node.kind === 'stimulusGroup') {
       const item = new vscode.TreeItem('Stimulus', vscode.TreeItemCollapsibleState.Collapsed);
@@ -612,10 +598,7 @@ Extends ${node.name}.`;
       // Which template links it, because the link is usually in a layout and
       // not in the page the reader started from.
       item.tooltip = `${node.projectPath}\n\n${style?.reasons.join('\n') ?? ''}`;
-      item.resourceUri = session.uriOf(node.projectPath);
-      item.command = { command: 'vscode.open', title: 'Open stylesheet',
-        arguments: [session.uriOf(node.projectPath)] };
-      return item;
+      return opens(item, session.uriOf(node.projectPath), 'Open stylesheet');
     }
     if (node.kind === 'controllerDependencies' || node.kind === 'controllerDependency') {
       const dependencies = controllerDependencies(this.sessions, session, node);
@@ -807,10 +790,7 @@ Extends ${node.name}.`;
       // The reason is the point of the row: a file this deep in the chain is
       // named in no template, and "why is this loaded" is the question.
       item.tooltip = `${node.projectPath}\n\n${node.reason}`;
-      item.resourceUri = session.uriOf(node.projectPath);
-      item.command = { command: 'vscode.open', title: 'Open file',
-        arguments: [session.uriOf(node.projectPath)] };
-      return item;
+      return opens(item, session.uriOf(node.projectPath), 'Open file');
     }
     const template = session.lookup(node.name);
     const item = new vscode.TreeItem(basename(templatePath(node.name)), (await this.getChildren(node)).length
@@ -1420,6 +1400,14 @@ function templatePath(name: string): string {
 
 function basename(path: string): string {
   return path.slice(path.lastIndexOf('/') + 1);
+}
+
+/** A row that opens a file: the editor's own open command, and the URI as the
+ * row's resource so decorations and drag work as they do in Explorer. */
+function opens(item: vscode.TreeItem, uri: vscode.Uri, title: string): vscode.TreeItem {
+  item.resourceUri = uri;
+  item.command = { command: 'vscode.open', title, arguments: [uri] };
+  return item;
 }
 
 function namespaceKey(namespace: string | null, forcesBundleTemplate: boolean): string {

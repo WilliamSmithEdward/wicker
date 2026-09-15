@@ -47,6 +47,28 @@ describe('Stimulus declarations', () => {
    * for the rest of the class: a controller with a constructor reported no
    * members whatsoever.
    */
+  /*
+   * Brackets are matched for the whole stream at once rather than scanned from
+   * each one, so malformed source has to degrade the same way: an unbalanced
+   * or wrongly closed bracket matches nothing, and takes only itself with it.
+   */
+  it('reads what it can from unbalanced brackets', () => {
+    expect(stimulusSource('export default class extends Controller { static targets = [\'a\';')
+      .targets.map((entry) => entry.name)).toEqual([]);
+    expect(() => stimulusSource('export default class extends Controller { a() { ( } }')).not.toThrow();
+    expect(() => stimulusSource('export default class extends Controller { )]} }')).not.toThrow();
+
+    // A stray closing bracket does cost the rest of the class, which both the
+    // per-bracket scan and the whole-stream matching agree on. Pinned as it
+    // stands rather than as it ought to be, so that improving the recovery
+    // shows up here as a change instead of passing unnoticed.
+    const parsed = stimulusSource(`export default class extends Controller {
+        broken() { const x = ]; }
+        static targets = ['output'];
+      }`);
+    expect(parsed.targets.map((entry) => entry.name)).toEqual([]);
+  });
+
   const prototypeNames = [
     'constructor(...args) { super(...args); }',
     'toString() { return \'\'; }',

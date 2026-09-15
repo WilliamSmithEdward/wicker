@@ -106,20 +106,40 @@ function lexJavascript(source: string, start: number, end: number): JsToken[] {
 const OPENERS = new Map([['(', ')'], ['[', ']'], ['#[', ']'], ['{', '}']]);
 const CLOSERS = new Set([')', ']', '}']);
 
-export function closingToken(tokens: readonly { text: string }[], at: number): number {
-  const close = OPENERS.get(tokens[at]?.text ?? '');
-  if (close === undefined) { return -1; }
-  const stack = [close];
-  for (let i = at + 1; i < tokens.length; i++) {
+/**
+ * Every bracket's partner, worked out in one pass over the stream.
+ *
+ * Both parsers ask where a bracket closes from a couple of dozen places, and
+ * each answer used to be a fresh scan forward from that bracket. Nested
+ * declarations therefore walked the same tail of the stream again and again,
+ * which a CPU profile put at an eighth of the time spent indexing a PHP file.
+ *
+ * Held against the token array itself, which the lexers now reuse for all the
+ * readers of one file, so a file is matched once however many ask.
+ */
+const matches = new WeakMap<readonly { text: string }[], Int32Array>();
+
+function matchTable(tokens: readonly { text: string }[]): Int32Array {
+  const found = matches.get(tokens);
+  if (found !== undefined) { return found; }
+
+  const table = new Int32Array(tokens.length).fill(-1);
+  const open: number[] = [];
+  for (let i = 0; i < tokens.length; i++) {
     const text = tokens[i]!.text;
-    const nested = OPENERS.get(text);
-    if (nested !== undefined) { stack.push(nested); }
-    else if (CLOSERS.has(text)) {
-      if (stack.pop() !== text) { return -1; }
-      if (stack.length === 0) { return i; }
-    }
+    if (OPENERS.has(text)) { open.push(i); continue; }
+    if (!CLOSERS.has(text)) { continue; }
+    const from = open.pop();
+    // A bracket closed by the wrong kind matches nothing, the same answer the
+    // scan gave when its stack disagreed.
+    if (from !== undefined && OPENERS.get(tokens[from]!.text) === text) { table[from] = i; }
   }
-  return -1;
+  matches.set(tokens, table);
+  return table;
+}
+
+export function closingToken(tokens: readonly { text: string }[], at: number): number {
+  return at >= 0 && at < tokens.length ? matchTable(tokens)[at]! : -1;
 }
 
 export function stringRange(token: JsToken): OffsetRange {

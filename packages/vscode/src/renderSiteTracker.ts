@@ -42,18 +42,24 @@ export class RenderSiteTracker implements vscode.Disposable {
     ];
   }
 
-  async refresh(known?: KnownSources): Promise<void> {
+  /**
+   * Reads every PHP file, or every file in `found` when the caller has already
+   * searched. The frontend tracker enumerates the same files under the same
+   * exclusions moments earlier, and a workspace search is the one cost here
+   * that grows with the repository rather than with the project.
+   */
+  async refresh(known?: KnownSources, found?: readonly vscode.Uri[]): Promise<void> {
     // Include old paths so a rebuild also removes deleted sources, and open
     // buffers so an unsaved file is never replaced by its older disk contents.
     const uris = new Map(this.index.sourcePaths().map((path) => {
       const uri = this.fileSystem.toUri(joinProjectPath(this.root, path));
       return [uri.toString(), uri];
     }));
-    for (const uri of await vscode.workspace.findFiles(
+    for (const uri of found ?? await vscode.workspace.findFiles(
       new vscode.RelativePattern(this.rootUri, '**/*.php'),
       IGNORED_GLOB,
     )) {
-      uris.set(uri.toString(), uri);
+      if (this.sourcePath(uri) !== undefined) { uris.set(uri.toString(), uri); }
     }
     for (const document of vscode.workspace.textDocuments) {
       if (!document.isClosed && this.sourcePath(document.uri) !== undefined) {

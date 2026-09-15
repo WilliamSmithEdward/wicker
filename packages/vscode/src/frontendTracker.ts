@@ -40,12 +40,17 @@ export class FrontendTracker implements vscode.Disposable {
       vscode.workspace.onDidChangeTextDocument((event) => this.update(event.document)),
       vscode.workspace.onDidCloseTextDocument((doc) => reload(doc.uri))];
   }
-  async refresh(): Promise<void> {
+  /**
+   * Reads every tracked file, and returns what the search found so the render
+   * site tracker can read its PHP without searching the workspace again.
+   */
+  async refresh(): Promise<readonly vscode.Uri[]> {
     const uris = new Map(this.index.sourcePaths().map((path) => { const uri = this.fs.toUri(joinProjectPath(this.root, path)); return [uri.toString(), uri]; }));
-    for (const uri of await vscode.workspace.findFiles(new vscode.RelativePattern(this.rootUri, PATTERN),
-      IGNORED_GLOB, 20000)) { uris.set(uri.toString(), uri); }
+    const found = await vscode.workspace.findFiles(new vscode.RelativePattern(this.rootUri, PATTERN), IGNORED_GLOB, 20000);
+    for (const uri of found) { uris.set(uri.toString(), uri); }
     for (const doc of vscode.workspace.textDocuments) { if (this.path(doc.uri) && !doc.isClosed) { uris.set(doc.uri.toString(), doc.uri); } }
     await readInBatches([...uris.values()], (uri) => this.load(uri), () => this.disposed);
+    return found;
   }
   private path(uri: vscode.Uri): string | undefined {
     if (uri.scheme !== this.rootUri.scheme || uri.authority !== this.rootUri.authority) { return undefined; }

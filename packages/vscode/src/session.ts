@@ -204,9 +204,11 @@ export class ProjectSession implements vscode.Disposable {
   async rebuildIndexes(templates: TwigTemplateIndex, force = false): Promise<void> {
     // A map read before this point described files as they were then.
     this.sourceMaps.clear();
-    await this.frontendSources.refresh();
+    const found = await this.frontendSources.refresh();
     const known: KnownSources = (path) => this.frontendSources.index.get(path)?.source;
-    await this.renderSites.refresh(known);
+    // The same search under the same exclusions has just run; only the PHP
+    // half of it is the render site tracker's.
+    await this.renderSites.refresh(known, found.filter((uri) => uri.path.endsWith('.php')));
     await this.templateContexts.refresh(templates, force, known);
   }
 

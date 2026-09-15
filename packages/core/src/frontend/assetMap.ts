@@ -203,19 +203,39 @@ export class AssetMap {
   }
 }
 
+/**
+ * Compiled once per pattern.
+ *
+ * The asset walk asks every configured pattern about every file it finds, and
+ * the patterns do not change, so building the expression per file was the same
+ * work repeated for as many assets as a project has.
+ */
+const globs = new Map<string, RegExp>();
+
 /** `*` within a segment, `**` across them. Nothing else is supported. */
+function globPattern(pattern: string): RegExp {
+  let compiled = globs.get(pattern);
+  if (compiled === undefined) {
+    const expression = pattern
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+      // Both stars in one pass, so `**` is consumed before `*` can see it.
+      // This used to substitute a placeholder for `**` and put it back
+      // afterwards, and the placeholder was a literal NUL byte written into
+      // the source: invisible in a diff, and enough for git and grep to treat
+      // the whole file as binary.
+      .replace(/\*\*|\*/g, (star) => star === '**' ? '.*' : '[^/]*');
+    compiled = new RegExp(`^${expression}$`);
+    globs.set(pattern, compiled);
+  }
+  return compiled;
+}
+
 function globMatches(pattern: string, value: string): boolean {
-  const expression = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replaceAll('**', ' ')
-    .replaceAll('*', '[^/]*')
-    .replaceAll(' ', '.*');
+  const expression = globPattern(pattern);
   // Anchored, but a pattern with no slash matches a bare filename anywhere,
   // which is how "*.d.ts" is meant to read.
-  if (new RegExp(`^${expression}$`).test(value)) {
-    return true;
-  }
-  return !pattern.includes('/') && new RegExp(`^${expression}$`).test(projectPathBasename(value));
+  return expression.test(value) ||
+    (!pattern.includes('/') && expression.test(projectPathBasename(value)));
 }
 
 function asObject(value: unknown): Record<string, unknown> | undefined {

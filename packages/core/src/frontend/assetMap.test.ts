@@ -82,6 +82,29 @@ describe('assetExcluded', () => {
     expect(assetExcluded(SETTINGS, 'controllers.json')).toBe(false);
   });
 
+  /*
+   * The distinction the two stars carry, which nothing covered while `**` was
+   * handled by substituting a placeholder and putting it back afterwards.
+   */
+  it('crosses segments for ** and stops at one for *', () => {
+    const settings: AssetMapperSettings = {
+      ...SETTINGS,
+      excludedPatterns: ['vendor/**', 'styles/*.css'],
+    };
+    expect(assetExcluded(settings, 'vendor/pkg/deep/file.js')).toBe(true);
+    expect(assetExcluded(settings, 'vendor/file.js')).toBe(true);
+    expect(assetExcluded(settings, 'styles/app.css')).toBe(true);
+    // A single star does not cross a separator, so the nested sheet stays.
+    expect(assetExcluded(settings, 'styles/theme/app.css')).toBe(false);
+    expect(assetExcluded(settings, 'assets/vendor/file.js')).toBe(false);
+  });
+
+  it('takes a pattern literally apart from its stars', () => {
+    const settings: AssetMapperSettings = { ...SETTINGS, excludedPatterns: ['a.b+c(d).js'] };
+    expect(assetExcluded(settings, 'a.b+c(d).js')).toBe(true);
+    expect(assetExcluded(settings, 'axbxcxdx.js')).toBe(false);
+  });
+
   it('excludes dotfiles only while the setting says so', () => {
     expect(assetExcluded(SETTINGS, '.keep')).toBe(true);
     expect(assetExcluded(SETTINGS, 'styles/.hidden.css')).toBe(true);

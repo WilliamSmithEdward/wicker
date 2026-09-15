@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { FrontendIndex, joinProjectPath, toProjectPath } from '@wicker/core';
+import { Deferred } from './debounce.js';
 import { readInBatches, type VsCodeFileSystem } from './fileSystem.js';
 import { enginePathOf, inIgnoredDirectory, IGNORED_GLOB } from './paths.js';
 
@@ -30,6 +31,8 @@ export class FrontendTracker implements vscode.Disposable {
   private readonly pending = new Map<string, object>();
   private readonly rootUri: vscode.Uri;
   private disposed = false;
+  /** Buffer edits, applied when typing pauses or a reader asks. */
+  private readonly deferred = new Deferred<vscode.TextDocument>(300);
   constructor(private readonly root: string, private readonly fs: VsCodeFileSystem) {
     this.rootUri = fs.toUri(root);
     const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(this.rootUri, PATTERN));
@@ -37,7 +40,8 @@ export class FrontendTracker implements vscode.Disposable {
     this.subscriptions = [watcher, watcher.onDidCreate(reload), watcher.onDidChange(reload),
       watcher.onDidDelete((uri) => { const path = this.path(uri); if (path) { this.pending.delete(path); this.index.remove(path); this.changed.fire(); } }),
       vscode.workspace.onDidOpenTextDocument((doc) => this.update(doc)),
-      vscode.workspace.onDidChangeTextDocument((event) => this.update(event.document)),
+      vscode.workspace.onDidChangeTextDocument((event) =>
+        this.deferred.schedule(event.document.uri.toString(), event.document, (document) => this.update(document))),
       vscode.workspace.onDidCloseTextDocument((doc) => reload(doc.uri))];
   }
   /**
@@ -79,5 +83,11 @@ export class FrontendTracker implements vscode.Disposable {
     const open = vscode.workspace.textDocuments.find((doc) => !doc.isClosed && doc.uri.toString() === uri.toString());
     this.set(path, disk === undefined ? undefined : open?.getText() ?? disk);
   }
-  dispose(): void { this.disposed = true; this.pending.clear(); this.subscriptions.forEach((entry) => { entry.dispose(); }); this.changed.dispose(); }
+  /** Applies every buffer edit still waiting, so a reader sees current text. */
+  flush(): void { this.deferred.flush(); }
+
+  dispose(): void {
+    this.disposed = true; this.pending.clear(); this.deferred.dispose();
+    this.subscriptions.forEach((entry) => { entry.dispose(); }); this.changed.dispose();
+  }
 }

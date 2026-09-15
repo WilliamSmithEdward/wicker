@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 
 import { joinProjectPath, RenderSiteIndex, toProjectPath } from '@wicker/core';
 
+import { Deferred } from './debounce.js';
 import { readInBatches, type KnownSources, type VsCodeFileSystem } from './fileSystem.js';
 import { enginePathOf, inIgnoredDirectory, IGNORED_GLOB } from './paths.js';
 
@@ -13,6 +14,8 @@ export class RenderSiteTracker implements vscode.Disposable {
   private readonly subscriptions: vscode.Disposable[];
   private readonly pending = new Map<string, object>();
   private readonly rootUri: vscode.Uri;
+  /** Buffer edits, applied when typing pauses or a reader asks. */
+  private readonly deferred = new Deferred<vscode.TextDocument>(300);
   private disposed = false;
 
   constructor(
@@ -37,7 +40,8 @@ export class RenderSiteTracker implements vscode.Disposable {
         }
       }),
       vscode.workspace.onDidOpenTextDocument((document) => this.updateDocument(document)),
-      vscode.workspace.onDidChangeTextDocument((event) => this.updateDocument(event.document)),
+      vscode.workspace.onDidChangeTextDocument((event) =>
+        this.deferred.schedule(event.document.uri.toString(), event.document, (document) => this.updateDocument(document))),
       vscode.workspace.onDidCloseTextDocument((document) => reload(document.uri)),
     ];
   }
@@ -123,9 +127,13 @@ export class RenderSiteTracker implements vscode.Disposable {
     this.changed.fire();
   }
 
+  /** Applies every buffer edit still waiting, so a reader sees current text. */
+  flush(): void { this.deferred.flush(); }
+
   dispose(): void {
     this.disposed = true;
     this.pending.clear();
+    this.deferred.dispose();
     for (const subscription of this.subscriptions) {
       subscription.dispose();
     }

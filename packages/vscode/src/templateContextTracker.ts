@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 
 import { joinProjectPath, TemplateContextIndex, type TwigTemplateIndex } from '@wicker/core';
 
+import { Deferred } from './debounce.js';
 import { readInBatches, type KnownSources, type VsCodeFileSystem } from './fileSystem.js';
 import { enginePathOf } from './paths.js';
 
@@ -11,6 +12,8 @@ export class TemplateContextTracker implements vscode.Disposable {
   private readonly subscriptions: vscode.Disposable[];
   private readonly pending = new Map<string, object>();
   private known = new Set<string>();
+  /** Buffer edits, applied when typing pauses or a reader asks. */
+  private readonly deferred = new Deferred<vscode.TextDocument>(300);
   private disposed = false;
 
   constructor(private readonly root: string, private readonly fileSystem: VsCodeFileSystem,
@@ -26,7 +29,8 @@ export class TemplateContextTracker implements vscode.Disposable {
         if (path !== undefined) { this.pending.delete(path); this.index.remove(path); }
       }),
       vscode.workspace.onDidOpenTextDocument((document) => this.update(document)),
-      vscode.workspace.onDidChangeTextDocument((event) => this.update(event.document)),
+      vscode.workspace.onDidChangeTextDocument((event) =>
+        this.deferred.schedule(event.document.uri.toString(), event.document, (document) => this.update(document))),
       vscode.workspace.onDidCloseTextDocument((document) => load(document.uri)),
     ];
   }
@@ -78,9 +82,13 @@ export class TemplateContextTracker implements vscode.Disposable {
     this.index.update(path, open?.getText() ?? text);
   }
 
+  /** Applies every buffer edit still waiting, so a reader sees current text. */
+  flush(): void { this.deferred.flush(); }
+
   dispose(): void {
     this.disposed = true;
     this.pending.clear();
+    this.deferred.dispose();
     for (const item of this.subscriptions) { item.dispose(); }
   }
 }

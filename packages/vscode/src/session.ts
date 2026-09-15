@@ -150,6 +150,20 @@ export class ProjectSession implements vscode.Disposable {
 
   get components(): ComponentDiscovery { return this.componentInfo; }
 
+  /**
+   * Applies every buffer edit the trackers are still holding.
+   *
+   * A keystroke schedules its re-parse rather than running it, and a query
+   * arriving before typing pauses has to see the text as it is now. Every
+   * query resolves its session first, so this is where the deferred work is
+   * done, and only when there is any.
+   */
+  settle(): void {
+    this.frontendSources.flush();
+    this.renderSites.flush();
+    this.templateContexts.flush();
+  }
+
   /** The console command as configured, so a failure can name what was run. */
   get consoleCommand(): string | undefined {
     return ProcessConsoleRunner.create(this.project.root)?.describe();
@@ -740,6 +754,9 @@ export class SessionManager implements vscode.Disposable {
         best = session;
       }
     }
+    // Whoever asked is about to read the session, and typing may still be
+    // waiting to be applied.
+    best?.settle();
     return best;
   }
 

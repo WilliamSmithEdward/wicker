@@ -16,6 +16,7 @@ import {
   templateReferencesIn,
   type DocumentTemplateReference,
 } from './references.js';
+import { Deferred } from './debounce.js';
 import { missingImportDiagnostics } from './importDiagnostics.js';
 import { StimulusMemberActionProvider } from './stimulusActions.js';
 import { LoaderPathMemory } from './loaderPathMemory.js';
@@ -286,17 +287,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
+  // Diagnostics and decorations follow typing at a pause, not at each key. A
+  // keystroke re-parsed the document for both, synchronously, on top of the
+  // three trackers that were already re-parsing it; none of that is read
+  // until the person stops, or until a query asks and the session settles.
+  const afterTyping = new Deferred<vscode.TextDocument>(300);
   context.subscriptions.push(
+    afterTyping,
     vscode.workspace.onDidOpenTextDocument(refreshDiagnostics),
-    vscode.workspace.onDidChangeTextDocument((event) => {
-      refreshDiagnostics(event.document);
-      // Only the editors showing this document, so typing in one file does not
-      // reparse every controller open in the window.
-      stimulusMembers.refresh(vscode.window.visibleTextEditors
-        .filter((editor) => editor.document === event.document));
-    }),
+    vscode.workspace.onDidChangeTextDocument((event) =>
+      afterTyping.schedule(event.document.uri.toString(), event.document, (document) => {
+        if (document.isClosed) { return; }
+        refreshDiagnostics(document);
+        // Only the editors showing this document, so typing in one file does
+        // not reparse every controller open in the window.
+        stimulusMembers.refresh(vscode.window.visibleTextEditors
+          .filter((editor) => editor.document === document));
+      })),
     vscode.window.onDidChangeVisibleTextEditors((editors) => stimulusMembers.refresh(editors)),
     vscode.workspace.onDidCloseTextDocument((document) => {
+      afterTyping.cancel(document.uri.toString());
       forgetDocument(document.uri);
       diagnostics.delete(document.uri);
     }),

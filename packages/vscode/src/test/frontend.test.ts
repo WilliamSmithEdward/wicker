@@ -1,9 +1,8 @@
 import * as assert from 'node:assert/strict';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { LoaderPathMemory } from '../loaderPathMemory.js';
-import { SessionManager } from '../session.js';
 import { ProjectTreeProvider, type SidebarNode } from '../sidebar.js';
+import { memorySessions } from './support.js';
 import { sidebarIcon } from '../sidebarIcons.js';
 
 const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
@@ -277,10 +276,7 @@ suite('Stimulus and API connections', () => {
     assert.ok(refs?.some((ref) => ref.uri.toString() === js.uri.toString()));
   });
   test('route sections show JSON and Twig endpoints with distinct identities and correct navigation', async () => {
-    const memory = new Map<string, unknown>();
-    const sessions = new SessionManager(new LoaderPathMemory({ keys: () => [...memory.keys()],
-      get: <T>(key: string, fallback?: T): T | undefined => memory.get(key) as T | undefined ?? fallback,
-      update: (key, value) => { memory.set(key, value); return Promise.resolve(); } }));
+    const sessions = memorySessions();
     await sessions.initialize();
     const tree = new ProjectTreeProvider(sessions);
     try {
@@ -395,10 +391,7 @@ class WickerFrontendTestController {
   public function related(WickerDependencyEntity $entity, Worker $alsoWorker,
     WickerDependencyStatus $status, WickerDependencyOther $other) {}
 `);
-    const memory = new Map<string, unknown>();
-    const sessions = new SessionManager(new LoaderPathMemory({ keys: () => [...memory.keys()],
-      get: <T>(key: string, fallback?: T): T | undefined => memory.get(key) as T | undefined ?? fallback,
-      update: (key, value) => { memory.set(key, value); return Promise.resolve(); } }));
+    const sessions = memorySessions();
     const tree = new ProjectTreeProvider(sessions);
     let target: vscode.TextDocument | undefined;
     const previous = settings.inspect<boolean>('enable')?.workspaceValue;
@@ -469,10 +462,7 @@ class WickerFrontendTestController {
    * be answered from either file alone.
    */
   test('the Stimulus section lists controllers and the templates that mount them', async () => {
-    const memory = new Map<string, unknown>();
-    const sessions = new SessionManager(new LoaderPathMemory({ keys: () => [...memory.keys()],
-      get: <T>(key: string, fallback?: T): T | undefined => memory.get(key) as T | undefined ?? fallback,
-      update: (key, value) => { memory.set(key, value); return Promise.resolve(); } }));
+    const sessions = memorySessions();
     await sessions.initialize();
     const tree = new ProjectTreeProvider(sessions);
     try {
@@ -518,10 +508,7 @@ class WickerFrontendTestController {
    * extends it. Each row opens the attribute itself.
    */
   test('a template lists the controllers it mounts and the attributes wiring them', async () => {
-    const memory = new Map<string, unknown>();
-    const sessions = new SessionManager(new LoaderPathMemory({ keys: () => [...memory.keys()],
-      get: <T>(key: string, fallback?: T): T | undefined => memory.get(key) as T | undefined ?? fallback,
-      update: (key, value) => { memory.set(key, value); return Promise.resolve(); } }));
+    const sessions = memorySessions();
     await sessions.initialize();
     const tree = new ProjectTreeProvider(sessions);
     try {
@@ -609,10 +596,7 @@ class WickerFrontendTestController {
     const tsPath = 'assets/controllers/wicker_test_controller.ts';
     const mapPath = `${JS}.map`;
     const includedPath = 'templates/wicker_script_include.html.twig';
-    const memory = new Map<string, unknown>();
-    const sessions = new SessionManager(new LoaderPathMemory({ keys: () => [...memory.keys()],
-      get: <T>(key: string, fallback?: T): T | undefined => memory.get(key) as T | undefined ?? fallback,
-      update: (key, value) => { memory.set(key, value); return Promise.resolve(); } }));
+    const sessions = memorySessions();
     const tree = new ProjectTreeProvider(sessions);
     let ts: vscode.TextDocument | undefined;
     try {
@@ -896,10 +880,7 @@ class WickerFrontendTestController {
    */
   test('lists a stylesheet a bound Stimulus controller imports', async () => {
     const sheet = 'assets/controllers/wicker_test_controller.css';
-    const memory = new Map<string, unknown>();
-    const sessions = new SessionManager(new LoaderPathMemory({ keys: () => [...memory.keys()],
-      get: <T>(key: string, fallback?: T): T | undefined => memory.get(key) as T | undefined ?? fallback,
-      update: (key, value) => { memory.set(key, value); return Promise.resolve(); } }));
+    const sessions = memorySessions();
     const tree = new ProjectTreeProvider(sessions);
     try {
       await vscode.workspace.fs.writeFile(uri(sheet), Buffer.from('.widget { color: red }'));
@@ -920,12 +901,7 @@ class WickerFrontendTestController {
 
   test('lists the stylesheets a template links, following its layout', async () => {
     const original = page.getText();
-    const memory = new Map<string, unknown>();
-    const sessions = new SessionManager(new LoaderPathMemory({
-      keys: () => [...memory.keys()],
-      get: <T>(key: string, fallback?: T): T | undefined => (memory.get(key) as T | undefined) ?? fallback,
-      update: (key, value) => { memory.set(key, value); return Promise.resolve(); },
-    }));
+    const sessions = memorySessions();
     await sessions.initialize();
     const tree = new ProjectTreeProvider(sessions);
     try {
@@ -1112,12 +1088,7 @@ class WickerFrontendTestController {
 
   test('makes the loading chain explorable one import at a time', async () => {
     const original = page.getText();
-    const memory = new Map<string, unknown>();
-    const sessions = new SessionManager(new LoaderPathMemory({
-      keys: () => [...memory.keys()],
-      get: <T>(key: string, fallback?: T): T | undefined => (memory.get(key) as T | undefined) ?? fallback,
-      update: (key, value) => { memory.set(key, value); return Promise.resolve(); },
-    }));
+    const sessions = memorySessions();
     await sessions.initialize();
     const tree = new ProjectTreeProvider(sessions);
     try {

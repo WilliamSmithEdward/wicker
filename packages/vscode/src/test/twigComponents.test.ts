@@ -3,9 +3,8 @@ import * as path from 'node:path';
 
 import * as vscode from 'vscode';
 
-import { LoaderPathMemory } from '../loaderPathMemory.js';
-import { SessionManager } from '../session.js';
 import { ProjectTreeProvider } from '../sidebar.js';
+import { memorySessions } from './support.js';
 
 const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
 const PHP = 'src/Twig/Components/Alert.php';
@@ -95,10 +94,7 @@ suite('Twig Components', () => {
    * anonymous component has no class at all.
    */
   test('the Components section lists registrations and opens both of their files', async () => {
-    const memory = new Map<string, unknown>();
-    const sessions = new SessionManager(new LoaderPathMemory({ keys: () => [...memory.keys()],
-      get: <T>(key: string, fallback?: T): T | undefined => memory.get(key) as T | undefined ?? fallback,
-      update: (key, value) => { memory.set(key, value); return Promise.resolve(); } }));
+    const sessions = memorySessions();
     await sessions.initialize();
     const tree = new ProjectTreeProvider(sessions);
     try {

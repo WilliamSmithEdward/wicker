@@ -1,5 +1,4 @@
 import * as assert from 'node:assert/strict';
-import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { ProjectTreeProvider, type SidebarNode } from '../sidebar.js';
 import { completionItems, definitionsAt, fixture, memorySessions, replace, tooltipOf, until } from './support.js';

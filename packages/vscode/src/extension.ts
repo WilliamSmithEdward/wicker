@@ -294,8 +294,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // three trackers that were already re-parsing it; none of that is read
   // until the person stops, or until a query asks and the session settles.
   const afterTyping = new Deferred<vscode.TextDocument>(300);
+  // Next tick, not a pause: a rebuild's several announcements arrive together
+  // and one pass after them is enough, while a query in between still sees
+  // diagnostics no older than the previous rebuild.
+  const afterChange = new Deferred<undefined>(0);
   context.subscriptions.push(
     afterTyping,
+    afterChange,
     vscode.workspace.onDidOpenTextDocument(refreshDiagnostics),
     vscode.workspace.onDidChangeTextDocument((event) =>
       afterTyping.schedule(event.document.uri.toString(), event.document, (document) => {
@@ -331,12 +336,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         stimulusMembers.refresh();
       }
     }),
-    // The index changing can turn a missing template into a found one.
-    sessions.onDidChange(() => {
+    // The index changing can turn a missing template into a found one. One
+    // rebuild announces itself several times over, once per project and per
+    // pass, and re-diagnosing every open document on each announcement did
+    // five times the work of doing it once after the burst.
+    sessions.onDidChange(() => afterChange.schedule('all', undefined, () => {
       refreshAllDiagnostics();
       semanticTokens.refresh();
       stimulusMembers.refresh();
-    }),
+    })),
 
     semanticTokens,
     stimulusMembers,

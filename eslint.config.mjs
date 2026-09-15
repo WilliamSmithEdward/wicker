@@ -20,6 +20,7 @@ export default tseslint.config(
             'packages/*/*.js',
             'packages/*/*.mjs',
             'packages/*/scripts/*.mjs',
+            'packages/*/scripts/*.cjs',
           ],
         },
         tsconfigRootDir: import.meta.dirname,

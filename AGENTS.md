@@ -203,17 +203,31 @@ in a production build step only.
 **Twig comments do not nest.** A `{# ... #}` marker inside a commented-out block
 terminates the outer comment early and the rest becomes live template code.
 
-**Console answers cannot be cached across a template appearing.** A rebuild
-runs about seven `bin/console` commands, each a few hundred milliseconds, so
-reusing them when only a `.twig` file was created looks like free speed. It is
-not: anonymous Twig components *are* template files, and `debug:twig-component`
-enumerates them, so a cached answer means a component the editor never
-discovers. There is also a race, because a rebuild already in flight writes its
-answer into the cache after a newer change has cleared it. Both are covered by
-tests (`creating and deleting an anonymous component updates discovery`, and
-`a PHP change during a slow console run is not lost`), which is how this was
-caught rather than shipped. The disk-side discovery is cheap; the console is
-the source of truth and asking it again is the price.
+**A template appearing can change what the console reports.** A rebuild runs
+about seven `bin/console` commands, each a kernel boot, so a refresh carries a
+scope: a `.twig` file created or deleted rebuilds the template index and leaves
+the console alone, while PHP, scripts and configuration ask everything again.
+The exception that makes this hard is that anonymous Twig components *are*
+template files and `debug:twig-component` enumerates them, so a template under
+a components directory is an environment change. The test that guards it is
+`creating and deleting an anonymous component updates discovery`. Two changes
+waiting together are answered at the wider scope, and a pass takes its scope at
+the start so a change arriving mid-pass widens the next one.
+
+**A memo has to be keyed on everything its answer was read from.** The Stimulus
+wiring memo was keyed on the scanned-file index and the controller list, but the
+walk resolves names through the template index, which the scoped refresh above
+replaces on its own. A template that appeared was walked once as unresolved and
+the empty answer kept for as long as no scanned file changed. It looked right
+for as long as every refresh replaced everything.
+
+**A fixture shared by two workspace projects needs to say which project it
+means.** Both projects run the fake console, and the nested one, reading the
+probe from its own directory, wrote `price` over a marker the root had written
+`before_change` into. The old full second pass re-spawned the root console and
+rewrote the marker last, so the race was won by accident until the second pass
+went away. `a PHP change during a slow console run is not lost` now writes its
+marker from the root project only.
 
 **Shiki identifies a language by the grammar's `name` field**, which in
 `twig.tmLanguage.json` is the display name `Twig`. The demo app re-registers it

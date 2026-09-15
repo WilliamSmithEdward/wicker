@@ -768,6 +768,21 @@ export class SessionManager implements vscode.Disposable {
    * rather than like a bug.
    */
   /**
+   * The session whose project root is exactly this URI, or nothing.
+   *
+   * A sidebar row carries the root of the project it was drawn for. Resolving
+   * that root through `sessionFor` would also answer a parent project's
+   * session for a nested project's root once the nested project is gone, and
+   * a row from a project that no longer exists must open nothing.
+   */
+  sessionAtRoot(root: vscode.Uri): ProjectSession | undefined {
+    const session = this.sessionFor({ uri: root });
+    // The root is absolute already; uriOf would join it onto itself.
+    return session !== undefined && session.fileSystem.toUri(session.project.root).toString() === root.toString()
+      ? session : undefined;
+  }
+
+  /**
    * The same answer as `sessionFor`, without going through a URI.
    *
    * The caller already holds a path, and building a URI from it only for

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-import { parseTemplateName, type IncomingReference, type TwigTemplateIndex, type LoaderPathEntry, type LoaderPathSource, type RenderingController, type RenderSite, type SymfonyRoute, type TwigComponent, type TwigReferenceKind } from '@wicker/core';
+import { parseTemplateName, type IncomingReference, type OffsetRange, type TwigTemplateIndex, type LoaderPathEntry, type LoaderPathSource, type RenderingController, type RenderSite, type SymfonyRoute, type TwigComponent, type TwigReferenceKind } from '@wicker/core';
 
 import { enginePathOf } from './paths.js';
 import { isEnabled, type ProjectSession, type SessionManager } from './session.js';
@@ -14,6 +14,8 @@ import { chainChildren, templateEntrypoints, type ChainEntry } from './loadingCh
 const SHOW_BUNDLES_KEY = 'wicker.sidebar.showBundleTemplates';
 type WarningReason = 'namespaces' | 'indexLimit' | 'console';
 type SectionName = 'controllers' | 'templates' | 'api' | 'templateRoutes' | 'components' | 'stimulus';
+/** Where a row leads: a file, and the text in it to select when there is one. */
+type Target = { readonly projectPath: string; readonly range?: OffsetRange };
 type ControllerIdentity = { readonly root: vscode.Uri; readonly projectPath: string; readonly className: string };
 type ControllerNode = ControllerIdentity & (
   | { readonly kind: 'controller' }
@@ -385,9 +387,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
   }
 
   private sessionForRoot(root: vscode.Uri): ProjectSession | undefined {
-    const session = this.sessions.sessionFor({ uri: root });
-    return session?.fileSystem.toUri(session.project.root).toString() === root.toString()
-      ? session : undefined;
+    return this.sessions.sessionAtRoot(root);
   }
 
   async getTreeItem(node: SidebarNode): Promise<vscode.TreeItem> {
@@ -511,8 +511,9 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
 
   private async describe(node: SidebarNode, session: ProjectSession): Promise<vscode.TreeItem> {
     if (node.kind === 'controllerScripts') {
-      const item = new vscode.TreeItem('Scripts', (await this.getChildren(node)).length
-        ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
+      // The parent lists this group only when there is something in it, so
+      // there is no need to compute the scripts again to know it expands.
+      const item = new vscode.TreeItem('Scripts', vscode.TreeItemCollapsibleState.Collapsed);
       item.iconPath = sidebarIcon('scripts');
       item.tooltip = 'Scripts associated through rendered templates, Stimulus bindings or route consumers.';
       return item;
@@ -891,16 +892,11 @@ export class WickerSidebar implements vscode.Disposable {
           jsonEditor: false,
         });
       }),
-      vscode.commands.registerCommand('wicker.openTemplate', async (root: vscode.Uri, name: string) => {
-        const session = this.sessions.sessionFor({ uri: root });
-        if (session?.fileSystem.toUri(session.project.root).toString() !== root.toString()) {
-          return;
-        }
-        const template = session?.lookup(name);
-        if (session !== undefined && template !== undefined) {
-          await vscode.window.showTextDocument(session.uriFor(template), { preview: true });
-        }
-      }),
+      vscode.commands.registerCommand('wicker.openTemplate', (root: vscode.Uri, name: string) =>
+        this.reveal(root, (session) => {
+          const template = session.lookup(name);
+          return template === undefined ? undefined : { projectPath: template.projectPath };
+        })),
       vscode.commands.registerCommand('wicker.revealTemplate', () => this.revealActiveTemplate()),
       vscode.commands.registerCommand('wicker.openEndpoint', (node: SidebarNode) => this.openEndpoint(node)),
       vscode.commands.registerCommand('wicker.openRenderedBy', (node: SidebarNode) => this.openRenderedBy(node)),
@@ -919,140 +915,103 @@ export class WickerSidebar implements vscode.Disposable {
     this.provider.refresh();
   }
   /**
-   * Opens the render call itself, not just the controller holding it.
+   * Opens what a row leads to, the way every row does.
    *
-   * The row is checked against the index again first: it was built from a
-   * render site that may have moved or gone since, and an offset from a stale
-   * row selects unrelated text rather than nothing.
+   * The row holds identifiers, and the target is resolved from the live index
+   * twice: once to know where to go, and once more after the document opens,
+   * because opening can reindex. A row built from something that has moved or
+   * gone since goes nowhere, rather than selecting unrelated text at an offset
+   * that used to mean something.
    */
-  private async openRenderedBy(node: SidebarNode): Promise<void> {
-    if (!node || node.kind !== 'renderedBy') { return; }
-    const session = this.sessions.sessionFor({ uri: node.root });
-    if (!session) { return; }
-    const site = renderedBy(this.sessions, session, node.name)
-      .find((entry) => entry.projectPath === node.projectPath && entry.offset === node.offset);
-    if (site === undefined) { return; }
-    const uri = session.uriOf(node.projectPath);
-    if (this.sessions.sessionFor({ uri }) !== session) { return; }
-    const document = await vscode.workspace.openTextDocument(uri);
-    if (this.sessions.sessionFor({ uri }) !== session) { return; }
-    const at = document.positionAt(site.offset);
-    await vscode.window.showTextDocument(document, { preview: true, selection: new vscode.Range(at, at) });
-  }
-
-  /**
-   * Opens the attribute a wiring row stands for.
-   *
-   * Resolved from the index again after the file opens, because opening it can
-   * reindex, and an offset from a row built before an edit above it selects
-   * unrelated text rather than nothing.
-   */
-  private async openWiring(node: SidebarNode): Promise<void> {
-    if (!node || node.kind !== 'wiring') { return; }
-    const session = this.sessions.sessionFor({ uri: node.root });
-    if (!session) { return; }
-    const wire = (): BoundWiring | undefined => wiringFor(this.sessions, session, node);
-    const found = wire();
-    if (found === undefined) { return; }
-    const uri = session.uriOf(found.projectPath);
-    if (this.sessions.sessionFor({ uri }) !== session) { return; }
-    const document = await vscode.workspace.openTextDocument(uri);
-    const current = wire();
+  private async reveal(root: vscode.Uri,
+    target: (session: ProjectSession) => Promise<Target | undefined> | Target | undefined): Promise<void> {
+    const session = this.sessions.sessionAtRoot(root);
+    if (session === undefined) { return; }
+    const found = await target(session);
+    if (found === undefined || !this.sessions.owns(session, found.projectPath)) { return; }
+    const document = await vscode.workspace.openTextDocument(session.uriOf(found.projectPath));
+    // Opening a file can reindex. Resolved again, so a row built before an
+    // edit above its target goes nowhere rather than to the old offset, and a
+    // target that has moved to another file or gone is not opened at all.
+    const current = await target(session);
     if (current === undefined || current.projectPath !== found.projectPath ||
-      this.sessions.sessionFor({ uri }) !== session) { return; }
-    const at = document.positionAt(current.offset);
-    await vscode.window.showTextDocument(document, { preview: true, selection: new vscode.Range(at, at) });
+      this.sessions.sessionAtRoot(root) !== session) { return; }
+    const range = current.range;
+    await vscode.window.showTextDocument(document, { preview: true, ...(range === undefined ? {} : {
+      selection: new vscode.Range(document.positionAt(range.start), document.positionAt(range.end)),
+    }) });
   }
 
-  private async openEndpoint(node: SidebarNode): Promise<void> {
-    if (!node || !['route', 'routeConsumer', 'routeTemplate'].includes(node.kind)) { return; }
-    const session = this.sessions.sessionFor({ uri: node.root });
-    if (!session || (node.kind !== 'route' && node.kind !== 'routeConsumer' && node.kind !== 'routeTemplate')) { return; }
-    const route = session.frontend.routes.find((route) => route.name === node.name);
-    if (!route) { return; }
-    const action = routeAction(this.sessions, session, route);
-    const use = node.kind === 'routeConsumer' ? routeConsumers(this.sessions, session, route).find((use) => use.projectPath === node.projectPath && use.range.start === node.offset) : undefined;
-    const template = node.kind === 'routeTemplate' ? session.lookup(node.templateName) : undefined;
-    const path = node.kind === 'route' ? action?.projectPath : node.kind === 'routeConsumer' ? use?.projectPath : template?.projectPath;
-    if (!path) { return; }
-    const uri = session.uriOf(path);
-    if (this.sessions.sessionFor({ uri }) !== session) { return; }
-    const doc = await vscode.workspace.openTextDocument(uri);
-    const range = node.kind === 'route' ? routeAction(this.sessions, session, route)?.action.range : use?.range;
-    if (this.sessions.sessionFor({ uri }) !== session) { return; }
-    await vscode.window.showTextDocument(doc, { preview: true,
-      ...(range ? { selection: new vscode.Range(doc.positionAt(range.start), doc.positionAt(range.end)) } : {}) });
-  }
-
-  private async openController(node: SidebarNode): Promise<void> {
-    if (!isControllerNode(node)) {
-      return;
-    }
-    const session = this.sessions.sessionFor({ uri: node.root });
-    if (session?.fileSystem.toUri(session.project.root).toString() !== node.root.toString() ||
-      session === undefined || controllerSites(this.sessions, session, node).length === 0) {
-      return;
-    }
-    const template = node.kind === 'controllerTemplate' ? session.lookup(node.name) : undefined;
-    if (node.kind === 'controllerTemplate' && template === undefined) {
-      return;
-    }
-    const uri = template === undefined
-      ? session.uriOf(node.projectPath) : session.uriFor(template);
-    const document = await vscode.workspace.openTextDocument(uri);
-    // Opening a file can refresh the index. Resolve the action again so edits
-    // above it cannot leave navigation pointing at its previous offset.
-    const site = controllerSites(this.sessions, session, node)[0];
-    if (this.sessions.sessionFor({ uri: node.root }) !== session || site === undefined ||
-      (node.kind === 'controllerTemplate' && session.lookup(node.name)?.projectPath !== template?.projectPath)) {
-      return;
-    }
-    await vscode.window.showTextDocument(document, {
-      preview: true,
-      ...(node.kind === 'controllerMethod' ? {
-        selection: new vscode.Range(document.positionAt(site.nameRange.start), document.positionAt(site.nameRange.end)),
-      } : {}),
+  private openRenderedBy(node: SidebarNode): Promise<void> {
+    if (node?.kind !== 'renderedBy') { return Promise.resolve(); }
+    return this.reveal(node.root, (session) => {
+      const site = renderedBy(this.sessions, session, node.name)
+        .find((entry) => entry.projectPath === node.projectPath && entry.offset === node.offset);
+      return site && { projectPath: site.projectPath, range: { start: site.offset, end: site.offset } };
     });
   }
 
-  private async openControllerDependency(node: SidebarNode): Promise<void> {
-    if (node?.kind !== 'controllerDependency') { return; }
-    const session = this.sessions.sessionFor({ uri: node.root });
-    if (!session || session.fileSystem.toUri(session.project.root).toString() !== node.root.toString()) { return; }
-    const resolve = (): ReturnType<typeof controllerDependencies>[number] | undefined =>
-      controllerDependencies(this.sessions, session, node).find((entry) => entry.declaration.name === node.typeName);
-    const target = resolve();
-    if (!target) { return; }
-    const uri = session.uriOf(target.projectPath);
-    const document = await vscode.workspace.openTextDocument(uri);
-    const current = resolve();
-    if (!current || current.projectPath !== target.projectPath || this.sessions.sessionFor({ uri }) !== session) { return; }
-    await vscode.window.showTextDocument(document, { preview: true,
-      selection: new vscode.Range(document.positionAt(current.declaration.range.start), document.positionAt(current.declaration.range.end)) });
+  private openWiring(node: SidebarNode): Promise<void> {
+    if (node?.kind !== 'wiring') { return Promise.resolve(); }
+    return this.reveal(node.root, (session) => {
+      const wire = wiringFor(this.sessions, session, node);
+      return wire && { projectPath: wire.projectPath, range: { start: wire.offset, end: wire.offset } };
+    });
   }
 
-  private async openRelatedScript(node: SidebarNode): Promise<void> {
-    if (node?.kind !== 'script') { return; }
-    const session = this.sessions.sessionFor({ uri: node.root });
-    if (!session || session.fileSystem.toUri(session.project.root).toString() !== node.root.toString()) { return; }
-    const connected = async (): Promise<boolean> =>
-      (await scriptsForOwner(this.sessions, session, node.parent)).some((entry) => entry.projectPath === node.projectPath);
-    if (!await connected()) { return; }
-    const uri = session.uriOf(node.projectPath);
-    if (this.sessions.sessionFor({ uri }) !== session) { return; }
-    const document = await vscode.workspace.openTextDocument(uri);
-    if (await connected() && this.sessions.sessionFor({ uri }) === session) {
-      await vscode.window.showTextDocument(document, { preview: true });
-    }
+  private openEndpoint(node: SidebarNode): Promise<void> {
+    if (node?.kind !== 'route' && node?.kind !== 'routeConsumer' && node?.kind !== 'routeTemplate') { return Promise.resolve(); }
+    return this.reveal(node.root, (session) => {
+      const route = session.frontend.routes.find((entry) => entry.name === node.name);
+      if (route === undefined) { return undefined; }
+      if (node.kind === 'route') {
+        const action = routeAction(this.sessions, session, route);
+        return action && { projectPath: action.projectPath, range: action.action.range };
+      }
+      if (node.kind === 'routeConsumer') {
+        return routeConsumers(this.sessions, session, route)
+          .find((use) => use.projectPath === node.projectPath && use.range.start === node.offset);
+      }
+      const template = session.lookup(node.templateName);
+      return template && { projectPath: template.projectPath };
+    });
+  }
+
+  private openController(node: SidebarNode): Promise<void> {
+    if (!isControllerNode(node)) { return Promise.resolve(); }
+    return this.reveal(node.root, (session) => {
+      const site = controllerSites(this.sessions, session, node)[0];
+      if (site === undefined) { return undefined; }
+      if (node.kind === 'controllerTemplate') {
+        const template = session.lookup(node.name);
+        return template && { projectPath: template.projectPath };
+      }
+      return { projectPath: node.projectPath, ...(node.kind === 'controllerMethod' ? { range: site.nameRange } : {}) };
+    });
+  }
+
+  private openControllerDependency(node: SidebarNode): Promise<void> {
+    if (node?.kind !== 'controllerDependency') { return Promise.resolve(); }
+    return this.reveal(node.root, (session) => {
+      const dependency = controllerDependencies(this.sessions, session, node)
+        .find((entry) => entry.declaration.name === node.typeName);
+      return dependency && { projectPath: dependency.projectPath, range: dependency.declaration.range };
+    });
+  }
+
+  private openRelatedScript(node: SidebarNode): Promise<void> {
+    if (node?.kind !== 'script') { return Promise.resolve(); }
+    return this.reveal(node.root, async (session) =>
+      (await scriptsForOwner(this.sessions, session, node.parent)).some((entry) => entry.projectPath === node.projectPath)
+        ? { projectPath: node.projectPath } : undefined);
   }
 
   private sessionForAction(node: SidebarNode): ProjectSession | undefined {
     if (node?.kind !== 'action') {
       return undefined;
     }
-    const session = this.sessions.sessionFor({ uri: node.root });
-    return session?.fileSystem.toUri(session.project.root).toString() === node.root.toString() &&
-      warningReasons(session).includes(node.reason) ? session : undefined;
+    const session = this.sessions.sessionAtRoot(node.root);
+    return session !== undefined && warningReasons(session).includes(node.reason) ? session : undefined;
   }
 
   private async setShowBundleTemplates(show: boolean): Promise<void> {

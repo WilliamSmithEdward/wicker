@@ -229,6 +229,17 @@ rewrote the marker last, so the race was won by accident until the second pass
 went away. `a PHP change during a slow console run is not lost` now writes its
 marker from the root project only.
 
+**`vscode.executeCodeLensProvider` costs about ten milliseconds of its own.**
+A benchmark through that command showed 14ms a call and the provider was
+suspected; timed inside, `provideCodeLenses` costs 0.03ms. The command's own
+round trip and lens handling is the rest. Measure a provider inside the
+provider before optimising it.
+
+**`@vscode/test-electron` is imported by nothing and still required.** It is
+listed beside `@vscode/test-cli`, which loads it at run time without declaring
+it, so the lockfile resolves without it and a dependency scan calls it dead.
+Removing it makes `vscode-test` fail to launch the editor. It stays.
+
 **A keystroke schedules a re-parse; `sessionFor` applies it.** Each tracker
 defers a changed document's re-index 300ms, and `SessionManager.sessionFor`
 settles the matched session before returning it, which is what keeps every

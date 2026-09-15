@@ -805,12 +805,10 @@ export class SessionManager implements vscode.Disposable {
     if (session === undefined || path === undefined) {
       return [];
     }
-    return session.renderSites.index.forTemplate(path, session.index).filter((site) => {
-      const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, site.projectPath));
-      // A parent workspace can contain another open Symfony project. Its PHP
-      // references belong to that deeper session, not to the parent's templates.
-      return this.sessionFor({ uri }) === session;
-    });
+    // A parent workspace can contain another open Symfony project. Its PHP
+    // references belong to that deeper session, not to the parent's templates.
+    return session.renderSites.index.forTemplate(path, session.index)
+      .filter((site) => this.owns(session, site.projectPath));
   }
 
   all(): readonly ProjectSession[] {

@@ -142,6 +142,11 @@ export class ProjectSession implements vscode.Disposable {
 
   get components(): ComponentDiscovery { return this.componentInfo; }
 
+  /** The console command as configured, so a failure can name what was run. */
+  get consoleCommand(): string | undefined {
+    return ProcessConsoleRunner.create(this.project.root)?.describe();
+  }
+
   /** Console data describes saved files; unsaved registration edits cannot disprove a name. */
   get canCheckCallables(): boolean {
     return !this.discoveryPending && !vscode.workspace.textDocuments.some((document) =>

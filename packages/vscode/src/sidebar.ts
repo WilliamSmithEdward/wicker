@@ -11,7 +11,7 @@ import { templateStyles, type RelatedStyle } from './relatedStyles.js';
 import { chainChildren, templateEntrypoints, type ChainEntry } from './loadingChain.js';
 
 const SHOW_BUNDLES_KEY = 'wicker.sidebar.showBundleTemplates';
-type WarningReason = 'namespaces' | 'indexLimit';
+type WarningReason = 'namespaces' | 'indexLimit' | 'console';
 type SectionName = 'controllers' | 'templates' | 'api' | 'templateRoutes' | 'components' | 'stimulus';
 type ControllerIdentity = { readonly root: vscode.Uri; readonly projectPath: string; readonly className: string };
 type ControllerNode = ControllerIdentity & (
@@ -47,7 +47,8 @@ export type SidebarNode =
   | { readonly kind: 'stimulusGroup'; readonly root: vscode.Uri; readonly parent: ScriptOwner }
   | { readonly kind: 'boundController'; readonly root: vscode.Uri; readonly name: string; readonly parent: ScriptOwner }
   | { readonly kind: 'wiring'; readonly root: vscode.Uri; readonly name: string; readonly parent: ScriptOwner;
-      readonly wiringKind: BoundWiring['kind']; readonly member: string; readonly event?: string }
+      readonly wiringKind: BoundWiring['kind']; readonly member: string; readonly event?: string;
+      readonly projectPath: string; readonly offset: number }
   | { readonly kind: 'script'; readonly root: vscode.Uri; readonly projectPath: string; readonly parent: ScriptOwner }
   | { readonly kind: 'style'; readonly root: vscode.Uri; readonly projectPath: string; readonly parent: ScriptOwner }
   | { readonly kind: 'loaded'; readonly root: vscode.Uri; readonly projectPath: string; readonly reason: string; readonly parent: SidebarNode }
@@ -232,7 +233,8 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     if (node.kind === 'boundController') {
       return (boundControllerFor(this.sessions, session, node)?.wiring ?? []).map((wire) => ({
         kind: 'wiring' as const, root: node.root, name: node.name, parent: node.parent,
-        wiringKind: wire.kind, member: wire.name, ...(wire.event === undefined ? {} : { event: wire.event }),
+        wiringKind: wire.kind, member: wire.name, projectPath: wire.projectPath, offset: wire.offset,
+        ...(wire.event === undefined ? {} : { event: wire.event }),
       }));
     }
     if (isScriptOwner(node)) {
@@ -430,13 +432,16 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       item.command = { command: 'vscode.open', title: 'Open controller', arguments: [uri] };
       return item;
     }
-    const wire = controller?.wiring.find((entry) => entry.kind === node.wiringKind &&
-      entry.name === node.member && entry.event === node.event);
+    const wire = wiringFor(this.sessions, session, node);
     const item = new vscode.TreeItem(node.event === undefined ? node.member : `${node.event} → ${node.member}`);
     if (wire === undefined || controller === undefined) { return item; }
     // An implied event is not in the attribute, so the row has to say that the
-    // event it shows was never written there.
-    item.description = wire.impliedEvent ? `${WIRING_LABELS[wire.kind]} · default event` : WIRING_LABELS[wire.kind];
+    // event it shows was never written there. Where the binding is written
+    // matters once every occurrence has a row: two rows with the same name are
+    // two places, and the file is what tells them apart.
+    item.description = [WIRING_LABELS[wire.kind], wire.impliedEvent ? 'default event' : undefined,
+      wire.projectPath === templateOwnerPath(session, node.parent) ? undefined : basename(wire.projectPath),
+    ].filter(Boolean).join(' · ');
     item.iconPath = new vscode.ThemeIcon(WIRING_ICONS[wire.kind]);
     item.tooltip = `${WIRING_LABELS[wire.kind]} of ${node.name}${wire.selector === undefined ? '' : ` → ${wire.selector}`}\n${
       wire.projectPath}\n\nOpen where it is written.`;
@@ -743,17 +748,20 @@ Extends ${node.name}.`;
       return item;
     }
     if (node.kind === 'warning') {
-      const item = new vscode.TreeItem(node.reason === 'namespaces'
-        ? 'Bundle namespaces unavailable' : 'Template index limit reached', vscode.TreeItemCollapsibleState.Expanded);
+      const item = new vscode.TreeItem(node.reason === 'namespaces' ? 'Bundle namespaces unavailable'
+        : node.reason === 'console' ? 'Symfony console unavailable'
+        : 'Template index limit reached', vscode.TreeItemCollapsibleState.Expanded);
       item.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('list.warningForeground'));
-      item.tooltip = node.reason === 'namespaces'
-        ? namespaceWarning(session)
-        : 'Some templates were omitted. Increase wicker.index.maxFiles in settings, then rebuild the index.';
+      item.tooltip = node.reason === 'namespaces' ? namespaceWarning(session)
+        : node.reason === 'console'
+          ? `Routes, Stimulus controllers and components are read from Symfony, and this project's console did not answer. Those sections are missing rather than empty.\n\n${
+            consoleWarning(session) ?? ''}\n\nWicker runs ${session.consoleCommand ?? 'php bin/console'} in the project root. Set wicker.console.command if the application runs elsewhere, such as in a container.`
+          : 'Some templates were omitted. Increase wicker.index.maxFiles in settings, then rebuild the index.';
       return item;
     }
     if (node.kind === 'action') {
       const retry = node.action === 'retry';
-      const label = retry ? 'Retry' : node.reason === 'namespaces' ? 'Open console settings' : 'Open index settings';
+      const label = retry ? 'Retry' : ['namespaces', 'console'].includes(node.reason) ? 'Open console settings' : 'Open index settings';
       const item = new vscode.TreeItem(label);
       item.iconPath = new vscode.ThemeIcon(retry ? 'refresh' : 'settings-gear');
       item.tooltip = retry ? 'Rebuild this project’s template index and retry namespace discovery.' : label;
@@ -869,7 +877,7 @@ export class WickerSidebar implements vscode.Disposable {
           return;
         }
         await vscode.commands.executeCommand('workbench.action.openWorkspaceSettings', {
-          query: node.reason === 'namespaces' ? '@ext:WilliamSmithE.wicker console' : '@id:wicker.index.maxFiles',
+          query: ['namespaces', 'console'].includes(node.reason) ? '@ext:WilliamSmithE.wicker console' : '@id:wicker.index.maxFiles',
           jsonEditor: false,
         });
       }),
@@ -933,8 +941,7 @@ export class WickerSidebar implements vscode.Disposable {
     if (!node || node.kind !== 'wiring') { return; }
     const session = this.sessions.sessionFor({ uri: node.root });
     if (!session) { return; }
-    const wire = (): BoundWiring | undefined => boundControllerFor(this.sessions, session, node)?.wiring
-      .find((entry) => entry.kind === node.wiringKind && entry.name === node.member && entry.event === node.event);
+    const wire = (): BoundWiring | undefined => wiringFor(this.sessions, session, node);
     const found = wire();
     if (found === undefined) { return; }
     const uri = session.uriOf(found.projectPath);
@@ -1110,7 +1117,8 @@ function nodeId(node: SidebarNode): string {
     node.kind === 'loaded' ? [nodeId(node.parent), 'loaded', node.projectPath] :
     node.kind === 'stimulusGroup' ? [nodeId(node.parent), 'stimulusGroup'] :
     node.kind === 'boundController' ? [nodeId(node.parent), 'boundController', node.name] :
-    node.kind === 'wiring' ? [nodeId(node.parent), 'wiring', node.name, node.wiringKind, node.member, node.event ?? ''] :
+    node.kind === 'wiring' ? [nodeId(node.parent), 'wiring', node.name, node.wiringKind, node.member,
+      node.event ?? '', node.projectPath, node.offset] :
     node.kind === 'script' || node.kind === 'style' ? [nodeId(node.parent), node.kind, node.projectPath] :
     node.kind === 'controllerDependencies' || node.kind === 'controllerDependency' || node.kind === 'controllerScripts'
       ? [node.projectPath, node.className, node.kind === 'controllerDependency' ? node.typeName : '']
@@ -1243,6 +1251,22 @@ function includingTemplates(sessions: SessionManager, session: ProjectSession, t
   return frontendIndex(sessions, session).includedBy(templateName);
 }
 
+/** The exact attribute a wiring row stands for, or nothing once it has gone. */
+function wiringFor(sessions: SessionManager, session: ProjectSession,
+  node: Extract<SidebarNode, { kind: 'wiring' }>): BoundWiring | undefined {
+  return boundControllerFor(sessions, session, node)?.wiring.find((entry) =>
+    entry.kind === node.wiringKind && entry.name === node.member && entry.event === node.event &&
+    entry.projectPath === node.projectPath && entry.offset === node.offset);
+}
+
+/** The file a script owner's own template lives in, so a row can say when a
+ * binding came from somewhere else instead. */
+function templateOwnerPath(session: ProjectSession, node: ScriptOwner): string | undefined {
+  const name = node.kind === 'template' ? node.name : node.kind === 'routeTemplate' ? node.templateName
+    : node.kind === 'controllerTemplate' ? node.name : undefined;
+  return name === undefined ? undefined : session.lookup(name)?.projectPath;
+}
+
 /** The mounted controller a row stands for, or nothing once it has gone. */
 function boundControllerFor(sessions: SessionManager, session: ProjectSession,
   node: Extract<SidebarNode, { kind: 'boundController' | 'wiring' }>): BoundController | undefined {
@@ -1347,10 +1371,35 @@ function warningReasons(session: ProjectSession): WarningReason[] {
   if (session.loaderPaths.source === 'config') {
     reasons.push('namespaces');
   }
+  // Routes, Stimulus controllers and components all come from the console.
+  // Without it every one of those sections is simply absent, which reads as a
+  // project that has none rather than as an answer nothing could give.
+  if (consoleWarning(session) !== undefined) {
+    reasons.push('console');
+  }
   if (session.index.truncated) {
     reasons.push('indexLimit');
   }
   return reasons;
+}
+
+/**
+ * What the console could not answer, or nothing when it answered everything.
+ *
+ * Only where the project says it should have answered: a project with no
+ * StimulusBundle installed is not missing Stimulus controllers, so reporting
+ * their absence would be noise on the projects that never wanted them.
+ */
+function consoleWarning(session: ProjectSession): string | undefined {
+  // Nothing to report where there is no console to run: switching it off, or
+  // an untrusted workspace, is already explained by the namespaces warning.
+  if (session.consoleCommand === undefined) { return undefined; }
+  const missing = [
+    session.frontend.routesStatus.startsWith('unavailable') ? `Routes: ${session.frontend.routesStatus}` : undefined,
+    session.frontend.stimulusStatus.startsWith('unavailable') ? `Stimulus: ${session.frontend.stimulusStatus}` : undefined,
+    session.components.status.startsWith('unavailable') ? `Components: ${session.components.status}` : undefined,
+  ].filter((entry): entry is string => entry !== undefined);
+  return missing.length === 0 ? undefined : missing.join('\n');
 }
 
 function namespaceWarning(session: ProjectSession): string {

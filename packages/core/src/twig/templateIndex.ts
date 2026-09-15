@@ -15,7 +15,7 @@ import { type WickerFileSystem } from '../fs/fileSystem.js';
 import { joinProjectPath } from '../util/paths.js';
 
 import { type TwigLoaderPaths } from './loaderPaths.js';
-import { formatTemplateName, type TwigTemplateName } from './templateName.js';
+import { formatTemplateName, parseTemplateName, type TwigTemplateName } from './templateName.js';
 
 export interface IndexedTemplate {
   /** Canonical reference, e.g. `home/index.html.twig` or `@Maker/foo.twig`. */
@@ -131,14 +131,12 @@ export class TwigTemplateIndex {
 
   /** The copy Twig would actually load, or undefined when nothing provides it. */
   lookup(name: TwigTemplateName | string): IndexedTemplate | undefined {
-    const key = typeof name === 'string' ? name : formatTemplateName(name);
-    return this.byName.get(key)?.[0];
+    return this.byName.get(keyFor(name))?.[0];
   }
 
   /** Every copy providing a name, best first, including shadowed ones. */
   candidatesFor(name: TwigTemplateName | string): readonly IndexedTemplate[] {
-    const key = typeof name === 'string' ? name : formatTemplateName(name);
-    return this.byName.get(key) ?? [];
+    return this.byName.get(keyFor(name)) ?? [];
   }
 
   /** True when some directory provides this name. */
@@ -190,6 +188,24 @@ export class TwigTemplateIndex {
   get nameCount(): number {
     return this.byName.size;
   }
+}
+
+/**
+ * The indexed key for a name as someone wrote it.
+ *
+ * Twig normalises a name before it looks anything up, so `/login/index.html.twig`
+ * and `login/index.html.twig` are the same template to it. Templates are
+ * indexed under the normalised form, and keying a query on the raw text
+ * instead reported a template that exists, and that the application renders,
+ * as missing.
+ *
+ * A name that will not parse is used as written, so it matches nothing and is
+ * reported as not found rather than resolving to something else.
+ */
+function keyFor(name: TwigTemplateName | string): string {
+  if (typeof name !== 'string') { return formatTemplateName(name); }
+  const parsed = parseTemplateName(name);
+  return parsed.ok ? formatTemplateName(parsed.value) : name;
 }
 
 /**

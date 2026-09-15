@@ -91,9 +91,15 @@ describe('parseTemplateName', () => {
       expect(parsed('@Maker//foo.html.twig')).toMatchObject({ namespace: 'Maker', path: 'foo.html.twig' });
     });
 
-    it('allows a ".." that stays inside the loader path, which resolves', () => {
-      expect(parsed('home/../index.html.twig').path).toBe('home/../index.html.twig');
-      expect(parsed('./index.html.twig').path).toBe('./index.html.twig');
+    // Twig joins the loader directory to the name and leaves the rest to the
+    // filesystem, so these reach the same file as the collapsed form. The
+    // collapsed form is what the index is keyed on, and what a missing
+    // template would be created as.
+    it('resolves a "." or a ".." that stays inside the loader path', () => {
+      expect(parsed('home/../index.html.twig').path).toBe('index.html.twig');
+      expect(parsed('./index.html.twig').path).toBe('index.html.twig');
+      expect(parsed('home/./sub/../index.html.twig').path).toBe('home/index.html.twig');
+      expect(parsed('@Design/./badge.html.twig').path).toBe('badge.html.twig');
     });
 
     it('keeps the name as written, so the reported range still matches the source', () => {

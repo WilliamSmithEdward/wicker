@@ -24,6 +24,18 @@ const DEFAULT_COMMAND: readonly string[] = ['php', 'bin/console'];
 export class ProcessConsoleRunner implements ConsoleRunner {
   private readonly command: readonly string[];
   private readonly cwd: string;
+  /**
+   * Commands already running, so the same one is never spawned twice at once.
+   *
+   * Opening a project asks the console seven questions together, and two of
+   * them are the same question: both the asset map and Stimulus discovery need
+   * the project directory. Each answer costs a Symfony kernel boot, which on a
+   * container or a remote machine is the slowest thing the extension does.
+   *
+   * In flight only. A finished answer is not kept, because the console is the
+   * authority on a project that is still being edited.
+   */
+  private readonly running = new Map<string, Promise<ConsoleResult>>();
 
   private constructor(command: readonly string[], cwd: string) {
     this.command = command;
@@ -58,6 +70,15 @@ export class ProcessConsoleRunner implements ConsoleRunner {
   }
 
   run(args: readonly string[]): Promise<ConsoleResult> {
+    const key = JSON.stringify(args);
+    const found = this.running.get(key);
+    if (found !== undefined) { return found; }
+    const started = this.spawn(args).finally(() => this.running.delete(key));
+    this.running.set(key, started);
+    return started;
+  }
+
+  private spawn(args: readonly string[]): Promise<ConsoleResult> {
     const [executable, ...leading] = this.command;
     if (executable === undefined) {
       return Promise.resolve({ ok: false, stdout: '', error: 'no console command configured' });

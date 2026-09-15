@@ -41,6 +41,24 @@ describe('TwigTemplateIndex.build', () => {
     );
   });
 
+  /*
+   * A name is written by a person, and Twig normalises it before looking it
+   * up. Indexing under the normalised form and then keying a query on the raw
+   * text reports a template that exists as missing.
+   */
+  it('finds a template under the name as written, not only as normalised', async () => {
+    const fs = new InMemoryFileSystem(LIVE_FILES);
+    const index = await TwigTemplateIndex.build(fs, '/app', LIVE_LOADER_PATHS);
+    for (const written of ['/home/index.html.twig', 'home\\index.html.twig',
+      'home//index.html.twig', './home/index.html.twig', 'home/../home/index.html.twig']) {
+      expect(index.lookup(written)?.projectPath, written).toBe('templates/home/index.html.twig');
+      expect(index.has(written), written).toBe(true);
+      expect(index.candidatesFor(written).length, written).toBe(1);
+    }
+    // A name that resolves to nothing is still not found.
+    expect(index.lookup('/home/missing.html.twig')).toBeUndefined();
+  });
+
   it('ignores files that do not match the indexed extensions', async () => {
     const fs = new InMemoryFileSystem(LIVE_FILES);
     const index = await TwigTemplateIndex.build(fs, '/app', LIVE_LOADER_PATHS);

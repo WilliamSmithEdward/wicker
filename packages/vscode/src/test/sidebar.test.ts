@@ -325,6 +325,42 @@ suite('Wicker sidebar', () => {
     await vscode.commands.executeCommand('workbench.action.closePanel');
   });
 
+  /*
+   * Routes, Stimulus controllers and components all come from the console.
+   * When it cannot answer, those sections are simply absent, which reads as a
+   * project that has none rather than as an answer nothing could give.
+   */
+  test('says so when the console cannot answer, rather than omitting its sections silently', async () => {
+    const project = (await provider.getChildren()).find((node) => node.root.toString() === rootUri.toString());
+    assert.ok(project);
+    const warningFor = async (): Promise<SidebarNode | undefined> =>
+      (await provider.getChildren(project)).find((child) => child.kind === 'warning' && child.reason === 'console');
+    const settings = vscode.workspace.getConfiguration('wicker');
+    const previousEnabled = settings.inspect<boolean>('console.enabled')?.workspaceValue;
+    try {
+      // The fixture has no PHP, so a console that is meant to run cannot.
+      const warning = await warningFor();
+      assert.ok(warning, 'a console that cannot answer should be reported');
+      const item = await provider.getTreeItem(warning);
+      assert.equal(item.label, 'Symfony console unavailable');
+      const tooltip = tooltipText(item);
+      assert.match(tooltip, /Routes:/);
+      assert.match(tooltip, /Stimulus:/);
+      assert.match(tooltip, /wicker\.console\.command/);
+      assert.deepEqual(await Promise.all((await provider.getChildren(warning)).map(async (node) =>
+        (await provider.getTreeItem(node)).label)), ['Retry', 'Open console settings']);
+
+      // Switching the console off is the user's own decision, and the
+      // namespaces warning already explains it. Saying it twice is noise.
+      await settings.update('console.enabled', false, vscode.ConfigurationTarget.Workspace);
+      await sessions.refreshAll();
+      assert.equal(await warningFor(), undefined);
+    } finally {
+      await settings.update('console.enabled', previousEnabled, vscode.ConfigurationTarget.Workspace);
+      await sessions.refreshAll();
+    }
+  });
+
   test('warning actions recover console resolution and saved answers stay in the tooltip', async () => {
     const project = (await provider.getChildren()).find((node) => node.root.toString() === rootUri.toString());
     assert.ok(project);
@@ -354,7 +390,7 @@ suite('Wicker sidebar', () => {
       await vscode.commands.executeCommand('wicker.reindex');
       await sessions.refreshAll();
       assert.match(tooltipText(await provider.getTreeItem(project)), /Namespaces: Symfony console/);
-      assert.ok((await provider.getChildren(project)).every((child) => child.kind === 'section'));
+      assert.ok(!(await provider.getChildren(project)).some((child) => child.kind === 'warning' && child.reason === 'namespaces'));
       assert.deepEqual(await provider.getChildren(warning), []);
       assert.equal((await provider.getTreeItem(retry)).command, undefined);
       assert.equal(await vscode.commands.executeCommand(command.command, ...command.arguments!), false);
@@ -362,7 +398,7 @@ suite('Wicker sidebar', () => {
       await settings.update('console.command', [node, '-e', 'process.exit(1)', '--'], vscode.ConfigurationTarget.Workspace);
       await sessions.refreshAll();
       assert.match(tooltipText(await provider.getTreeItem(project)), /Namespaces: Saved from Symfony/);
-      assert.ok((await provider.getChildren(project)).every((child) => child.kind === 'section'));
+      assert.ok(!(await provider.getChildren(project)).some((child) => child.kind === 'warning' && child.reason === 'namespaces'));
       await vscode.commands.executeCommand('workbench.action.closePanel');
     } finally {
       await settings.update('console.command', previousCommand, vscode.ConfigurationTarget.Workspace);

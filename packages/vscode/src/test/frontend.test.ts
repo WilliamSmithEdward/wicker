@@ -548,6 +548,29 @@ class WickerFrontendTestController {
         return [item.label, item.description];
       })), [['click → refresh', 'Action'], ['output', 'Target'], ['url', 'Value']]);
 
+      // One row per occurrence, not per distinct name. Three buttons with the
+      // same target are three places in the markup, and the row exists to
+      // reach the one you meant.
+      await replace(page, `<div {{ stimulus_controller('wicker-test') }}>
+  <output data-wicker-test-target="output">a</output>
+  <output data-wicker-test-target="output">b</output>
+</div>`);
+      await eventually(async () => (await tree.getChildren(mounted[0])).length === 2);
+      const both = await tree.getChildren(mounted[0]);
+      assert.deepEqual(await Promise.all(both.map(async (node) => (await tree.getTreeItem(node)).label)),
+        ['output', 'output']);
+      // Each reaches its own element, so the two rows are not one row twice.
+      const offsets: number[] = [];
+      for (const row of both) {
+        const item = await tree.getTreeItem(row);
+        await vscode.commands.executeCommand(item.command!.command, ...item.command!.arguments!);
+        offsets.push(page.offsetAt(vscode.window.activeTextEditor!.selection.start));
+      }
+      assert.equal(new Set(offsets).size, 2, 'each row should select its own attribute');
+      assert.ok(offsets.every((offset) => page.getText().slice(offset, offset + 6) === 'output'));
+      await replace(page, pageSource);
+      await eventually(async () => (await tree.getChildren(mounted[0])).length === 3);
+
       // An event the element implies is shown too, marked as not written
       // there: a reader looking for "click" must not have to know the table.
       await replace(page, `<button data-controller="wicker-test" data-action="wicker-test#refresh"></button>`);
@@ -758,6 +781,21 @@ class WickerFrontendTestController {
       for (const quiet of ['./wicker_peer_controller.ts', '#fixture/peer', '@hotwired/stimulus']) {
         assert.ok(!found.some((text) => text.includes(`"${quiet}"`)), `${quiet} resolves and must not be reported`);
       }
+
+      // An importmap.php that yields nothing has not been read, whatever the
+      // reason. Treating it as a project that declares nothing marks every
+      // bare specifier in the codebase as unresolvable.
+      const importMap = uri('importmap.php');
+      const declared = await vscode.workspace.fs.readFile(importMap);
+      try {
+        await vscode.workspace.fs.writeFile(importMap, Buffer.from('<?php\n// unreadable to this parser\n'));
+        await vscode.commands.executeCommand('wicker.reindex');
+        await eventually(async () => !(await messages()).some((text) => text.includes('never-declared')));
+      } finally {
+        await vscode.workspace.fs.writeFile(importMap, Buffer.from(declared));
+        await vscode.commands.executeCommand('wicker.reindex');
+      }
+      await eventually(async () => (await messages()).some((text) => text.includes('never-declared')));
     } finally {
       await replace(js, original);
     }
@@ -848,6 +886,35 @@ class WickerFrontendTestController {
       assert.match(text, /default 5/);
     } finally {
       await replace(js, original);
+    }
+  });
+
+  /*
+   * A controller's own stylesheet is reached through the binding in the
+   * markup: the template names the controller, the controller imports the CSS,
+   * and no template mentions the file at all.
+   */
+  test('lists a stylesheet a bound Stimulus controller imports', async () => {
+    const sheet = 'assets/controllers/wicker_test_controller.css';
+    const memory = new Map<string, unknown>();
+    const sessions = new SessionManager(new LoaderPathMemory({ keys: () => [...memory.keys()],
+      get: <T>(key: string, fallback?: T): T | undefined => memory.get(key) as T | undefined ?? fallback,
+      update: (key, value) => { memory.set(key, value); return Promise.resolve(); } }));
+    const tree = new ProjectTreeProvider(sessions);
+    try {
+      await vscode.workspace.fs.writeFile(uri(sheet), Buffer.from('.widget { color: red }'));
+      await replace(js, `import './wicker_test_controller.css';\n${jsSource}`);
+      await sessions.initialize();
+      const leaf = { kind: 'template' as const, name: TWIG.slice(10),
+        root: (await tree.getChildren()).find((node) => node.root.toString() === uri('').toString())!.root };
+      await eventually(async () => (await tree.getChildren(leaf))
+        .some((node) => node.kind === 'style' && node.projectPath === sheet));
+      const style = (await tree.getChildren(leaf)).find((node) => node.kind === 'style' && node.projectPath === sheet)!;
+      assert.match(tooltipOf(await tree.getTreeItem(style)), /Stimulus wicker-test/);
+    } finally {
+      await replace(js, jsSource);
+      try { await vscode.workspace.fs.delete(uri(sheet)); } catch { /* never written */ }
+      tree.dispose(); sessions.dispose();
     }
   });
 

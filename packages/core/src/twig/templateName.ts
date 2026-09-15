@@ -70,6 +70,17 @@ function escapesLoaderPath(path: string): boolean {
   return false;
 }
 
+/** Resolves "." and ".." the way the filesystem does when Twig joins the path. */
+function collapseSegments(path: string): string {
+  const parts: string[] = [];
+  for (const part of path.split('/')) {
+    if (part === '.') { continue; }
+    if (part === '..') { parts.pop(); continue; }
+    parts.push(part);
+  }
+  return parts.join('/');
+}
+
 /** Matches the removed Symfony 2/3 reference form, e.g. `AcmeBundle:Default:index.html.twig`. */
 const LEGACY_BUNDLE_SYNTAX = /^[A-Za-z0-9_]+Bundle:[A-Za-z0-9_]*:/;
 
@@ -143,6 +154,16 @@ export function parseTemplateName(raw: string): ParsedTemplateName {
   if (escapesLoaderPath(path)) {
     return problem('parent-traversal',
       'Twig template names cannot traverse above a loader path.');
+  }
+
+  // The file the lookup actually reaches. Twig joins the loader directory to
+  // the name and leaves the rest to the filesystem, which resolves "." and
+  // ".." on the way, so home/../home/index.html.twig and home/index.html.twig
+  // are one template. Collapsing here means the index, the diagnostics and the
+  // offer to create a missing file all name the same place.
+  path = collapseSegments(path);
+  if (path.length === 0) {
+    return problem('namespace-without-path', `"${raw}" names no template.`);
   }
 
   return {

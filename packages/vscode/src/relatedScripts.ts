@@ -117,8 +117,10 @@ function walkControllers(sessions: SessionManager, session: ProjectSession,
       if (kind === undefined) { continue; }
       // The same target or action can be on many elements; the list answers
       // what is wired, not how many times.
+      // Every occurrence, not one row per distinct name. Two elements with the
+      // same target are two places in the markup, and the row exists to reach
+      // the one you meant.
       const event = ref.event ?? ref.defaultEvent;
-      if (entry.wiring.some((wire) => wire.kind === kind && wire.name === bare && wire.event === event)) { continue; }
       entry.wiring.push({ kind, name: bare, projectPath: file.projectPath, offset: ref.range.start,
         ...(event === undefined ? {} : { event }),
         ...(ref.event === undefined && ref.defaultEvent !== undefined ? { impliedEvent: true } : {}),
@@ -127,7 +129,8 @@ function walkControllers(sessions: SessionManager, session: ProjectSession,
   });
   for (const entry of found.values()) {
     entry.wiring.sort((left, right) => WIRING_KINDS.indexOf(left.kind) - WIRING_KINDS.indexOf(right.kind) ||
-      left.name.localeCompare(right.name) || (left.event ?? '').localeCompare(right.event ?? ''));
+      left.name.localeCompare(right.name) || (left.event ?? '').localeCompare(right.event ?? '') ||
+      left.projectPath.localeCompare(right.projectPath) || left.offset - right.offset);
   }
   return [...found.values()].sort((left, right) => left.name.localeCompare(right.name));
 }

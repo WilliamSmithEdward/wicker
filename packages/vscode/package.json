@@ -84,12 +84,12 @@
         {
           "command": "wicker.showBundleTemplates",
           "when": "view == wicker.projects && config.wicker.enable && !wicker.showBundleTemplates",
-          "group": "navigation@4"
+          "group": "1_display@1"
         },
         {
           "command": "wicker.hideBundleTemplates",
           "when": "view == wicker.projects && config.wicker.enable && wicker.showBundleTemplates",
-          "group": "navigation@4"
+          "group": "1_display@1"
         }
       ],
       "view/item/context": [

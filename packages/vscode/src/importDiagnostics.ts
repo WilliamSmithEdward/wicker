@@ -38,7 +38,12 @@ export function missingImportDiagnostics(
   // Without the configured roots every relative target looks absent, and
   // without importmap.php every bare specifier does.
   const canCheckRelative = settings !== undefined;
-  const canCheckBare = importMapFound;
+  // A file that yields no entries is one this could not read, not a project
+  // that declares nothing: an application with an importmap.php has entries in
+  // it. Reporting from an empty read marks every bare specifier in the project
+  // as unresolvable, which is exactly the shape of a wrong answer given
+  // confidently.
+  const canCheckBare = importMapFound && importMap.length > 0;
 
   const source = document.getText();
   const result: vscode.Diagnostic[] = [];

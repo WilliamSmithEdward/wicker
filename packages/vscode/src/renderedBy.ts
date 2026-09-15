@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-import { joinProjectPath, type RenderSite } from '@wicker/core';
+import type { RenderSite } from '@wicker/core';
 
 import type { SessionManager } from './session.js';
 
@@ -89,7 +89,7 @@ export class RenderedByProvider implements vscode.CodeLensProvider, vscode.Dispo
       this.refresh();
       return;
     }
-    const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, requested.projectPath));
+    const uri = session.uriOf(requested.projectPath);
     const source = await vscode.workspace.openTextDocument(uri);
     // Opening the source may have refreshed its offsets. A stale lens must
     // refresh instead of navigating to unrelated text at its former offset.

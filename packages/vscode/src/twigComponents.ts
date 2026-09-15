@@ -81,7 +81,7 @@ export class TwigComponentProvider implements vscode.CompletionItemProvider, vsc
   }
 
   private async source(session: ProjectSession, path: string): Promise<Source | undefined> {
-    const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, path));
+    const uri = session.uriOf(path);
     if (this.sessions.sessionFor({ uri }) !== session) { return undefined; }
     if ((await session.fileSystem.stat(joinProjectPath(session.project.root, path)))?.type !== 'file') { return undefined; }
     try {

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { ACTION_OPTIONS, COMMON_EVENTS, EVENT_TARGETS, KEY_FILTERS,
-  cssImports, cssUrls, importSpecifiers, joinProjectPath, resolveRelativeImport, responseAccessAt,
+  cssImports, cssUrls, importSpecifiers, resolveRelativeImport, responseAccessAt,
   stimulusCallbackOwners, stimulusGeneratedMembers, stimulusHtmlName, stimulusSource,
   type FrontendReference, type OffsetRange, type ResponseField, type StimulusMember, type StimulusValue,
   type SymfonyRoute } from '@wicker/core';
@@ -36,7 +36,7 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       ...query.targets ?? []];
     const links: vscode.LocationLink[] = [];
     for (const target of matches) {
-      const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, target.projectPath));
+      const uri = session.uriOf(target.projectPath);
       if (!this.sessions.owns(session, target.projectPath)) { continue; }
       try {
         const targetDoc = await vscode.workspace.openTextDocument(uri);
@@ -79,7 +79,7 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
     const locations = new Map<string, vscode.Location>();
     for (const target of targets) {
       try {
-        const doc = await vscode.workspace.openTextDocument(session.fileSystem.toUri(joinProjectPath(session.project.root, target.projectPath)));
+        const doc = await vscode.workspace.openTextDocument(session.uriOf(target.projectPath));
         if (!this.sessions.owns(session, target.projectPath)) { continue; }
         const location = new vscode.Location(doc.uri, rangeOf(doc, target.range));
         locations.set(`${doc.uri.toString()}:${target.range.start}`, location);
@@ -396,7 +396,7 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
     const controller = controllers.find((entry) => entry.name === controllerName);
     const candidates: Candidate[] = [];
     if (controller) {
-      const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, controller.projectPath));
+      const uri = session.uriOf(controller.projectPath);
       if ((await session.fileSystem.stat(enginePathOf(uri)))?.type === 'file') {
         try {
           const doc = await vscode.workspace.openTextDocument(uri);

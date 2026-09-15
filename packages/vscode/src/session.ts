@@ -244,7 +244,13 @@ export class ProjectSession implements vscode.Disposable {
 
   /** The editor URI for an indexed template. */
   uriFor(template: IndexedTemplate): vscode.Uri {
-    return this.fileSystem.toUri(joinProjectPath(this.project.root, template.projectPath));
+    return this.uriOf(template.projectPath);
+  }
+
+  /** The editor's URI for a project-relative path, built from this project's
+   * own root so a remote workspace keeps its scheme and authority. */
+  uriOf(projectPath: string): vscode.Uri {
+    return this.fileSystem.toUri(joinProjectPath(this.project.root, projectPath));
   }
 
   /**

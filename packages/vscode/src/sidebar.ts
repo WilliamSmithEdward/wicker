@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-import { joinProjectPath, parseTemplateName, type IncomingReference, type TwigTemplateIndex, type LoaderPathEntry, type LoaderPathSource, type RenderingController, type RenderSite, type SymfonyRoute, type TwigComponent, type TwigReferenceKind } from '@wicker/core';
+import { parseTemplateName, type IncomingReference, type TwigTemplateIndex, type LoaderPathEntry, type LoaderPathSource, type RenderingController, type RenderSite, type SymfonyRoute, type TwigComponent, type TwigReferenceKind } from '@wicker/core';
 
 import { enginePathOf } from './paths.js';
 import { isEnabled, type ProjectSession, type SessionManager } from './session.js';
@@ -425,7 +425,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       // not in the file the reader started from.
       item.description = controller.boundIn.join(', ');
       item.tooltip = `${controller.projectPath}\n\nBound in:\n${controller.boundIn.join('\n')}`;
-      const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, controller.projectPath));
+      const uri = session.uriOf(controller.projectPath);
       item.resourceUri = uri;
       item.command = { command: 'vscode.open', title: 'Open controller', arguments: [uri] };
       return item;
@@ -440,7 +440,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     item.iconPath = new vscode.ThemeIcon(WIRING_ICONS[wire.kind]);
     item.tooltip = `${WIRING_LABELS[wire.kind]} of ${node.name}${wire.selector === undefined ? '' : ` → ${wire.selector}`}\n${
       wire.projectPath}\n\nOpen where it is written.`;
-    const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, wire.projectPath));
+    const uri = session.uriOf(wire.projectPath);
     item.resourceUri = uri;
     item.command = { command: 'wicker.openWiring', title: 'Open the attribute', arguments: [node] };
     return item;
@@ -475,7 +475,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     item.iconPath = node.part === 'template' ? sidebarIcon(icons.template) : new vscode.ThemeIcon(icons.controller);
     item.tooltip = node.part === 'template' ? `${component.template}\n${path ?? ''}` : `${component.className}\n${path ?? ''}`;
     if (path === undefined) { return item; }
-    const uri = template ? session.uriFor(template) : session.fileSystem.toUri(joinProjectPath(session.project.root, path));
+    const uri = template ? session.uriFor(template) : session.uriOf(path);
     item.resourceUri = uri;
     item.command = { command: 'vscode.open', title: 'Open file', arguments: [uri] };
     return item;
@@ -491,7 +491,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
   private describeStimulus(node: Extract<SidebarNode, { kind: 'stimulusController' | 'stimulusUse' }>,
     session: ProjectSession): vscode.TreeItem {
     if (node.kind === 'stimulusUse') {
-      const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath));
+      const uri = session.uriOf(node.projectPath);
       const item = new vscode.TreeItem(basename(node.projectPath));
       item.description = node.projectPath.slice(0, Math.max(0, node.projectPath.lastIndexOf('/')));
       item.iconPath = sidebarIcon(icons.template);
@@ -509,7 +509,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     item.iconPath = new vscode.ThemeIcon(scriptIcon(controller.projectPath));
     item.tooltip = `${controller.projectPath}\n\nWritten in markup as data-controller="${node.name}".${
       uses.length ? '' : '\nNo indexed template binds it.'}`;
-    const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, controller.projectPath));
+    const uri = session.uriOf(controller.projectPath);
     item.resourceUri = uri;
     item.command = { command: 'vscode.open', title: 'Open controller', arguments: [uri] };
     return item;
@@ -530,7 +530,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       item.tooltip = `${node.projectPath}
 
 Open the render call that names ${node.name}.`;
-      item.resourceUri = session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath));
+      item.resourceUri = session.uriOf(node.projectPath);
       item.command = { command: 'wicker.openRenderedBy', title: 'Open the render call', arguments: [node] };
       return item;
     }
@@ -554,7 +554,7 @@ Open the render call that names ${node.name}.`;
       item.description = REFERENCE_VERBS[node.via];
       item.iconPath = sidebarIcon(icons.template);
       item.tooltip = `${node.projectPath}\n\n${REFERENCE_VERBS[node.via]} ${node.name}.`;
-      const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath));
+      const uri = session.uriOf(node.projectPath);
       item.resourceUri = uri;
       item.command = { command: 'vscode.open', title: 'Open template', arguments: [uri] };
       return item;
@@ -595,7 +595,7 @@ Extends ${node.name}.`;
       item.iconPath = new vscode.ThemeIcon(scriptIcon(node.projectPath));
       item.tooltip = `${node.projectPath}\n\n${script?.reasons.join('\n') ?? ''}${script?.generatedPaths.length
         ? `\n\nTypeScript source for:\n${script.generatedPaths.join('\n')}` : ''}`;
-      item.resourceUri = session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath));
+      item.resourceUri = session.uriOf(node.projectPath);
       if (script) { item.command = { command: 'wicker.openRelatedScript', title: 'Open associated script', arguments: [node] }; }
       return item;
     }
@@ -607,9 +607,9 @@ Extends ${node.name}.`;
       // Which template links it, because the link is usually in a layout and
       // not in the page the reader started from.
       item.tooltip = `${node.projectPath}\n\n${style?.reasons.join('\n') ?? ''}`;
-      item.resourceUri = session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath));
+      item.resourceUri = session.uriOf(node.projectPath);
       item.command = { command: 'vscode.open', title: 'Open stylesheet',
-        arguments: [session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath))] };
+        arguments: [session.uriOf(node.projectPath)] };
       return item;
     }
     if (node.kind === 'controllerDependencies' || node.kind === 'controllerDependency') {
@@ -630,7 +630,7 @@ Extends ${node.name}.`;
       item.description = [...new Set(dependency.uses.map((use) => use.variable))].join(', ');
       item.tooltip = `${node.typeName}\n${dependency.projectPath}\n\nDeclared on:\n${[...new Set(dependency.uses.map((use) =>
         use.methodName ? `${use.methodName}() — ${use.variable}` : `Property ${use.variable}`))].join('\n')}\n\nOpen type declaration.`;
-      item.resourceUri = session.fileSystem.toUri(joinProjectPath(session.project.root, dependency.projectPath));
+      item.resourceUri = session.uriOf(dependency.projectPath);
       item.command = { command: 'wicker.openControllerDependency', title: 'Open dependency', arguments: [node] };
       return item;
     }
@@ -702,7 +702,7 @@ Extends ${node.name}.`;
         }
         if (!controller && templateNames.length) { item.tooltip += `\n\nRenders:\n${templateNames.join('\n')}`; }
         item.tooltip += controller ? '\nOpen controller file.' : '\nOpen the first render call or #[Template] attribute.';
-        item.resourceUri = session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath));
+        item.resourceUri = session.uriOf(node.projectPath);
       } else {
         const resolved = session.lookup(node.name);
         item.tooltip = `${node.name}\n${resolved?.projectPath ?? 'This template name could not be resolved with the current index.'}`;
@@ -799,9 +799,9 @@ Extends ${node.name}.`;
       // The reason is the point of the row: a file this deep in the chain is
       // named in no template, and "why is this loaded" is the question.
       item.tooltip = `${node.projectPath}\n\n${node.reason}`;
-      item.resourceUri = session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath));
+      item.resourceUri = session.uriOf(node.projectPath);
       item.command = { command: 'vscode.open', title: 'Open file',
-        arguments: [session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath))] };
+        arguments: [session.uriOf(node.projectPath)] };
       return item;
     }
     const template = session.lookup(node.name);
@@ -914,7 +914,7 @@ export class WickerSidebar implements vscode.Disposable {
     const site = renderedBy(this.sessions, session, node.name)
       .find((entry) => entry.projectPath === node.projectPath && entry.offset === node.offset);
     if (site === undefined) { return; }
-    const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath));
+    const uri = session.uriOf(node.projectPath);
     if (this.sessions.sessionFor({ uri }) !== session) { return; }
     const document = await vscode.workspace.openTextDocument(uri);
     if (this.sessions.sessionFor({ uri }) !== session) { return; }
@@ -937,7 +937,7 @@ export class WickerSidebar implements vscode.Disposable {
       .find((entry) => entry.kind === node.wiringKind && entry.name === node.member && entry.event === node.event);
     const found = wire();
     if (found === undefined) { return; }
-    const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, found.projectPath));
+    const uri = session.uriOf(found.projectPath);
     if (this.sessions.sessionFor({ uri }) !== session) { return; }
     const document = await vscode.workspace.openTextDocument(uri);
     const current = wire();
@@ -958,7 +958,7 @@ export class WickerSidebar implements vscode.Disposable {
     const template = node.kind === 'routeTemplate' ? session.lookup(node.templateName) : undefined;
     const path = node.kind === 'route' ? action?.projectPath : node.kind === 'routeConsumer' ? use?.projectPath : template?.projectPath;
     if (!path) { return; }
-    const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, path));
+    const uri = session.uriOf(path);
     if (this.sessions.sessionFor({ uri }) !== session) { return; }
     const doc = await vscode.workspace.openTextDocument(uri);
     const range = node.kind === 'route' ? routeAction(this.sessions, session, route)?.action.range : use?.range;
@@ -981,7 +981,7 @@ export class WickerSidebar implements vscode.Disposable {
       return;
     }
     const uri = template === undefined
-      ? session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath)) : session.uriFor(template);
+      ? session.uriOf(node.projectPath) : session.uriFor(template);
     const document = await vscode.workspace.openTextDocument(uri);
     // Opening a file can refresh the index. Resolve the action again so edits
     // above it cannot leave navigation pointing at its previous offset.
@@ -1006,7 +1006,7 @@ export class WickerSidebar implements vscode.Disposable {
       controllerDependencies(this.sessions, session, node).find((entry) => entry.declaration.name === node.typeName);
     const target = resolve();
     if (!target) { return; }
-    const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, target.projectPath));
+    const uri = session.uriOf(target.projectPath);
     const document = await vscode.workspace.openTextDocument(uri);
     const current = resolve();
     if (!current || current.projectPath !== target.projectPath || this.sessions.sessionFor({ uri }) !== session) { return; }
@@ -1021,7 +1021,7 @@ export class WickerSidebar implements vscode.Disposable {
     const connected = async (): Promise<boolean> =>
       (await scriptsForOwner(this.sessions, session, node.parent)).some((entry) => entry.projectPath === node.projectPath);
     if (!await connected()) { return; }
-    const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath));
+    const uri = session.uriOf(node.projectPath);
     if (this.sessions.sessionFor({ uri }) !== session) { return; }
     const document = await vscode.workspace.openTextDocument(uri);
     if (await connected() && this.sessions.sessionFor({ uri }) === session) {

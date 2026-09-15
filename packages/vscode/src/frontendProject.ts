@@ -83,15 +83,20 @@ export function frontendIndex(sessions: SessionManager, session: ProjectSession)
  * markup uses, and derived in one pass because asking per controller would
  * read every template once per controller.
  */
-const bindings = new WeakMap<FrontendIndex, ReadonlyMap<string, readonly string[]>>();
+const bindings = new WeakMap<FrontendIndex,
+  { controllers: readonly StimulusController[]; byController: ReadonlyMap<string, readonly string[]> }>();
 
 export function templatesBinding(sessions: SessionManager, session: ProjectSession, name: string): readonly string[] {
-  // Keyed on the scoped index itself: it is rebuilt whenever anything that
+  // Keyed on the scoped index itself: it is rebuilt whenever a file that
   // could change the answer changes, and holding it by identity means the
   // derived map is dropped with it rather than outliving what it describes.
+  // The controller list is the other input, and a rediscovery can replace it
+  // without touching a file, so it is checked by identity as well.
   const index = frontendIndex(sessions, session);
   const found = bindings.get(index);
-  if (found !== undefined) { return found.get(name) ?? []; }
+  if (found !== undefined && found.controllers === session.frontend.controllers) {
+    return found.byController.get(name) ?? [];
+  }
   const byController = new Map<string, string[]>();
   for (const file of index.all()) {
     if (!file.projectPath.endsWith('.twig')) { continue; }
@@ -104,7 +109,7 @@ export function templatesBinding(sessions: SessionManager, session: ProjectSessi
     }
   }
   for (const paths of byController.values()) { paths.sort((left, right) => left.localeCompare(right)); }
-  bindings.set(index, byController);
+  bindings.set(index, { controllers: session.frontend.controllers, byController });
   return byController.get(name) ?? [];
 }
 

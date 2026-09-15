@@ -41,7 +41,7 @@ export class TemplateContextTracker implements vscode.Disposable {
     this.known = paths;
     // Smaller batches than the other trackers: a template carries its whole
     // inheritance chain into the parse, so these reads are the heavier ones.
-    await readInBatches(added, (path) => this.load(path, known), () => this.disposed, 16);
+    await readInBatches(added, (path) => this.load(path, known), () => this.disposed, 64);
   }
 
   update(document: vscode.TextDocument): void {

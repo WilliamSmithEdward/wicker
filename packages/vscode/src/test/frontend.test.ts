@@ -498,6 +498,21 @@ class WickerFrontendTestController {
       await replace(page, '<p>nothing binds a controller now</p>');
       await eventually(async () => (await tree.getChildren(bound)).length === 0);
       assert.equal((await tree.getTreeItem(bound)).description, 'Unused');
+
+      // The other input is the controller list, and a rediscovery can replace
+      // it without any indexed file changing. An answer held against the file
+      // index alone would keep naming a controller that no longer exists.
+      await replace(page, pageSource);
+      await eventually(async () => (await tree.getChildren(bound)).length === 1);
+      const session = sessions.all().find((entry) => entry.project.root.endsWith('symfony-app'))!;
+      const discovered = session.frontend;
+      try {
+        session.frontend = { ...discovered, controllers: discovered.controllers.filter((entry) => entry.name !== 'wicker-test') };
+        assert.deepEqual(await tree.getChildren(bound), [], 'a controller the console no longer reports binds nothing');
+      } finally {
+        session.frontend = discovered;
+      }
+      assert.equal((await tree.getChildren(bound)).length, 1);
     } finally {
       tree.dispose(); sessions.dispose();
     }

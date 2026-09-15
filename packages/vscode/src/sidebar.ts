@@ -4,7 +4,7 @@ import { joinProjectPath, parseTemplateName, type LoaderPathEntry, type LoaderPa
 
 import { enginePathOf } from './paths.js';
 import type { ProjectSession, SessionManager } from './session.js';
-import { apiRoutes, compareRoutePaths, controllerDependencies, routeAction, routeConsumers, templateRoutes } from './frontendProject.js';
+import { apiRoutes, compareRoutePaths, controllerDependencies, frontendIndex, routeAction, routeConsumers, templateRoutes } from './frontendProject.js';
 import { dependencyKind, sidebarIcon, SIDEBAR_ICONS as icons } from './sidebarIcons.js';
 import { controllerScripts, templateScripts, type RelatedScript } from './relatedScripts.js';
 import { templateStyles, type RelatedStyle } from './relatedStyles.js';
@@ -34,6 +34,9 @@ export type SidebarNode =
   | (ControllerIdentity & { readonly kind: 'controllerDependencies' })
   | (ControllerIdentity & { readonly kind: 'controllerDependency'; readonly typeName: string })
   | (ControllerIdentity & { readonly kind: 'controllerScripts' })
+  | { readonly kind: 'renderedBy'; readonly root: vscode.Uri; readonly name: string; readonly projectPath: string; readonly label: string; readonly offset: number }
+  | { readonly kind: 'extendedBy'; readonly root: vscode.Uri; readonly name: string }
+  | { readonly kind: 'extending'; readonly root: vscode.Uri; readonly name: string; readonly templateName: string }
   | { readonly kind: 'script'; readonly root: vscode.Uri; readonly projectPath: string; readonly parent: ScriptOwner }
   | { readonly kind: 'style'; readonly root: vscode.Uri; readonly projectPath: string; readonly parent: ScriptOwner }
   | { readonly kind: 'loaded'; readonly root: vscode.Uri; readonly projectPath: string; readonly reason: string; readonly parent: SidebarNode }
@@ -144,8 +147,14 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
         kind: 'loaded' as const, root: node.root, projectPath: entry.projectPath, reason: entry.reason, parent: node,
       }));
     }
+    if (node.kind === 'extendedBy') {
+      return extendingTemplates(this.sessions, session, node.name).map((templateName) => ({
+        kind: 'extending' as const, root: node.root, name: node.name, templateName,
+      }));
+    }
     if (isScriptOwner(node)) {
       return [
+        ...incomingTemplateRows(this.sessions, session, node),
         ...(await scriptsForOwner(this.sessions, session, node)).map((script) => ({
           kind: 'script' as const, root: node.root, projectPath: script.projectPath, parent: node,
         })),
@@ -238,6 +247,8 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
   }
 
   getParent(node: SidebarNode): SidebarNode | undefined {
+    if (node.kind === 'renderedBy' || node.kind === 'extendedBy') { return { kind: 'template', root: node.root, name: node.name }; }
+    if (node.kind === 'extending') { return { kind: 'extendedBy', root: node.root, name: node.name }; }
     if (node.kind === 'script' || node.kind === 'style') { return node.parent; }
     if (node.kind === 'loaded') { return node.parent; }
     if (node.kind === 'route') { return { kind: 'section', root: node.root, section: node.section }; }
@@ -303,6 +314,37 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
         ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
       item.iconPath = new vscode.ThemeIcon(icons.scripts);
       item.tooltip = 'Scripts associated through rendered templates, Stimulus bindings or route consumers.';
+      return item;
+    }
+    if (node.kind === 'renderedBy') {
+      const item = new vscode.TreeItem(node.label);
+      item.description = 'Renders this';
+      item.iconPath = new vscode.ThemeIcon(icons.method);
+      item.tooltip = `${node.projectPath}
+
+Open the render call that names ${node.name}.`;
+      item.resourceUri = session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath));
+      item.command = { command: 'wicker.openRenderedBy', title: 'Open the render call', arguments: [node] };
+      return item;
+    }
+    if (node.kind === 'extendedBy') {
+      const extending = extendingTemplates(this.sessions, session, node.name);
+      const item = new vscode.TreeItem('Extended by', vscode.TreeItemCollapsibleState.Collapsed);
+      item.description = String(extending.length);
+      item.iconPath = new vscode.ThemeIcon(icons.dependencies);
+      item.tooltip = `Templates that extend ${node.name}, and inherit the blocks it declares.`;
+      return item;
+    }
+    if (node.kind === 'extending') {
+      const item = new vscode.TreeItem(basename(templatePath(node.templateName)));
+      item.description = templatePath(node.templateName).slice(0, Math.max(0, templatePath(node.templateName).lastIndexOf('/')));
+      item.iconPath = sidebarIcon(icons.template);
+      item.tooltip = `${node.templateName}
+
+Extends ${node.name}.`;
+      const target = session.lookup(node.templateName);
+      if (target !== undefined) { item.resourceUri = session.uriFor(target); }
+      item.command = { command: 'wicker.openTemplate', title: 'Open template', arguments: [node.root, node.templateName] };
       return item;
     }
     if (node.kind === 'script') {
@@ -594,6 +636,7 @@ export class WickerSidebar implements vscode.Disposable {
       }),
       vscode.commands.registerCommand('wicker.revealTemplate', () => this.revealActiveTemplate()),
       vscode.commands.registerCommand('wicker.openEndpoint', (node: SidebarNode) => this.openEndpoint(node)),
+      vscode.commands.registerCommand('wicker.openRenderedBy', (node: SidebarNode) => this.openRenderedBy(node)),
       vscode.commands.registerCommand('wicker.showBundleTemplates', () => this.setShowBundleTemplates(true)),
       vscode.commands.registerCommand('wicker.hideBundleTemplates', () => this.setShowBundleTemplates(false)),
       vscode.window.onDidChangeActiveTextEditor(() => this.updateRevealContext()),
@@ -607,6 +650,28 @@ export class WickerSidebar implements vscode.Disposable {
     this.view.message = '';
     this.provider.refresh();
   }
+  /**
+   * Opens the render call itself, not just the controller holding it.
+   *
+   * The row is checked against the index again first: it was built from a
+   * render site that may have moved or gone since, and an offset from a stale
+   * row selects unrelated text rather than nothing.
+   */
+  private async openRenderedBy(node: SidebarNode): Promise<void> {
+    if (!node || node.kind !== 'renderedBy') { return; }
+    const session = this.sessions.sessionFor({ uri: node.root });
+    if (!session) { return; }
+    const site = renderedBy(this.sessions, session, node.name)
+      .find((entry) => entry.projectPath === node.projectPath && entry.offset === node.offset);
+    if (site === undefined) { return; }
+    const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath));
+    if (this.sessions.sessionFor({ uri }) !== session) { return; }
+    const document = await vscode.workspace.openTextDocument(uri);
+    if (this.sessions.sessionFor({ uri }) !== session) { return; }
+    const at = document.positionAt(site.offset);
+    await vscode.window.showTextDocument(document, { preview: true, selection: new vscode.Range(at, at) });
+  }
+
   private async openEndpoint(node: SidebarNode): Promise<void> {
     if (!node || !['route', 'routeConsumer', 'routeTemplate'].includes(node.kind)) { return; }
     const session = this.sessions.sessionFor({ uri: node.root });
@@ -760,6 +825,9 @@ function namespaceOf(name: string): string {
 
 function nodeId(node: SidebarNode): string {
   return JSON.stringify([node.root.toString(), node.kind,
+    node.kind === 'renderedBy' ? [node.name, node.projectPath, node.offset] :
+    node.kind === 'extendedBy' ? [node.name] :
+    node.kind === 'extending' ? [node.name, node.templateName] :
     node.kind === 'loaded' ? [nodeId(node.parent), 'loaded', node.projectPath] :
     node.kind === 'script' || node.kind === 'style' ? [nodeId(node.parent), node.kind, node.projectPath] :
     node.kind === 'controllerDependencies' || node.kind === 'controllerDependency' || node.kind === 'controllerScripts'
@@ -823,6 +891,60 @@ function scriptsForOwner(sessions: SessionManager, session: ProjectSession, node
 }
 
 function scriptIcon(path: string): string { return path.endsWith('.ts') ? icons.typescript : icons.javascript; }
+
+/**
+ * What points at this template, above what it loads.
+ *
+ * Both are the direction the file cannot state. A template names what it
+ * extends on its first line, and that name already navigates, but nothing in
+ * it names the controller that renders it or the pages built on it.
+ *
+ * Only for a template browsed on its own. A row reached from a controller or a
+ * route arrived by one of these links already, and repeating it there would
+ * lead back where the reader just came from.
+ */
+function incomingTemplateRows(sessions: SessionManager, session: ProjectSession, node: ScriptOwner): SidebarNode[] {
+  if (node.kind !== 'template') { return []; }
+  const name = node.name;
+  const rows: SidebarNode[] = renderedBy(sessions, session, name).map((site) => ({
+    kind: 'renderedBy' as const, root: node.root, name,
+    projectPath: site.projectPath, label: site.label, offset: site.offset,
+  }));
+  if (extendingTemplates(sessions, session, name).length > 0) {
+    rows.push({ kind: 'extendedBy', root: node.root, name });
+  }
+  return rows;
+}
+
+/**
+ * The controller actions that render a template, as rows rather than a group.
+ *
+ * A render site is an actual render() call, so a partial that is only ever
+ * included has none and a page has one or two. There is nothing here to fold
+ * away behind an extra click.
+ */
+function renderedBy(sessions: SessionManager, session: ProjectSession, templateName: string):
+readonly { projectPath: string; label: string; offset: number }[] {
+  const template = session.lookup(templateName);
+  if (template === undefined) { return []; }
+  return session.renderSites.index.forTemplate(template.projectPath, session.index)
+    .filter((site) => sessions.owns(session, site.projectPath))
+    .map((site) => {
+      const owner = site.className?.split('\\').at(-1) ?? site.projectPath;
+      return { projectPath: site.projectPath, offset: site.nameRange.start,
+        label: site.methodName === undefined ? owner : `${owner}::${site.methodName}()` };
+    })
+    .sort((left, right) => left.label.localeCompare(right.label) || left.offset - right.offset);
+}
+
+/** Templates extending this one, behind a group because a layout can have many. */
+function extendingTemplates(sessions: SessionManager, session: ProjectSession, templateName: string): readonly string[] {
+  const index = frontendIndex(sessions, session);
+  return index.extendedBy(templateName)
+    .flatMap((projectPath) => session.index.templatesForProjectPath(projectPath).map((entry) => entry.name))
+    .filter((name, at, all) => all.indexOf(name) === at)
+    .sort((left, right) => left.localeCompare(right));
+}
 
 function controllersInProject(sessions: SessionManager, session: ProjectSession): readonly RenderingController[] {
   return session.renderSites.index.controllers()

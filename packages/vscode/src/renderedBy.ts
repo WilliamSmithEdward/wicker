@@ -18,7 +18,7 @@ export class RenderedByProvider implements vscode.CodeLensProvider, vscode.Dispo
       sessions.onDidChange(() => this.refresh()),
       sessions.onDidChangeRenderSites(() => this.refresh()),
       vscode.workspace.onDidChangeConfiguration((event) => {
-        if (event.affectsConfiguration('wicker.enable')) {
+        if (event.affectsConfiguration('wicker.enable') || event.affectsConfiguration('wicker.codeLens')) {
           this.refresh();
         }
       }),
@@ -37,6 +37,30 @@ export class RenderedByProvider implements vscode.CodeLensProvider, vscode.Dispo
   }
 
   provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
+    if (!vscode.workspace.getConfiguration('wicker').get<boolean>('codeLens.enabled', true)) {
+      return [];
+    }
+    return [...this.renderedByLenses(document), ...this.extendedByLenses(document)];
+  }
+
+  /**
+   * How many templates extend this one.
+   *
+   * The same direction as the render sites: what points at this file. What it
+   * extends is on its own first line and already navigates, so a lens saying
+   * so would repeat the line below it.
+   */
+  private extendedByLenses(document: vscode.TextDocument): vscode.CodeLens[] {
+    const count = this.sessions.extendingTemplateCount(document);
+    if (count === 0) { return []; }
+    return [new vscode.CodeLens(new vscode.Range(0, 0, 0, 0), {
+      title: `Extended by ${count} template${count === 1 ? '' : 's'}`,
+      tooltip: 'Templates that inherit the blocks this one declares. Browse them in the Wicker sidebar.',
+      command: 'wicker.revealTemplate',
+    })];
+  }
+
+  private renderedByLenses(document: vscode.TextDocument): vscode.CodeLens[] {
     return this.sessions.renderSitesFor(document).map((site) => {
       const owner = site.className?.split('\\').at(-1) ?? site.projectPath;
       const label = site.methodName === undefined ? owner : `${owner}::${site.methodName}`;

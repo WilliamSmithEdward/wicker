@@ -476,9 +476,10 @@ class WickerFrontendTestController {
       await sessions.initialize();
       const root = (await tree.getChildren()).find((node) => node.root.toString() === uri('').toString())!;
       const leaf = { kind: 'template' as const, root: root.root, name: TWIG.slice(10) };
-      const initial = await tree.getChildren(leaf);
+      // Who renders the page comes before what it loads, so the scripts are
+      // picked out by kind rather than by position.
+      const initial = (await tree.getChildren(leaf)).filter((node) => node.kind === 'script');
       assert.equal(initial.length, 1);
-      assert.equal(initial[0]!.kind, 'script');
       assert.equal((await tree.getTreeItem(initial[0]!)).label, 'wicker_test_controller.js');
       assert.deepEqual(tree.getParent(initial[0]!), leaf);
       assert.equal((await tree.getTreeItem(leaf)).collapsibleState, vscode.TreeItemCollapsibleState.Collapsed);
@@ -499,7 +500,7 @@ class WickerFrontendTestController {
       // the compiled JS explicitly names a map pointing at that source.
       await vscode.workspace.fs.writeFile(uri(tsPath), Buffer.from("fetch('/_wicker-test/fragment');"));
       ts = await vscode.workspace.openTextDocument(uri(tsPath));
-      assert.equal((await tree.getChildren(leaf)).length, 1);
+      assert.equal((await tree.getChildren(leaf)).filter((node) => node.kind === 'script').length, 1);
       await eventually(async () => (await tree.getChildren(group)).filter((node) => node.kind === 'script').length === 2);
       const scriptIcons = await Promise.all((await tree.getChildren(group)).map(async (node) => ((await tree.getTreeItem(node)).iconPath as vscode.ThemeIcon).id));
       assert.equal(new Set(scriptIcons).size, 2, 'Independent JS and TS files have distinct icons');
@@ -514,13 +515,15 @@ class WickerFrontendTestController {
       // what keeps them off that path.
       assert.equal(sessions.sessionFor({ uri: uri(mapPath) })?.frontendSources.index.get(mapPath), undefined,
         'a source map should be read on demand, not indexed');
-      const preferred = (await tree.getChildren(leaf))[0]!;
+      const preferred = (await tree.getChildren(leaf)).find((node) => node.kind === 'script')!;
       const preferredItem = await tree.getTreeItem(preferred);
       assert.ok(typeof preferredItem.tooltip === 'string' && preferredItem.tooltip.includes(JS));
       await vscode.commands.executeCommand(preferredItem.command!.command, ...preferredItem.command!.arguments!);
       assert.equal(vscode.window.activeTextEditor?.document.uri.toString(), ts.uri.toString());
       await replace(page, '<p>No scripts here</p>');
-      assert.deepEqual(await tree.getChildren(leaf), []);
+      // The render sites stay: nothing about the page's own markup changes who
+      // renders it. Only what it pulls in goes.
+      assert.deepEqual((await tree.getChildren(leaf)).filter((node) => node.kind === 'script' || node.kind === 'style'), []);
       await vscode.window.showTextDocument(page);
       await vscode.commands.executeCommand(preferredItem.command!.command, ...preferredItem.command!.arguments!);
       assert.equal(vscode.window.activeTextEditor?.document.uri.toString(), page.uri.toString(), 'Stale associations do not navigate');
@@ -529,7 +532,7 @@ class WickerFrontendTestController {
       await replace(page, `{% include '${includedPath.slice(10)}' %}`);
       await vscode.commands.executeCommand('wicker.reindex');
       await sessions.refreshAll();
-      await eventually(async () => (await tree.getChildren(leaf)).length === 1);
+      await eventually(async () => (await tree.getChildren(leaf)).filter((node) => node.kind === 'script').length === 1);
       assert.equal(leafIconName(await tree.getTreeItem(leaf)), 'template-leaf');
       await vscode.workspace.fs.delete(uri(mapPath));
       await eventually(async () => (await tree.getChildren(leaf)).some((node) => node.kind === 'script' && node.projectPath === JS));

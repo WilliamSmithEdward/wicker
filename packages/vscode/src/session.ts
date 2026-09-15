@@ -579,6 +579,17 @@ export class SessionManager implements vscode.Disposable {
   }
 
   /** Direct render sites owned by the same project as this template. */
+  /** How many templates extend the one in this document. */
+  extendingTemplateCount(document: Pick<vscode.TextDocument, 'uri'>): number {
+    const session = this.sessionFor(document);
+    const path = session?.relativePathOf(enginePathOf(document.uri));
+    if (session === undefined || path === undefined) { return 0; }
+    const names = session.index.templatesForProjectPath(path).map((entry) => entry.name);
+    const extending = new Set(names.flatMap((name) =>
+      session.frontendSources.index.extendedBy(name).filter((source) => this.owns(session, source))));
+    return extending.size;
+  }
+
   renderSitesFor(document: Pick<vscode.TextDocument, 'uri'>): readonly RenderSite[] {
     const session = this.sessionFor(document);
     const path = session?.relativePathOf(enginePathOf(document.uri));

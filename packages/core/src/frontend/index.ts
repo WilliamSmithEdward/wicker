@@ -54,6 +54,7 @@ export class FrontendIndex {
   private routeMemo?: RouteLookups;
   private graphMemo?: GraphLookups;
   private actionMemo?: { revision: number; byMethod: ReadonlyMap<string, readonly FileAction[]> };
+  private extendsMemo?: { revision: number; byName: ReadonlyMap<string, readonly string[]> };
 
   update(projectPath: string, source: string): void {
     const held = this.files.get(projectPath)?.source.length ?? 0;
@@ -118,6 +119,34 @@ export class FrontendIndex {
       this.actionMemo = { revision: this.revision, byMethod };
     }
     return this.actionMemo.byMethod.get(`${className.toLowerCase()}::${methodName.toLowerCase()}`) ?? [];
+  }
+
+  /**
+   * The templates that extend one, by the name they extend it under.
+   *
+   * The direction that is not in the file. A template says what it extends on
+   * its first line, and that name already navigates; what a layout cannot say
+   * is which pages are built on it, which is exactly what someone about to
+   * change a block needs to know.
+   *
+   * Only `extends`, because that is what carries blocks. An include composes a
+   * page without inheriting anything from it.
+   */
+  extendedBy(templateName: string): readonly string[] {
+    if (this.extendsMemo?.revision !== this.revision) {
+      const byName = new Map<string, string[]>();
+      for (const file of this.files.values()) {
+        for (const reference of file.templateReferences) {
+          if (reference.kind !== 'extends' || reference.isCandidateList) { continue; }
+          const found = byName.get(reference.templateName);
+          if (found) { if (!found.includes(file.projectPath)) { found.push(file.projectPath); } }
+          else { byName.set(reference.templateName, [file.projectPath]); }
+        }
+      }
+      for (const paths of byName.values()) { paths.sort((left, right) => left.localeCompare(right)); }
+      this.extendsMemo = { revision: this.revision, byName };
+    }
+    return this.extendsMemo.byName.get(templateName) ?? [];
   }
 
   /**

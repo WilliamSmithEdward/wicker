@@ -394,6 +394,34 @@ suite('Wicker', () => {
       assert.equal((await renderedBy(parent)).length, 0, 'parent must not borrow nested render sites');
     });
 
+    /*
+     * The lens answers what points at this file. What the file extends is on
+     * its own first line and already navigates, so only the incoming
+     * direction is worth a lens, and the whole provider has an off switch for
+     * anyone who finds lenses noisy.
+     */
+    test('counts the templates extending a layout, and the setting silences every lens', async () => {
+      const settings = vscode.workspace.getConfiguration('wicker');
+      const layout = await open('templates', 'base.html.twig');
+      const all = async (): Promise<string[]> =>
+        ((await vscode.commands.executeCommand<vscode.CodeLens[]>('vscode.executeCodeLensProvider', layout.uri)) ?? [])
+          .map((lens) => lens.command?.title ?? '');
+
+      assert.deepEqual(await all(), ['Extended by 1 template']);
+      // Nothing renders the layout directly, so it carries no render lens.
+      assert.deepEqual(await renderedBy(layout), []);
+
+      try {
+        await settings.update('codeLens.enabled', false, vscode.ConfigurationTarget.Workspace);
+        await waitFor(async () => (await all()).length === 0 || undefined, 'lenses to disappear');
+        const page = await open('templates', 'task', 'index.html.twig');
+        assert.deepEqual(await renderedBy(page), [], 'the setting covers the render lenses too');
+      } finally {
+        await settings.update('codeLens.enabled', undefined, vscode.ConfigurationTarget.Workspace);
+      }
+      await waitFor(async () => (await all()).length === 1 || undefined, 'lenses to return');
+    });
+
     test('discovers a controller on disk and its link selects the PHP template name', async () => {
       const template = await open('templates', 'task', 'index.html.twig');
       const lenses = await renderedBy(template);

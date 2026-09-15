@@ -31,7 +31,8 @@ In the editor today:
   references the extension actually understands are visible in the code
 - Twig syntax highlighting, with HTML, JavaScript and CSS embedded
 - "Rendered by" links above a Twig template, opening each PHP render call or
-  `#[Template]` attribute that resolves to it, including unsaved PHP edits
+  `#[Template]` attribute that resolves to it, including unsaved PHP edits, and
+  a count of the templates extending it
 - A Wicker sidebar with a leaf icon, detected projects, namespace status and
   templates grouped by namespace
 
@@ -245,8 +246,14 @@ application folder.
 
 Open a Twig template and click a `Rendered by Controller::method` link above
 its first line to select the template name in that PHP call or attribute. Each
-render site has its own link. VS Code's `editor.codeLens` setting controls
-whether these links are visible.
+render site has its own link, and a layout also reports how many templates
+extend it. Both are the direction the file cannot state about itself: what a
+template extends is on its own first line and already navigates.
+
+`wicker.codeLens.enabled` turns these links off, and VS Code's own
+`editor.codeLens` setting hides every extension's links at once. The same two
+connections are also rows under a template in the Wicker sidebar, where they
+can be browsed without opening the file.
 
 Wicker scans project PHP files outside `vendor`, `var`, `node_modules`, and
 `.git`. Links follow unsaved edits, file changes, and Twig loader precedence.

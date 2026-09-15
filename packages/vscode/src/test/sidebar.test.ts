@@ -111,6 +111,54 @@ suite('Wicker sidebar', () => {
     assert.equal((await provider.getTreeItem(provider.getParent(task)!)).id, (await provider.getTreeItem(main)).id);
   });
 
+  /*
+   * The two directions a template cannot state about itself. It names what it
+   * extends on its first line, and that name already navigates; nothing in it
+   * names the controller that renders it or the pages built on it.
+   */
+  test('a template shows what renders it and what extends it', async () => {
+    const project = (await provider.getChildren()).find((node) => node.root.toString() === rootUri.toString());
+    const main = (await templateGroups(provider, project)).find((node) => node.kind === 'namespace' && node.namespace === '');
+    assert.ok(main);
+    const application = await provider.getChildren(main);
+    const applicationLabels = await Promise.all(application.map(async (node) => (await provider.getTreeItem(node)).label));
+
+    const task = application[applicationLabels.indexOf('task')];
+    assert.ok(task);
+    const page = (await provider.getChildren(task)).find((node) => node.kind === 'template' && node.name === 'task/index.html.twig');
+    assert.ok(page);
+
+    const rendered = (await provider.getChildren(page)).filter((node) => node.kind === 'renderedBy');
+    assert.deepEqual(await Promise.all(rendered.map(async (node) => (await provider.getTreeItem(node)).label)),
+      ['TaskController::index()']);
+    const renderedItem = await provider.getTreeItem(rendered[0]!);
+    assert.equal(renderedItem.description, 'Renders this');
+    assert.deepEqual(provider.getParent(rendered[0]!), page);
+    await vscode.commands.executeCommand(renderedItem.command!.command, ...renderedItem.command!.arguments!);
+    assert.equal(vscode.window.activeTextEditor?.document.uri.toString(),
+      vscode.Uri.joinPath(rootUri, 'src/Controller/TaskController.php').toString());
+
+    // The layout is rendered by nothing and extended by the page above.
+    const base = application[applicationLabels.indexOf('base.html.twig')];
+    assert.ok(base);
+    const baseChildren = await provider.getChildren(base);
+    assert.deepEqual(baseChildren.filter((node) => node.kind === 'renderedBy'), []);
+    const extended = baseChildren.find((node) => node.kind === 'extendedBy');
+    assert.ok(extended, 'a layout should say which pages extend it');
+    const extendedItem = await provider.getTreeItem(extended);
+    assert.equal(extendedItem.label, 'Extended by');
+    assert.equal(extendedItem.description, '1');
+    const extending = await provider.getChildren(extended);
+    assert.deepEqual(extending.map((node) => node.kind === 'extending' ? node.templateName : ''), ['task/index.html.twig']);
+    assert.deepEqual(provider.getParent(extending[0]!), extended);
+    assert.equal((await provider.getTreeItem(extending[0]!)).label, 'index.html.twig');
+
+    // An included partial inherits nothing, so it carries no group at all.
+    const row = (await provider.getChildren(task)).find((node) => node.kind === 'template' && node.name === 'task/_row.html.twig');
+    assert.ok(row);
+    assert.deepEqual((await provider.getChildren(row)).filter((node) => node.kind === 'extendedBy'), []);
+  });
+
   test('opens a namespaced template through the registered sidebar command', async () => {
     await vscode.commands.executeCommand('wicker.openTemplate', rootUri, '@Design/badge.html.twig');
     assert.equal(vscode.window.activeTextEditor?.document.uri.toString(),

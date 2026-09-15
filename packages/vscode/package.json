@@ -211,6 +211,11 @@
           "default": "warning",
           "markdownDescription": "How to report a JavaScript import the browser cannot resolve: a relative path outside the asset map, one written without its file extension, or a bare specifier declared in no `importmap.php` entry. Each check is suspended when the discovery it depends on is unavailable."
         },
+        "wicker.codeLens.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show what points at a Twig template above its first line: the controller actions that render it, and how many templates extend it. These are the connections the file cannot state about itself; what it extends is on its own first line and already navigates."
+        },
         "wicker.console.enabled": {
           "type": "boolean",
           "default": true,

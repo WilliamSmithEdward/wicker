@@ -12,6 +12,23 @@ export function resolveOutletReference(ref: FrontendReference, controllers: read
     range: { start: ref.range.start + host.name.length + 1, end: ref.range.end } } : undefined;
 }
 
+/**
+ * The controller a template reference binds, by Stimulus' own naming rules.
+ *
+ * A `data-controller` names its controller outright. A value, class or outlet
+ * attribute names it only as a prefix of its own name, and two identifiers can
+ * both be prefixes of one attribute, so the longest wins: `user-card-url`
+ * belongs to `user-card` and not to `user`.
+ */
+export function controllerForReference(ref: FrontendReference,
+  controllers: readonly StimulusController[]): StimulusController | undefined {
+  const outlet = resolveOutletReference(ref, controllers);
+  const named = ref.kind === 'controller' ? ref.name : outlet?.controller ?? ref.controller;
+  return controllers.filter((controller) => controller.name === named ||
+    !named && ['value', 'class'].includes(ref.kind) && ref.name.startsWith(`${controller.name}-`))
+    .sort((left, right) => right.name.length - left.name.length)[0];
+}
+
 export interface OutletAccess {
   readonly kind: 'declaration' | 'property' | 'method' | 'callback';
   readonly name: string;

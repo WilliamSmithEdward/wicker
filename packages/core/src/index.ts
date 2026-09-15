@@ -22,10 +22,12 @@ export { parseImportMap, type ImportMapEntry } from './frontend/importMap.js';
 export { cssImports, cssUrls, type CssImport } from './frontend/cssImports.js';
 export { importSpecifiers, resolveRelativeImport, type ImportSpecifier } from './frontend/imports.js';
 export { parseActionDescriptor, ACTION_OPTIONS, COMMON_EVENTS, DEFAULT_EVENTS, EVENT_TARGETS, KEY_FILTERS, type ActionDescriptor } from './frontend/actionDescriptor.js';
-export { resolveOutletReference, outletAccessAt, outletUseRanges, type OutletAccess } from './frontend/outlets.js';
+export { resolveOutletReference, controllerForReference, outletAccessAt, outletUseRanges,
+  type OutletAccess } from './frontend/outlets.js';
 export { scanFrontend, stimulusHtmlName, type FrontendReference, type FrontendScan } from './frontend/references.js';
 export { routesFromDebug, routeForUrl, endpointActions, type SymfonyRoute, type EndpointAction, type ResponseField } from './frontend/routes.js';
-export { FrontendIndex, fetchValueReferences, type FrontendFile, type EndpointUse } from './frontend/index.js';
+export { FrontendIndex, fetchValueReferences, type FrontendFile, type EndpointUse,
+  type IncomingReference } from './frontend/index.js';
 export { responseAccessAt, type ResponseAccess } from './frontend/responseAccess.js';
 
 export {

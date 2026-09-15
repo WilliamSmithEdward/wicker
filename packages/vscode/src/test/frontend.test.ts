@@ -462,6 +462,55 @@ class WickerFrontendTestController {
       tree.dispose(); sessions.dispose();
     }
   });
+  /*
+   * A controller file never names a template. The identifier lives in markup
+   * and the behaviour lives in the script, so "where is this mounted" cannot
+   * be answered from either file alone.
+   */
+  test('the Stimulus section lists controllers and the templates that mount them', async () => {
+    const memory = new Map<string, unknown>();
+    const sessions = new SessionManager(new LoaderPathMemory({ keys: () => [...memory.keys()],
+      get: <T>(key: string, fallback?: T): T | undefined => memory.get(key) as T | undefined ?? fallback,
+      update: (key, value) => { memory.set(key, value); return Promise.resolve(); } }));
+    await sessions.initialize();
+    const tree = new ProjectTreeProvider(sessions);
+    try {
+      const root = (await tree.getChildren()).find((node) => node.root.toString() === uri('').toString())!;
+      const section = (await tree.getChildren(root)).find((node) => node.kind === 'section' && node.section === 'stimulus');
+      assert.ok(section, 'a project with Stimulus controllers should carry the section');
+      const rows = await tree.getChildren(section);
+      const labels = await Promise.all(rows.map(async (node) => (await tree.getTreeItem(node)).label));
+      assert.ok(labels.includes('wicker-test'), `expected wicker-test among ${JSON.stringify(labels)}`);
+
+      const bound = rows[labels.indexOf('wicker-test')]!;
+      const boundItem = await tree.getTreeItem(bound);
+      assert.equal(boundItem.description, '1 template');
+      assert.deepEqual(tree.getParent(bound), section);
+      await vscode.commands.executeCommand(boundItem.command!.command, ...boundItem.command!.arguments!);
+      assert.equal(vscode.window.activeTextEditor?.document.uri.toString(), js.uri.toString());
+
+      const uses = await tree.getChildren(bound);
+      assert.deepEqual(uses.map((node) => node.kind === 'stimulusUse' ? node.projectPath : ''), [TWIG]);
+      const useItem = await tree.getTreeItem(uses[0]!);
+      assert.deepEqual(tree.getParent(uses[0]!), bound);
+      await vscode.commands.executeCommand(useItem.command!.command, ...useItem.command!.arguments!);
+      assert.equal(vscode.window.activeTextEditor?.document.uri.toString(), page.uri.toString());
+
+      // A controller nothing mounts says so rather than looking bound. The
+      // peer is only ever reached through an outlet, never written in markup.
+      const unused = rows[labels.indexOf('wicker-peer')];
+      assert.ok(unused);
+      assert.equal((await tree.getTreeItem(unused)).description, 'Unused');
+      assert.deepEqual(await tree.getChildren(unused), []);
+
+      // The binding is read from the markup, so removing it removes the row.
+      await replace(page, '<p>nothing binds a controller now</p>');
+      await eventually(async () => (await tree.getChildren(bound)).length === 0);
+      assert.equal((await tree.getTreeItem(bound)).description, 'Unused');
+    } finally {
+      tree.dispose(); sessions.dispose();
+    }
+  });
   test('Twig and controller script branches share links and prefer verified TypeScript sources', async () => {
     const tsPath = 'assets/controllers/wicker_test_controller.ts';
     const mapPath = `${JS}.map`;

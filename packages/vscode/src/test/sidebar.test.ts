@@ -153,10 +153,34 @@ suite('Wicker sidebar', () => {
     assert.deepEqual(provider.getParent(extending[0]!), extended);
     assert.equal((await provider.getTreeItem(extending[0]!)).label, 'index.html.twig');
 
-    // An included partial inherits nothing, so it carries no group at all.
+    // An included partial inherits nothing, so it carries no extends group.
+    // It is still pulled in by a page, and that is the direction it cannot
+    // state: nothing in a partial names the file that includes it.
     const row = (await provider.getChildren(task)).find((node) => node.kind === 'template' && node.name === 'task/_row.html.twig');
     assert.ok(row);
-    assert.deepEqual((await provider.getChildren(row)).filter((node) => node.kind === 'extendedBy'), []);
+    const rowChildren = await provider.getChildren(row);
+    assert.deepEqual(rowChildren.filter((node) => node.kind === 'extendedBy'), []);
+    const included = rowChildren.find((node) => node.kind === 'includedBy');
+    assert.ok(included, 'a partial should say which templates include it');
+    const includedItem = await provider.getTreeItem(included);
+    assert.equal(includedItem.label, 'Included by');
+    assert.equal(includedItem.description, '1');
+    assert.deepEqual(provider.getParent(included), row);
+    const including = await provider.getChildren(included);
+    assert.deepEqual(including.map((node) => node.kind === 'including' ? [node.projectPath, node.via] : []),
+      [['templates/task/index.html.twig', 'include']]);
+    const includingItem = await provider.getTreeItem(including[0]!);
+    assert.equal(includingItem.label, 'index.html.twig');
+    // The tag, not a guess: a reader has to be able to tell an include from an
+    // embed or a macro import without opening the file.
+    assert.equal(includingItem.description, 'Includes');
+    assert.deepEqual(provider.getParent(including[0]!), included);
+    await vscode.commands.executeCommand(includingItem.command!.command, ...includingItem.command!.arguments!);
+    assert.equal(vscode.window.activeTextEditor?.document.uri.toString(),
+      vscode.Uri.joinPath(rootUri, 'templates/task/index.html.twig').toString());
+
+    // A layout is extended, never included, so it carries only the one group.
+    assert.deepEqual(baseChildren.filter((node) => node.kind === 'includedBy'), []);
   });
 
   test('opens a namespaced template through the registered sidebar command', async () => {

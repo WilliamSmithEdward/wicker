@@ -20,6 +20,13 @@ export interface FrontendFile {
 }
 export interface EndpointUse { readonly projectPath: string; readonly range: OffsetRange; readonly via?: string }
 
+/** A file that names a template, and the tag it named it with. */
+export interface IncomingReference {
+  readonly projectPath: string;
+  readonly kind: TwigTemplateReference['kind'];
+}
+type IncomingMap = ReadonlyMap<string, readonly IncomingReference[]>;
+
 /** Route lookups that depend only on the route list. */
 interface RouteLookups {
   readonly routes: readonly SymfonyRoute[];
@@ -54,7 +61,8 @@ export class FrontendIndex {
   private routeMemo?: RouteLookups;
   private graphMemo?: GraphLookups;
   private actionMemo?: { revision: number; byMethod: ReadonlyMap<string, readonly FileAction[]> };
-  private extendsMemo?: { revision: number; byName: ReadonlyMap<string, readonly string[]> };
+  private incomingMemo?: { revision: number; byExtends: IncomingMap; byInclude: IncomingMap };
+  private typeMemo?: { revision: number; byName: ReadonlyMap<string, readonly string[]> };
 
   update(projectPath: string, source: string): void {
     const held = this.files.get(projectPath)?.source.length ?? 0;
@@ -95,6 +103,11 @@ export class FrontendIndex {
       result.files.set(path, file);
       result.sourceSize += file.source.length;
     }
+    // The copy is built by filling the map directly, so nothing has bumped its
+    // revision and it would otherwise report version 0 for the life of the
+    // project. A caller keying a cache on the version would then never see the
+    // index change underneath it.
+    result.revision = this.revision;
     return result;
   }
 
@@ -133,20 +146,75 @@ export class FrontendIndex {
    * page without inheriting anything from it.
    */
   extendedBy(templateName: string): readonly string[] {
-    if (this.extendsMemo?.revision !== this.revision) {
+    return this.incoming().byExtends.get(templateName)?.map((entry) => entry.projectPath) ?? [];
+  }
+
+  /**
+   * The templates that pull one in without inheriting from it.
+   *
+   * The same unstated direction as `extendedBy`, for the files that are never
+   * extended: a partial, or a file of macros. Each carries the verb it was
+   * referenced with, because "includes this" and "imports macros from this"
+   * are answers to different questions and the reader can tell them apart
+   * only by being told which one they are looking at.
+   */
+  includedBy(templateName: string): readonly IncomingReference[] {
+    return this.incoming().byInclude.get(templateName) ?? [];
+  }
+
+  /**
+   * The files declaring a class, by its fully qualified name.
+   *
+   * Several callers hold a class name from somewhere outside PHP - a route's
+   * controller, a component registration - and need the file it lives in.
+   * Asking by scanning every file's declarations costs one full pass each
+   * time, and the answer does not depend on which name was asked about.
+   *
+   * More than one path means the name is ambiguous, which callers refuse to
+   * resolve rather than picking one.
+   */
+  classPaths(className: string): readonly string[] {
+    if (this.typeMemo?.revision !== this.revision) {
       const byName = new Map<string, string[]>();
       for (const file of this.files.values()) {
-        for (const reference of file.templateReferences) {
-          if (reference.kind !== 'extends' || reference.isCandidateList) { continue; }
-          const found = byName.get(reference.templateName);
+        for (const declaration of file.types) {
+          const key = declaration.name.toLowerCase();
+          const found = byName.get(key);
           if (found) { if (!found.includes(file.projectPath)) { found.push(file.projectPath); } }
-          else { byName.set(reference.templateName, [file.projectPath]); }
+          else { byName.set(key, [file.projectPath]); }
         }
       }
-      for (const paths of byName.values()) { paths.sort((left, right) => left.localeCompare(right)); }
-      this.extendsMemo = { revision: this.revision, byName };
+      this.typeMemo = { revision: this.revision, byName };
     }
-    return this.extendsMemo.byName.get(templateName) ?? [];
+    return this.typeMemo.byName.get(className.toLowerCase()) ?? [];
+  }
+
+  /** Both directions in one walk, since either question reads every file. */
+  private incoming(): { byExtends: IncomingMap; byInclude: IncomingMap } {
+    if (this.incomingMemo?.revision !== this.revision) {
+      const byExtends = new Map<string, IncomingReference[]>();
+      const byInclude = new Map<string, IncomingReference[]>();
+      for (const file of this.files.values()) {
+        for (const reference of file.templateReferences) {
+          if (reference.isCandidateList) { continue; }
+          const into = reference.kind === 'extends' ? byExtends : byInclude;
+          const found = into.get(reference.templateName);
+          if (found === undefined) {
+            into.set(reference.templateName, [{ projectPath: file.projectPath, kind: reference.kind }]);
+          } else if (!found.some((entry) => entry.projectPath === file.projectPath && entry.kind === reference.kind)) {
+            found.push({ projectPath: file.projectPath, kind: reference.kind });
+          }
+        }
+      }
+      for (const map of [byExtends, byInclude]) {
+        for (const entries of map.values()) {
+          entries.sort((left, right) => left.projectPath.localeCompare(right.projectPath) ||
+            left.kind.localeCompare(right.kind));
+        }
+      }
+      this.incomingMemo = { revision: this.revision, byExtends, byInclude };
+    }
+    return this.incomingMemo;
   }
 
   /**

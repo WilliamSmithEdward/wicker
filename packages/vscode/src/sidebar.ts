@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
 
-import { joinProjectPath, parseTemplateName, type LoaderPathEntry, type LoaderPathSource, type RenderingController, type RenderSite, type SymfonyRoute } from '@wicker/core';
+import { joinProjectPath, parseTemplateName, type IncomingReference, type LoaderPathEntry, type LoaderPathSource, type RenderingController, type RenderSite, type SymfonyRoute, type TwigComponent, type TwigReferenceKind } from '@wicker/core';
 
 import { enginePathOf } from './paths.js';
 import type { ProjectSession, SessionManager } from './session.js';
-import { apiRoutes, compareRoutePaths, controllerDependencies, frontendIndex, routeAction, routeConsumers, templateRoutes } from './frontendProject.js';
+import { apiRoutes, compareRoutePaths, controllerDependencies, frontendIndex, routeAction, routeConsumers, stimulusControllers, templateRoutes, templatesBinding } from './frontendProject.js';
 import { dependencyKind, sidebarIcon, SIDEBAR_ICONS as icons } from './sidebarIcons.js';
 import { controllerScripts, templateScripts, type RelatedScript } from './relatedScripts.js';
 import { templateStyles, type RelatedStyle } from './relatedStyles.js';
@@ -12,6 +12,7 @@ import { chainChildren, templateEntrypoints, type ChainEntry } from './loadingCh
 
 const SHOW_BUNDLES_KEY = 'wicker.sidebar.showBundleTemplates';
 type WarningReason = 'namespaces' | 'indexLimit';
+type SectionName = 'controllers' | 'templates' | 'api' | 'templateRoutes' | 'components' | 'stimulus';
 type ControllerIdentity = { readonly root: vscode.Uri; readonly projectPath: string; readonly className: string };
 type ControllerNode = ControllerIdentity & (
   | { readonly kind: 'controller' }
@@ -26,7 +27,7 @@ type ScriptOwner =
 
 export type SidebarNode =
   | { readonly kind: 'project'; readonly root: vscode.Uri }
-  | { readonly kind: 'section'; readonly root: vscode.Uri; readonly section: 'controllers' | 'templates' | 'api' | 'templateRoutes' }
+  | { readonly kind: 'section'; readonly root: vscode.Uri; readonly section: SectionName }
   | { readonly kind: 'route'; readonly root: vscode.Uri; readonly name: string; readonly section: 'api' | 'templateRoutes' }
   | { readonly kind: 'routeConsumer'; readonly root: vscode.Uri; readonly name: string; readonly section: 'api' | 'templateRoutes'; readonly projectPath: string; readonly offset: number }
   | { readonly kind: 'routeTemplate'; readonly root: vscode.Uri; readonly name: string; readonly section: 'api' | 'templateRoutes'; readonly templateName: string }
@@ -37,6 +38,12 @@ export type SidebarNode =
   | { readonly kind: 'renderedBy'; readonly root: vscode.Uri; readonly name: string; readonly projectPath: string; readonly label: string; readonly offset: number }
   | { readonly kind: 'extendedBy'; readonly root: vscode.Uri; readonly name: string }
   | { readonly kind: 'extending'; readonly root: vscode.Uri; readonly name: string; readonly templateName: string }
+  | { readonly kind: 'includedBy'; readonly root: vscode.Uri; readonly name: string }
+  | { readonly kind: 'including'; readonly root: vscode.Uri; readonly name: string; readonly projectPath: string; readonly via: TwigReferenceKind }
+  | { readonly kind: 'stimulusController'; readonly root: vscode.Uri; readonly name: string }
+  | { readonly kind: 'stimulusUse'; readonly root: vscode.Uri; readonly name: string; readonly projectPath: string }
+  | { readonly kind: 'component'; readonly root: vscode.Uri; readonly name: string }
+  | { readonly kind: 'componentPart'; readonly root: vscode.Uri; readonly name: string; readonly part: 'template' | 'class' }
   | { readonly kind: 'script'; readonly root: vscode.Uri; readonly projectPath: string; readonly parent: ScriptOwner }
   | { readonly kind: 'style'; readonly root: vscode.Uri; readonly projectPath: string; readonly parent: ScriptOwner }
   | { readonly kind: 'loaded'; readonly root: vscode.Uri; readonly projectPath: string; readonly reason: string; readonly parent: SidebarNode }
@@ -45,6 +52,13 @@ export type SidebarNode =
   | { readonly kind: 'namespace'; readonly root: vscode.Uri; readonly namespace: string }
   | { readonly kind: 'folder'; readonly root: vscode.Uri; readonly namespace: string; readonly path: string }
   | { readonly kind: 'template'; readonly root: vscode.Uri; readonly name: string };
+
+/** What a template did, in the words of the tag it used. */
+const REFERENCE_VERBS: Record<TwigReferenceKind, string> = {
+  'extends': 'Extends', 'include': 'Includes', 'include-function': 'Includes', 'embed': 'Embeds',
+  'use': 'Uses blocks from', 'import': 'Imports macros from', 'from': 'Imports macros from',
+  'source-function': 'Reads the source of',
+};
 
 const NAMESPACE_SOURCES: Record<LoaderPathSource, { label: string; detail: string }> = {
   console: {
@@ -125,8 +139,38 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
         { kind: 'section', root: node.root, section: 'controllers' },
         ...(templateRoutes(this.sessions, session).length ? [{ kind: 'section' as const, root: node.root, section: 'templateRoutes' as const }] : []),
         ...(apiRoutes(this.sessions, session).length ? [{ kind: 'section' as const, root: node.root, section: 'api' as const }] : []),
+        // Only where the project has them. A section reading zero on every
+        // project that never installed the bundle is a row that never helps.
+        ...(componentsInProject(session).length ? [{ kind: 'section' as const, root: node.root, section: 'components' as const }] : []),
+        ...(stimulusControllers(this.sessions, session).length ? [{ kind: 'section' as const, root: node.root, section: 'stimulus' as const }] : []),
         { kind: 'section', root: node.root, section: 'templates' },
       ];
+    }
+    if (node.kind === 'section' && node.section === 'components') {
+      return componentsInProject(session).map((component) => ({ kind: 'component' as const, root: node.root, name: component.name }));
+    }
+    if (node.kind === 'section' && node.section === 'stimulus') {
+      return stimulusControllers(this.sessions, session).map((controller) => ({
+        kind: 'stimulusController' as const, root: node.root, name: controller.name,
+      }));
+    }
+    if (node.kind === 'component') {
+      const component = componentsInProject(session).find((entry) => entry.name === node.name);
+      if (component === undefined) { return []; }
+      return [
+        ...(session.lookup(component.template) ? [{ kind: 'componentPart' as const, root: node.root, name: node.name, part: 'template' as const }] : []),
+        ...(componentClassPath(this.sessions, session, component) ? [{ kind: 'componentPart' as const, root: node.root, name: node.name, part: 'class' as const }] : []),
+      ];
+    }
+    if (node.kind === 'stimulusController') {
+      return templatesBinding(this.sessions, session, node.name).map((projectPath) => ({
+        kind: 'stimulusUse' as const, root: node.root, name: node.name, projectPath,
+      }));
+    }
+    if (node.kind === 'includedBy') {
+      return includingTemplates(this.sessions, session, node.name).map((entry) => ({
+        kind: 'including' as const, root: node.root, name: node.name, projectPath: entry.projectPath, via: entry.kind,
+      }));
     }
     if (node.kind === 'section' && (node.section === 'api' || node.section === 'templateRoutes')) {
       const section = node.section;
@@ -247,8 +291,16 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
   }
 
   getParent(node: SidebarNode): SidebarNode | undefined {
-    if (node.kind === 'renderedBy' || node.kind === 'extendedBy') { return { kind: 'template', root: node.root, name: node.name }; }
+    if (node.kind === 'renderedBy' || node.kind === 'extendedBy' || node.kind === 'includedBy') {
+      return { kind: 'template', root: node.root, name: node.name };
+    }
     if (node.kind === 'extending') { return { kind: 'extendedBy', root: node.root, name: node.name }; }
+    if (node.kind === 'including') { return { kind: 'includedBy', root: node.root, name: node.name }; }
+    if (node.kind === 'componentPart') { return { kind: 'component', root: node.root, name: node.name }; }
+    if (node.kind === 'stimulusUse') { return { kind: 'stimulusController', root: node.root, name: node.name }; }
+    if (node.kind === 'component' || node.kind === 'stimulusController') {
+      return { kind: 'section', root: node.root, section: node.kind === 'component' ? 'components' : 'stimulus' };
+    }
     if (node.kind === 'script' || node.kind === 'style') { return node.parent; }
     if (node.kind === 'loaded') { return node.parent; }
     if (node.kind === 'route') { return { kind: 'section', root: node.root, section: node.section }; }
@@ -308,6 +360,75 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     return item;
   }
 
+  /**
+   * A component as the two files it is made of.
+   *
+   * A registration names a class and a template, and neither file names the
+   * other: the class carries an attribute the template never sees, and an
+   * anonymous component has no class at all. The row holding both is the only
+   * place the pairing is written down.
+   */
+  private describeComponent(node: Extract<SidebarNode, { kind: 'component' | 'componentPart' }>,
+    session: ProjectSession): vscode.TreeItem {
+    const component = componentsInProject(session).find((entry) => entry.name === node.name);
+    if (component === undefined) { return new vscode.TreeItem(node.name); }
+    if (node.kind === 'component') {
+      const item = new vscode.TreeItem(`<twig:${component.name}>`, vscode.TreeItemCollapsibleState.Collapsed);
+      item.iconPath = new vscode.ThemeIcon(icons.component);
+      if (component.live) { item.description = 'Live'; }
+      else if (component.className === undefined) { item.description = 'Anonymous'; }
+      item.tooltip = `${component.template}\n${component.className ?? 'No class; props come from the template.'}${
+        component.live ? '\n\nLive component: it re-renders over HTTP.' : ''}`;
+      return item;
+    }
+    const template = node.part === 'template' ? session.lookup(component.template) : undefined;
+    const classPath = node.part === 'class' ? componentClassPath(this.sessions, session, component) : undefined;
+    const path = template?.projectPath ?? classPath;
+    const item = new vscode.TreeItem(path === undefined ? node.part : basename(path));
+    item.description = node.part === 'template' ? 'Template' : 'Class';
+    item.iconPath = node.part === 'template' ? sidebarIcon(icons.template) : new vscode.ThemeIcon(icons.controller);
+    item.tooltip = node.part === 'template' ? `${component.template}\n${path ?? ''}` : `${component.className}\n${path ?? ''}`;
+    if (path === undefined) { return item; }
+    const uri = template ? session.uriFor(template) : session.fileSystem.toUri(joinProjectPath(session.project.root, path));
+    item.resourceUri = uri;
+    item.command = { command: 'vscode.open', title: 'Open file', arguments: [uri] };
+    return item;
+  }
+
+  /**
+   * A Stimulus controller and the templates that mount it.
+   *
+   * The identifier lives in the markup and the behaviour lives in the script,
+   * and the script never names a template. Listing the templates under the
+   * controller is the only way round that edge.
+   */
+  private describeStimulus(node: Extract<SidebarNode, { kind: 'stimulusController' | 'stimulusUse' }>,
+    session: ProjectSession): vscode.TreeItem {
+    if (node.kind === 'stimulusUse') {
+      const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath));
+      const item = new vscode.TreeItem(basename(node.projectPath));
+      item.description = node.projectPath.slice(0, Math.max(0, node.projectPath.lastIndexOf('/')));
+      item.iconPath = sidebarIcon(icons.template);
+      item.tooltip = `${node.projectPath}\n\nBinds ${node.name}.`;
+      item.resourceUri = uri;
+      item.command = { command: 'vscode.open', title: 'Open template', arguments: [uri] };
+      return item;
+    }
+    const controller = stimulusControllers(this.sessions, session).find((entry) => entry.name === node.name);
+    const uses = templatesBinding(this.sessions, session, node.name);
+    const item = new vscode.TreeItem(node.name, uses.length
+      ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
+    if (controller === undefined) { return item; }
+    item.description = uses.length ? counted(uses.length, 'template') : 'Unused';
+    item.iconPath = new vscode.ThemeIcon(scriptIcon(controller.projectPath));
+    item.tooltip = `${controller.projectPath}\n\nWritten in markup as data-controller="${node.name}".${
+      uses.length ? '' : '\nNo indexed template binds it.'}`;
+    const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, controller.projectPath));
+    item.resourceUri = uri;
+    item.command = { command: 'vscode.open', title: 'Open controller', arguments: [uri] };
+    return item;
+  }
+
   private async describe(node: SidebarNode, session: ProjectSession): Promise<vscode.TreeItem> {
     if (node.kind === 'controllerScripts') {
       const item = new vscode.TreeItem('Scripts', (await this.getChildren(node)).length
@@ -334,6 +455,29 @@ Open the render call that names ${node.name}.`;
       item.iconPath = new vscode.ThemeIcon(icons.dependencies);
       item.tooltip = `Templates that extend ${node.name}, and inherit the blocks it declares.`;
       return item;
+    }
+    if (node.kind === 'includedBy') {
+      const item = new vscode.TreeItem('Included by', vscode.TreeItemCollapsibleState.Collapsed);
+      item.description = String(includingTemplates(this.sessions, session, node.name).length);
+      item.iconPath = new vscode.ThemeIcon(icons.consumer);
+      item.tooltip = `Templates that pull ${node.name} in without extending it.`;
+      return item;
+    }
+    if (node.kind === 'including') {
+      const item = new vscode.TreeItem(basename(node.projectPath));
+      item.description = REFERENCE_VERBS[node.via];
+      item.iconPath = sidebarIcon(icons.template);
+      item.tooltip = `${node.projectPath}\n\n${REFERENCE_VERBS[node.via]} ${node.name}.`;
+      const uri = session.fileSystem.toUri(joinProjectPath(session.project.root, node.projectPath));
+      item.resourceUri = uri;
+      item.command = { command: 'vscode.open', title: 'Open template', arguments: [uri] };
+      return item;
+    }
+    if (node.kind === 'component' || node.kind === 'componentPart') {
+      return this.describeComponent(node, session);
+    }
+    if (node.kind === 'stimulusController' || node.kind === 'stimulusUse') {
+      return this.describeStimulus(node, session);
     }
     if (node.kind === 'extending') {
       const item = new vscode.TreeItem(basename(templatePath(node.templateName)));
@@ -414,6 +558,17 @@ Extends ${node.name}.`;
       item.tooltip = node.kind === 'route' ? `${route?.controller ?? node.name}\nOpen the endpoint action. Expand to explore its connections.` :
         node.kind === 'routeTemplate' ? `HTML rendered by ${node.name}` : `Explicit reference to ${node.name}\n${node.projectPath}`;
       item.command = { command: 'wicker.openEndpoint', title: 'Open endpoint connection', arguments: [node] };
+      return item;
+    }
+    if (node.kind === 'section' && (node.section === 'components' || node.section === 'stimulus')) {
+      const components = node.section === 'components';
+      const count = components ? componentsInProject(session).length : stimulusControllers(this.sessions, session).length;
+      const item = new vscode.TreeItem(components ? 'Components' : 'Stimulus', vscode.TreeItemCollapsibleState.Collapsed);
+      item.iconPath = new vscode.ThemeIcon(components ? icons.components : icons.stimulus);
+      item.description = String(count);
+      item.tooltip = components
+        ? 'Twig components registered with this project. Expand one to open its template or its class.'
+        : 'Stimulus controllers in this project. Expand one to find the templates that mount it.';
       return item;
     }
     if (node.kind === 'section') {
@@ -826,8 +981,12 @@ function namespaceOf(name: string): string {
 function nodeId(node: SidebarNode): string {
   return JSON.stringify([node.root.toString(), node.kind,
     node.kind === 'renderedBy' ? [node.name, node.projectPath, node.offset] :
-    node.kind === 'extendedBy' ? [node.name] :
+    node.kind === 'extendedBy' || node.kind === 'includedBy' ? [node.name] :
     node.kind === 'extending' ? [node.name, node.templateName] :
+    node.kind === 'including' ? [node.name, node.projectPath, node.via] :
+    node.kind === 'stimulusController' || node.kind === 'component' ? [node.name] :
+    node.kind === 'stimulusUse' ? [node.name, node.projectPath] :
+    node.kind === 'componentPart' ? [node.name, node.part] :
     node.kind === 'loaded' ? [nodeId(node.parent), 'loaded', node.projectPath] :
     node.kind === 'script' || node.kind === 'style' ? [nodeId(node.parent), node.kind, node.projectPath] :
     node.kind === 'controllerDependencies' || node.kind === 'controllerDependency' || node.kind === 'controllerScripts'
@@ -913,6 +1072,9 @@ function incomingTemplateRows(sessions: SessionManager, session: ProjectSession,
   if (extendingTemplates(sessions, session, name).length > 0) {
     rows.push({ kind: 'extendedBy', root: node.root, name });
   }
+  if (includingTemplates(sessions, session, name).length > 0) {
+    rows.push({ kind: 'includedBy', root: node.root, name });
+  }
   return rows;
 }
 
@@ -944,6 +1106,31 @@ function extendingTemplates(sessions: SessionManager, session: ProjectSession, t
     .flatMap((projectPath) => session.index.templatesForProjectPath(projectPath).map((entry) => entry.name))
     .filter((name, at, all) => all.indexOf(name) === at)
     .sort((left, right) => left.localeCompare(right));
+}
+
+/**
+ * Templates that pull this one in without extending it.
+ *
+ * The answer a partial cannot give about itself. Kept as project paths rather
+ * than template names: a partial is included by its file, and the reader is
+ * about to open that file, so the path is the useful identity even where a
+ * template happens to carry several names.
+ */
+function includingTemplates(sessions: SessionManager, session: ProjectSession, templateName: string): readonly IncomingReference[] {
+  return frontendIndex(sessions, session).includedBy(templateName);
+}
+
+/** The components this project registered, by the name markup writes. */
+function componentsInProject(session: ProjectSession): readonly TwigComponent[] {
+  return session.components.components.slice().sort((left, right) => left.name.localeCompare(right.name));
+}
+
+/** A component's PHP class, when it has one and this session owns it. */
+function componentClassPath(sessions: SessionManager, session: ProjectSession, component: TwigComponent): string | undefined {
+  if (component.className === undefined) { return undefined; }
+  // Two classes of the same name cannot be told apart from the registration.
+  const declarations = frontendIndex(sessions, session).classPaths(component.className);
+  return declarations.length === 1 ? declarations[0] : undefined;
 }
 
 function controllersInProject(sessions: SessionManager, session: ProjectSession): readonly RenderingController[] {

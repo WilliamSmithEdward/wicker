@@ -13,6 +13,7 @@ export const SIDEBAR_ICONS = {
   class: 'symbol-misc',
   scripts: 'file-code', javascript: 'code', typescript: 'symbol-type-parameter',
   stylesheet: 'symbol-color',
+  components: 'extensions', component: 'tag', stimulus: 'plug',
 } as const;
 
 /*

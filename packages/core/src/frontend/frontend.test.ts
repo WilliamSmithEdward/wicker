@@ -423,6 +423,51 @@ describe('response field access', () => {
   });
 });
 
+describe('what points at a template', () => {
+  const index = (): FrontendIndex => {
+    const built = new FrontendIndex();
+    built.update('templates/page.html.twig',
+      `{% extends 'base.html.twig' %}{% include '_row.html.twig' %}{% import '_macros.html.twig' as m %}`);
+    built.update('templates/other.html.twig', `{% embed '_row.html.twig' %}{% endembed %}`);
+    return built;
+  };
+
+  it('separates extending from including, and names the tag each used', () => {
+    expect(index().extendedBy('base.html.twig')).toEqual(['templates/page.html.twig']);
+    expect(index().includedBy('base.html.twig')).toEqual([]);
+    expect(index().includedBy('_row.html.twig')).toEqual([
+      { projectPath: 'templates/other.html.twig', kind: 'embed' },
+      { projectPath: 'templates/page.html.twig', kind: 'include' },
+    ]);
+    expect(index().includedBy('_macros.html.twig')).toEqual([
+      { projectPath: 'templates/page.html.twig', kind: 'import' },
+    ]);
+    // Both directions share one walk, so an edit has to discard both.
+    const built = index();
+    built.update('templates/page.html.twig', '<p>nothing now</p>');
+    expect(built.extendedBy('base.html.twig')).toEqual([]);
+    expect(built.includedBy('_row.html.twig')).toEqual([
+      { projectPath: 'templates/other.html.twig', kind: 'embed' },
+    ]);
+  });
+
+  // A scoped copy is what every editor query actually reads, and a cache keyed
+  // on its version would never invalidate if the copy started over at zero.
+  it('carries its version into a scoped copy', () => {
+    const built = index();
+    const before = built.filtered(() => true).version;
+    built.update('templates/third.html.twig', `{% include '_row.html.twig' %}`);
+    expect(built.filtered(() => true).version).not.toBe(before);
+  });
+
+  // Twig tries a candidate list in order, so no one file is the one included.
+  it('ignores a candidate list, which names no single template', () => {
+    const built = new FrontendIndex();
+    built.update('templates/page.html.twig', `{% include ['a.html.twig', 'b.html.twig'] %}`);
+    expect(built.includedBy('a.html.twig')).toEqual([]);
+  });
+});
+
 describe('consumer index', () => {
   it('connects Twig bindings and actual JS requests, and updates on removal', () => {
     const index = new FrontendIndex();

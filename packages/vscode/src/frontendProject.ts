@@ -1,4 +1,4 @@
-import { fetchValueReferences, resolveRelativeImport, scanFrontend, type FrontendIndex, type FrontendScan, type EndpointAction, type EndpointUse, type OffsetRange, type SymfonyRoute, type PhpTypeDeclaration, type PhpDependency } from '@wicker/core';
+import { controllerForReference, fetchValueReferences, resolveRelativeImport, scanFrontend, type FrontendIndex, type FrontendScan, type EndpointAction, type EndpointUse, type OffsetRange, type StimulusController, type SymfonyRoute, type PhpTypeDeclaration, type PhpDependency } from '@wicker/core';
 import { isEnabled, type ProjectSession, type SessionManager } from './session.js';
 
 /**
@@ -72,6 +72,48 @@ export function frontendIndex(sessions: SessionManager, session: ProjectSession)
   return index;
 }
 
+/**
+ * Which templates bind each Stimulus controller, built once per index.
+ *
+ * The reverse of the walk that lists a page's scripts, and the direction
+ * neither file states: a controller is named in the markup, never the other
+ * way round, so a controller file alone cannot say where it is mounted.
+ *
+ * Keyed by controller name rather than path, because that is the only name the
+ * markup uses, and derived in one pass because asking per controller would
+ * read every template once per controller.
+ */
+const bindings = new WeakMap<FrontendIndex, ReadonlyMap<string, readonly string[]>>();
+
+export function templatesBinding(sessions: SessionManager, session: ProjectSession, name: string): readonly string[] {
+  // Keyed on the scoped index itself: it is rebuilt whenever anything that
+  // could change the answer changes, and holding it by identity means the
+  // derived map is dropped with it rather than outliving what it describes.
+  const index = frontendIndex(sessions, session);
+  const found = bindings.get(index);
+  if (found !== undefined) { return found.get(name) ?? []; }
+  const byController = new Map<string, string[]>();
+  for (const file of index.all()) {
+    if (!file.projectPath.endsWith('.twig')) { continue; }
+    for (const ref of file.scan.references) {
+      const controller = controllerForReference(ref, session.frontend.controllers);
+      if (controller === undefined) { continue; }
+      const paths = byController.get(controller.name);
+      if (paths === undefined) { byController.set(controller.name, [file.projectPath]); }
+      else if (!paths.includes(file.projectPath)) { paths.push(file.projectPath); }
+    }
+  }
+  for (const paths of byController.values()) { paths.sort((left, right) => left.localeCompare(right)); }
+  bindings.set(index, byController);
+  return byController.get(name) ?? [];
+}
+
+/** The controllers this session owns, in the order their names read. */
+export function stimulusControllers(sessions: SessionManager, session: ProjectSession): readonly StimulusController[] {
+  return session.frontend.controllers.filter((controller) => sessions.owns(session, controller.projectPath))
+    .slice().sort((left, right) => left.name.localeCompare(right.name));
+}
+
 export function routeAction(sessions: SessionManager, session: ProjectSession, route: SymfonyRoute):
   { projectPath: string; action: EndpointAction } | undefined {
   return actionIn(frontendIndex(sessions, session), route);
@@ -129,16 +171,16 @@ export function controllerDependencies(sessions: SessionManager, session: Projec
   const declarations = index.get(controller.projectPath)?.types.filter((type) => type.name === controller.className) ?? [];
   if (declarations.length !== 1) { return []; }
   const uses = declarations[0]!.dependencies.filter((dep) => dep.typeName.toLowerCase() !== controller.className.toLowerCase());
-  const targets = new Map<string, { projectPath: string; declaration: PhpTypeDeclaration }[]>();
-  const names = new Set(uses.map((use) => use.typeName.toLowerCase()));
-  for (const file of index.all()) {
-    for (const declaration of file.types) {
-      const key = declaration.name.toLowerCase();
-      if (names.has(key)) { targets.set(key, [...targets.get(key) ?? [], { projectPath: file.projectPath, declaration }]); }
-    }
-  }
-  return [...targets.entries()].flatMap(([key, matches]) => matches.length === 1
-    ? [{ ...matches[0]!, uses: uses.filter((use) => use.typeName.toLowerCase() === key) }] : [])
+  const names = [...new Set(uses.map((use) => use.typeName.toLowerCase()))];
+  return names.flatMap((key) => {
+    // More than one declaration leaves the name ambiguous, and none means the
+    // type is outside this project.
+    const paths = index.classPaths(key);
+    const declaration = paths.length === 1
+      ? index.get(paths[0]!)?.types.find((type) => type.name.toLowerCase() === key) : undefined;
+    return declaration === undefined ? [] : [{ projectPath: paths[0]!, declaration,
+      uses: uses.filter((use) => use.typeName.toLowerCase() === key) }];
+  })
     .sort((a, b) => a.declaration.name.split('\\').at(-1)!.localeCompare(b.declaration.name.split('\\').at(-1)!) ||
       a.declaration.name.localeCompare(b.declaration.name));
 }

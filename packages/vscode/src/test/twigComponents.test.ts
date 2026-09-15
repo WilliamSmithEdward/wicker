@@ -3,6 +3,10 @@ import * as path from 'node:path';
 
 import * as vscode from 'vscode';
 
+import { LoaderPathMemory } from '../loaderPathMemory.js';
+import { SessionManager } from '../session.js';
+import { ProjectTreeProvider } from '../sidebar.js';
+
 const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
 const PHP = 'src/Twig/Components/Alert.php';
 const CONSOLE = `const fs = require('node:fs');
@@ -83,6 +87,48 @@ suite('Twig Components', () => {
     await settings.update('console.command', previousCommand, vscode.ConfigurationTarget.Workspace);
     await settings.update('console.enabled', previousConsole, vscode.ConfigurationTarget.Workspace);
     await vscode.commands.executeCommand('wicker.reindex');
+  });
+
+  /*
+   * A registration pairs a name, a class and a template, and no one file holds
+   * all three: the class carries an attribute the template never sees, and an
+   * anonymous component has no class at all.
+   */
+  test('the Components section lists registrations and opens both of their files', async () => {
+    const memory = new Map<string, unknown>();
+    const sessions = new SessionManager(new LoaderPathMemory({ keys: () => [...memory.keys()],
+      get: <T>(key: string, fallback?: T): T | undefined => memory.get(key) as T | undefined ?? fallback,
+      update: (key, value) => { memory.set(key, value); return Promise.resolve(); } }));
+    await sessions.initialize();
+    const tree = new ProjectTreeProvider(sessions);
+    try {
+      const root = (await tree.getChildren()).find((node) => node.root.toString() === uri('').toString())!;
+      const section = (await tree.getChildren(root)).find((node) => node.kind === 'section' && node.section === 'components');
+      assert.ok(section, 'a project with registered components should carry the section');
+      const rows = await tree.getChildren(section);
+      const labels = await Promise.all(rows.map(async (node) => (await tree.getTreeItem(node)).label));
+      assert.ok(labels.includes('<twig:Alert>'), `expected Alert among ${JSON.stringify(labels)}`);
+
+      const alert = rows[labels.indexOf('<twig:Alert>')]!;
+      assert.deepEqual(tree.getParent(alert), section);
+      const parts = await tree.getChildren(alert);
+      assert.deepEqual(parts.map((node) => node.kind === 'componentPart' ? node.part : ''), ['template', 'class']);
+      for (const [part, file] of [[parts[0]!, 'templates/components/Alert.html.twig'], [parts[1]!, PHP]] as const) {
+        const item = await tree.getTreeItem(part);
+        assert.deepEqual(tree.getParent(part), alert);
+        await vscode.commands.executeCommand(item.command!.command, ...item.command!.arguments!);
+        assert.equal(vscode.window.activeTextEditor?.document.uri.toString(), uri(file).toString());
+      }
+
+      // Anonymous components are registered by template alone, so the class
+      // row would point at nothing and is left off rather than shown broken.
+      const anonymous = rows[labels.indexOf('<twig:Badge>')];
+      assert.ok(anonymous);
+      assert.equal((await tree.getTreeItem(anonymous)).description, 'Anonymous');
+      assert.deepEqual((await tree.getChildren(anonymous)).map((node) => node.kind === 'componentPart' ? node.part : ''), ['template']);
+    } finally {
+      tree.dispose(); sessions.dispose();
+    }
   });
 
   test('registered component names complete in HTML, closing tags and Twig calls', async () => {

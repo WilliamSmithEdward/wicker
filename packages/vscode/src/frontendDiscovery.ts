@@ -1,5 +1,6 @@
 import { joinProjectPath, normalizeProjectPath, parseComposerManifest, parseJsonLoosely, routesFromDebug,
   stimulusIdentifier, toProjectPath, type ConsoleRunner, type StimulusController, type SymfonyRoute, type WickerFileSystem } from '@wicker/core';
+import { objectOf } from './json.js';
 
 export interface FrontendDiscovery {
   readonly controllers: readonly StimulusController[];
@@ -36,9 +37,9 @@ async function discoverStimulus(fs: WickerFileSystem, root: string, runner: Cons
     runner.run(['debug:config', 'stimulus', '--format=json', '--no-ansi', '--no-interaction']),
     runner.run(['debug:container', '--parameter=kernel.project_dir', '--format=json', '--no-ansi', '--no-interaction']),
   ]);
-  const data = config.ok ? object(parseJsonLoosely(config.stdout)) : undefined;
-  const stimulus = object(data?.['stimulus']);
-  const runtimeRoot = directory.ok ? object(parseJsonLoosely(directory.stdout))?.['kernel.project_dir'] : undefined;
+  const data = config.ok ? objectOf(parseJsonLoosely(config.stdout)) : undefined;
+  const stimulus = objectOf(data?.['stimulus']);
+  const runtimeRoot = directory.ok ? objectOf(parseJsonLoosely(directory.stdout))?.['kernel.project_dir'] : undefined;
   if (!stimulus || typeof runtimeRoot !== 'string' || !Array.isArray(stimulus['controller_paths'])) {
     return { controllers: [], status: 'unavailable; Stimulus configuration could not be read', directory: undefined };
   }
@@ -47,16 +48,16 @@ async function discoverStimulus(fs: WickerFileSystem, root: string, runner: Cons
   const controllers = new Map<string, StimulusController>();
   const jsonPath = projectPath(stimulus['controllers_json']);
   if (jsonPath) {
-    const json = object(parseJsonLoosely(await fs.readFile(joinProjectPath(root, jsonPath)) ?? ''));
-    for (const [packageName, packageControllers] of Object.entries(object(json?.['controllers']) ?? {})) {
+    const json = objectOf(parseJsonLoosely(await fs.readFile(joinProjectPath(root, jsonPath)) ?? ''));
+    for (const [packageName, packageControllers] of Object.entries(objectOf(json?.['controllers']) ?? {})) {
       if (!/^@[a-z0-9-]+\/[a-z0-9-]+$/i.test(packageName)) { continue; }
       // StimulusBundle reads the package's own metadata, not a hard-coded UX catalog.
       for (const directory of [`vendor/${packageName.slice(1)}/assets`, `vendor/${packageName.slice(1)}/Resources/assets`, `node_modules/${packageName}`]) {
-        const metadata = object(parseJsonLoosely(await fs.readFile(joinProjectPath(root, `${directory}/package.json`)) ?? ''));
+        const metadata = objectOf(parseJsonLoosely(await fs.readFile(joinProjectPath(root, `${directory}/package.json`)) ?? ''));
         if (!metadata) { continue; }
-        const registrations = object(object(metadata['symfony'])?.['controllers']);
-        for (const [key, value] of Object.entries(object(packageControllers) ?? {})) {
-          const settings = object(value), registration = object(registrations?.[key]);
+        const registrations = objectOf(objectOf(metadata['symfony'])?.['controllers']);
+        for (const [key, value] of Object.entries(objectOf(packageControllers) ?? {})) {
+          const settings = objectOf(value), registration = objectOf(registrations?.[key]);
           if (settings?.['enabled'] !== true || !registration) { continue; }
           const main = typeof registration['main'] === 'string' ? normalizeProjectPath(`${directory}/${registration['main']}`) : undefined;
           const override = settings['name'] ?? registration['name'];
@@ -94,7 +95,4 @@ async function discoverStimulus(fs: WickerFileSystem, root: string, runner: Cons
     // The first configured path, which is where a project keeps its own
     // controllers. A later one is usually a bundle's.
     directory: projectPath(stimulus['controller_paths'][0]) };
-}
-function object(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }

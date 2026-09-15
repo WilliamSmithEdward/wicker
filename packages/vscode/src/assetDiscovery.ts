@@ -1,5 +1,6 @@
 import { AssetMap, assetMapperSettings, joinProjectPath, parseImportMap, parseJsonLoosely,
   type AssetMapperSettings, type ConsoleRunner, type ImportMapEntry, type WickerFileSystem } from '@wicker/core';
+import { objectOf } from './json.js';
 
 export interface AssetDiscovery {
   /** Logical path to file, for `asset()` and bare imports. */
@@ -48,7 +49,7 @@ export async function discoverAssets(
   ]);
 
   const runtimeRoot = directory.ok
-    ? object(parseJsonLoosely(directory.stdout))?.['kernel.project_dir']
+    ? objectOf(parseJsonLoosely(directory.stdout))?.['kernel.project_dir']
     : undefined;
   if (!config.ok || typeof runtimeRoot !== 'string') {
     return { ...UNAVAILABLE, importMap, importMapFound, status: `unavailable; ${config.error ?? 'the project directory could not be read'}` };
@@ -65,10 +66,4 @@ export async function discoverAssets(
     status: `${map.size} assets from ${settings.roots.length} configured ${settings.roots.length === 1 ? 'path' : 'paths'}${
       map.truncated ? ', truncated at the configured limit' : ''}`,
   };
-}
-
-function object(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined;
 }

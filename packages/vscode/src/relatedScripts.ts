@@ -1,4 +1,4 @@
-import { controllerForReference, resolveOutletReference, typescriptSourceForJavascript, type FrontendIndex } from '@wicker/core';
+import { controllerForReference, resolveOutletReference, typescriptSourceForJavascript, type FrontendIndex, type StimulusController } from '@wicker/core';
 import type { ProjectSession, SessionManager } from './session.js';
 import { frontendIndex, routeAction } from './frontendProject.js';
 
@@ -35,9 +35,11 @@ export function controllerScripts(sessions: SessionManager, session: ProjectSess
 export interface BoundWiring {
   readonly kind: 'action' | 'target' | 'value' | 'class' | 'outlet' | 'actionParam';
   readonly name: string;
-  /** The event half of an action descriptor, absent when the element's
-   * default event is relied on. */
+  /** The event half of an action descriptor, or the element's default where
+   * the descriptor names none. */
   readonly event?: string;
+  /** True when the event was implied by the element rather than written. */
+  readonly impliedEvent?: boolean;
   /** The element an outlet points at. */
   readonly selector?: string;
   /** Where the attribute is written, which may be a layout rather than the
@@ -60,6 +62,16 @@ function wiringKind(kind: string): BoundWiring['kind'] | undefined {
 }
 
 /**
+ * Held per index, because the tree asks the same question for every row.
+ *
+ * Deciding whether a template has a Stimulus group, labelling the group,
+ * listing the controllers, and drawing each controller and each wiring row all
+ * need the same walk. Expanding one page asked for it around twenty times.
+ */
+const mounted = new WeakMap<FrontendIndex,
+  { controllers: readonly StimulusController[]; byNames: Map<string, readonly BoundController[]> }>();
+
+/**
  * The Stimulus controllers a page mounts, by identifier.
  *
  * The same walk the script list uses, because a binding written in a layout is
@@ -72,6 +84,22 @@ function wiringKind(kind: string): BoundWiring['kind'] | undefined {
 export function templateControllers(sessions: SessionManager, session: ProjectSession,
   names: readonly string[]): readonly BoundController[] {
   const index = frontendIndex(sessions, session);
+  let held = mounted.get(index);
+  // A rediscovery can replace the controller list without touching a file.
+  if (held === undefined || held.controllers !== session.frontend.controllers) {
+    held = { controllers: session.frontend.controllers, byNames: new Map() };
+    mounted.set(index, held);
+  }
+  const key = names.join('\n');
+  const found = held.byNames.get(key);
+  if (found !== undefined) { return found; }
+  const built = walkControllers(sessions, session, index, names);
+  held.byNames.set(key, built);
+  return built;
+}
+
+function walkControllers(sessions: SessionManager, session: ProjectSession,
+  index: FrontendIndex, names: readonly string[]): readonly BoundController[] {
   const found = new Map<string, { name: string; projectPath: string; boundIn: string[]; wiring: BoundWiring[] }>();
   walkTemplates(session, index, names, (file, name) => {
     for (const ref of file.scan.references) {
@@ -89,9 +117,11 @@ export function templateControllers(sessions: SessionManager, session: ProjectSe
       if (kind === undefined) { continue; }
       // The same target or action can be on many elements; the list answers
       // what is wired, not how many times.
-      if (entry.wiring.some((wire) => wire.kind === kind && wire.name === bare && wire.event === ref.event)) { continue; }
+      const event = ref.event ?? ref.defaultEvent;
+      if (entry.wiring.some((wire) => wire.kind === kind && wire.name === bare && wire.event === event)) { continue; }
       entry.wiring.push({ kind, name: bare, projectPath: file.projectPath, offset: ref.range.start,
-        ...(ref.event === undefined ? {} : { event: ref.event }),
+        ...(event === undefined ? {} : { event }),
+        ...(ref.event === undefined && ref.defaultEvent !== undefined ? { impliedEvent: true } : {}),
         ...(ref.selector === undefined ? {} : { selector: ref.selector.name }) });
     }
   });

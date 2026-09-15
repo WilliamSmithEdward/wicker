@@ -547,6 +547,15 @@ class WickerFrontendTestController {
         const item = await tree.getTreeItem(node);
         return [item.label, item.description];
       })), [['click → refresh', 'Action'], ['output', 'Target'], ['url', 'Value']]);
+
+      // An event the element implies is shown too, marked as not written
+      // there: a reader looking for "click" must not have to know the table.
+      await replace(page, `<button data-controller="wicker-test" data-action="wicker-test#refresh"></button>`);
+      await eventually(async () => (await tree.getChildren(mounted[0])).length === 1);
+      const implied = await tree.getTreeItem((await tree.getChildren(mounted[0]))[0]!);
+      assert.equal(implied.label, 'click → refresh');
+      assert.equal(implied.description, 'Action · default event');
+      await replace(page, pageSource);
       assert.deepEqual(tree.getParent(wiring[0]!), mounted[0]!);
 
       // The row opens the attribute, not the file: the whole point is finding
@@ -900,10 +909,13 @@ class WickerFrontendTestController {
     assert.match(await hoverText('<button data-action="click->wicker-test#refr§esh"></button>'),
       /A click on this element calls refresh\(\) in wicker_test_controller\.js/);
 
-    // An element's default event is not named in the descriptor, so the
-    // sentence must not invent one.
+    // A descriptor naming no event relies on the element's default, and the
+    // sentence says which event that is rather than leaving it to be looked
+    // up. Where the element has no default, it stays unnamed.
     assert.match(await hoverText('<button data-action="wicker-test#refr§esh"></button>'),
-      /default event calls refresh\(\)/);
+      /default event, click, calls refresh\(\)/);
+    assert.match(await hoverText('<div data-action="wicker-test#refr§esh"></div>'),
+      /This element's default event calls refresh\(\)/);
 
     assert.match(await hoverText('<output data-wicker-test-target="out§put"></output>'),
       /reads this element as this\.outputTarget/);

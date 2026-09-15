@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-import { joinProjectPath, parseTemplateName, type IncomingReference, type LoaderPathEntry, type LoaderPathSource, type RenderingController, type RenderSite, type SymfonyRoute, type TwigComponent, type TwigReferenceKind } from '@wicker/core';
+import { joinProjectPath, parseTemplateName, type IncomingReference, type TwigTemplateIndex, type LoaderPathEntry, type LoaderPathSource, type RenderingController, type RenderSite, type SymfonyRoute, type TwigComponent, type TwigReferenceKind } from '@wicker/core';
 
 import { enginePathOf } from './paths.js';
 import type { ProjectSession, SessionManager } from './session.js';
@@ -132,6 +132,22 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
 
   private isNamespaceVisible(session: ProjectSession, namespace: string): boolean {
     return this.showBundles || !isBundleNamespace(session.loaderPaths.paths.all(), namespace);
+  }
+
+  /**
+   * How many files the visible namespaces between them provide.
+   *
+   * Files rather than names, because a directory registered under two
+   * namespaces provides the same file twice and counting names would report a
+   * project as holding more templates than it has.
+   */
+  private visibleFileCount(session: ProjectSession): number {
+    const paths = new Set<string | undefined>();
+    for (const [namespace, names] of groupsOf(session.index)) {
+      if (!this.isNamespaceVisible(session, namespace)) { continue; }
+      for (const name of names) { paths.add(session.lookup(name)?.projectPath); }
+    }
+    return paths.size;
   }
 
   async getChildren(node?: SidebarNode): Promise<SidebarNode[]> {
@@ -272,7 +288,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       }));
     }
     if (node.kind === 'section' && node.section === 'templates') {
-      const namespaces = new Set(session.index.allNames().map(namespaceOf));
+      const namespaces = new Set(groupsOf(session.index).keys());
       for (const entry of session.loaderPaths.paths.all()) {
         namespaces.add(namespaceKey(entry.namespace, entry.forcesBundleTemplate));
       }
@@ -418,7 +434,9 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       entry.name === node.member && entry.event === node.event);
     const item = new vscode.TreeItem(node.event === undefined ? node.member : `${node.event} → ${node.member}`);
     if (wire === undefined || controller === undefined) { return item; }
-    item.description = WIRING_LABELS[wire.kind];
+    // An implied event is not in the attribute, so the row has to say that the
+    // event it shows was never written there.
+    item.description = wire.impliedEvent ? `${WIRING_LABELS[wire.kind]} · default event` : WIRING_LABELS[wire.kind];
     item.iconPath = new vscode.ThemeIcon(WIRING_ICONS[wire.kind]);
     item.tooltip = `${WIRING_LABELS[wire.kind]} of ${node.name}${wire.selector === undefined ? '' : ` → ${wire.selector}`}\n${
       wire.projectPath}\n\nOpen where it is written.`;
@@ -652,9 +670,8 @@ Extends ${node.name}.`;
     }
     if (node.kind === 'section') {
       const controllers = node.section === 'controllers';
-      const count = controllers ? controllersInProject(this.sessions, session).length :
-        new Set(session.index.allNames().filter((name) => this.isNamespaceVisible(session, namespaceOf(name)))
-          .map((name) => session.lookup(name)?.projectPath)).size;
+      const count = controllers ? controllersInProject(this.sessions, session).length
+        : this.visibleFileCount(session);
       const item = new vscode.TreeItem(controllers ? 'Controllers' : 'Templates',
         controllers && count === 0 ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Expanded);
       item.iconPath = new vscode.ThemeIcon(controllers ? icons.controllers : icons.templates);
@@ -709,9 +726,7 @@ Extends ${node.name}.`;
         enginePathOf(node.root).split('/').at(-1) ?? 'Symfony project';
       const item = new vscode.TreeItem(label, this.sessions.all().length === 1
         ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed);
-      const visibleFiles = new Set(session.index.allNames()
-        .filter((name) => this.isNamespaceVisible(session, namespaceOf(name)))
-        .map((name) => session.lookup(name)?.projectPath)).size;
+      const visibleFiles = this.visibleFileCount(session);
       item.iconPath = new vscode.ThemeIcon(icons.project);
       item.tooltip = `${session.project.root}\n${counted(session.index.fileCount, 'file')}, ${counted(session.index.nameCount, 'template name')}`;
       const source = NAMESPACE_SOURCES[session.loaderPaths.source];
@@ -1344,8 +1359,35 @@ function namespaceKey(namespace: string | null, forcesBundleTemplate: boolean): 
   return namespace === null ? '' : `@${forcesBundleTemplate ? '!' : ''}${namespace}`;
 }
 
+/**
+ * Every name under the key the tree draws it beneath, grouped once per index.
+ *
+ * Deciding the key means parsing the name, and the tree needed it for the
+ * label and the children of every namespace and every folder row, so a project
+ * with three thousand templates parsed every one of them around eighty times
+ * to draw the tree once. An index never changes after it is built, so holding
+ * the grouping by identity is enough to keep it current.
+ */
+const namespaceGroups = new WeakMap<TwigTemplateIndex, ReadonlyMap<string, readonly string[]>>();
+
+function groupsOf(index: TwigTemplateIndex): ReadonlyMap<string, readonly string[]> {
+  let found = namespaceGroups.get(index);
+  if (found === undefined) {
+    const built = new Map<string, string[]>();
+    // allNames is sorted, so each group comes out sorted with it.
+    for (const name of index.allNames()) {
+      const key = namespaceOf(name);
+      const into = built.get(key);
+      if (into === undefined) { built.set(key, [name]); } else { into.push(name); }
+    }
+    found = built;
+    namespaceGroups.set(index, found);
+  }
+  return found;
+}
+
 function namesInGroup(session: ProjectSession, namespace: string): readonly string[] {
-  return session.index.allNames().filter((name) => namespaceOf(name) === namespace);
+  return groupsOf(session.index).get(namespace) ?? [];
 }
 
 function counted(count: number, noun: string): string {

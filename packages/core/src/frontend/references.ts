@@ -1,4 +1,4 @@
-import { parseActionDescriptor } from './actionDescriptor.js';
+import { DEFAULT_EVENTS, parseActionDescriptor } from './actionDescriptor.js';
 import type { OffsetRange } from '../php/templateReferences.js';
 import { tokenizeTwigExpression } from '../twig/expressionLexer.js';
 import { literalTwigString, splitTwigTokens } from '../twig/contextSyntax.js';
@@ -26,6 +26,15 @@ export interface FrontendReference {
    * Absent when the descriptor relies on the element's default event.
    */
   readonly event?: string;
+  /**
+   * The event Stimulus attaches when the descriptor names none.
+   *
+   * Known only where the element is: a `data-action` attribute is written on a
+   * tag, while `stimulus_action()` is a call whose element nothing here can
+   * see. Kept apart from `event` so that an explanation can say the event was
+   * implied rather than written.
+   */
+  readonly defaultEvent?: string;
 }
 export interface StimulusEndpointBinding {
   readonly controller: string;
@@ -188,9 +197,11 @@ export function scanFrontend(source: string, twig: boolean): FrontendScan {
           references.push({ kind: 'controller', name: controller, range: { start: offset + from, end: offset + (hash < 0 ? text.length : hash) } });
           if (hash >= 0) {
             const action = text.slice(hash + 1).split(':')[0]!;
+            const implied = DEFAULT_EVENTS[match[1]!.toLowerCase()];
             references.push({ kind: 'action', controller, name: action,
               range: { start: offset + hash + 1, end: offset + hash + 1 + action.length },
-              ...(descriptor.event && descriptor.event.name ? { event: descriptor.event.name } : {}) });
+              ...(descriptor.event && descriptor.event.name ? { event: descriptor.event.name }
+                : implied === undefined ? {} : { defaultEvent: implied }) });
           }
         }
       } else if (attrName.startsWith('data-') && attrName.endsWith('-target')) {

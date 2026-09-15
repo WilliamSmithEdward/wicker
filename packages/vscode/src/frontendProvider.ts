@@ -468,9 +468,13 @@ function explain(ref: FrontendReference, controller: string, projectPath: string
   const sentences: string[] = [];
 
   if (ref.kind === 'action') {
-    sentences.push(ref.event === undefined
-      ? `This element's default event calls ${member.name}() in ${file}.`
-      : `A ${ref.event} on this element calls ${member.name}() in ${file}.`);
+    sentences.push(ref.event !== undefined
+      ? `A ${ref.event} on this element calls ${member.name}() in ${file}.`
+      : ref.defaultEvent === undefined
+        ? `This element's default event calls ${member.name}() in ${file}.`
+        // Naming it saves looking the default up: it is the one part of the
+        // binding the descriptor deliberately leaves out.
+        : `This element's default event, ${ref.defaultEvent}, calls ${member.name}() in ${file}.`);
   } else if (ref.kind === 'target') {
     sentences.push(`${controller} reads this element as this.${member.name}Target in ${file}.`);
   } else if (ref.kind === 'value') {

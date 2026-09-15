@@ -6,8 +6,7 @@ import { stimulusOutletProperties, stimulusOutletStem, type StimulusController, 
 export function resolveOutletReference(ref: FrontendReference, controllers: readonly StimulusController[]): FrontendReference | undefined {
   if (ref.kind !== 'outlet') { return undefined; }
   if (ref.controller !== undefined) { return ref; }
-  const host = controllers.filter((controller) => ref.name.startsWith(`${controller.name}-`))
-    .sort((a, b) => b.name.length - a.name.length)[0];
+  const host = longestPrefix(controllers, ref.name);
   return host ? { ...ref, controller: host.name, name: ref.name.slice(host.name.length + 1),
     range: { start: ref.range.start + host.name.length + 1, end: ref.range.end } } : undefined;
 }
@@ -22,11 +21,45 @@ export function resolveOutletReference(ref: FrontendReference, controllers: read
  */
 export function controllerForReference(ref: FrontendReference,
   controllers: readonly StimulusController[]): StimulusController | undefined {
-  const outlet = resolveOutletReference(ref, controllers);
-  const named = ref.kind === 'controller' ? ref.name : outlet?.controller ?? ref.controller;
-  return controllers.filter((controller) => controller.name === named ||
-    !named && ['value', 'class'].includes(ref.kind) && ref.name.startsWith(`${controller.name}-`))
-    .sort((left, right) => right.name.length - left.name.length)[0];
+  const named = ref.kind === 'controller' ? ref.name
+    : resolveOutletReference(ref, controllers)?.controller ?? ref.controller;
+  if (named !== undefined) { return byName(controllers).get(named); }
+  if (!['value', 'class'].includes(ref.kind)) { return undefined; }
+  return longestPrefix(controllers, ref.name);
+}
+
+/**
+ * The longest identifier the name begins with, or nothing.
+ *
+ * Scanning the list in longest-first order stops at the first match instead of
+ * collecting every candidate and sorting them, which matters because this runs
+ * once per attribute in every indexed template.
+ */
+function longestPrefix(controllers: readonly StimulusController[], name: string): StimulusController | undefined {
+  return byLength(controllers).find((controller) => name.startsWith(`${controller.name}-`));
+}
+
+/** Derived once per controller list; the list is replaced wholesale on every
+ * rediscovery, so holding it by identity cannot go stale. */
+const names = new WeakMap<readonly StimulusController[], ReadonlyMap<string, StimulusController>>();
+const lengths = new WeakMap<readonly StimulusController[], readonly StimulusController[]>();
+
+function byName(controllers: readonly StimulusController[]): ReadonlyMap<string, StimulusController> {
+  let found = names.get(controllers);
+  if (found === undefined) {
+    found = new Map(controllers.map((controller) => [controller.name, controller]));
+    names.set(controllers, found);
+  }
+  return found;
+}
+
+function byLength(controllers: readonly StimulusController[]): readonly StimulusController[] {
+  let found = lengths.get(controllers);
+  if (found === undefined) {
+    found = [...controllers].sort((left, right) => right.name.length - left.name.length);
+    lengths.set(controllers, found);
+  }
+  return found;
 }
 
 export interface OutletAccess {

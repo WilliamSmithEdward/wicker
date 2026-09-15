@@ -287,11 +287,23 @@ describe('Twig/JavaScript frontend references', () => {
     for (const entry of parsed.references) { expect(source.slice(entry.range.start, entry.range.end)).toBe(entry.name); }
   });
 
-  it('reports no event for a descriptor relying on the element default', () => {
+  it('reports no event text for a descriptor relying on the element default', () => {
     // `<button data-action="cart#add">` binds click without naming it, so
-    // there is no event text to point at.
+    // there is no event text to point at. The event itself is still known,
+    // separately, because the element it was written on says which it is.
     const parsed = scanFrontend('<button data-action="cart#add"></button>', true);
     expect(parsed.references.map((ref) => ref.kind)).toEqual(['controller', 'action']);
+    const action = (source: string): { event?: string; defaultEvent?: string } =>
+      scanFrontend(source, true).references.at(-1)!;
+    expect(action('<button data-action="cart#add"></button>').event).toBeUndefined();
+    expect(action('<button data-action="cart#add"></button>').defaultEvent).toBe('click');
+    expect(action('<FORM data-action="cart#save"></FORM>').defaultEvent).toBe('submit');
+    // A written event is the one that fires; nothing is implied over it.
+    expect(action('<button data-action="keydown->cart#add">')).toMatchObject({ event: 'keydown' });
+    expect(action('<button data-action="keydown->cart#add">').defaultEvent).toBeUndefined();
+    // Stimulus attaches click to any element it has no default for, but that
+    // is a runtime fallback rather than something this element states.
+    expect(action('<div data-action="cart#add"></div>').defaultEvent).toBeUndefined();
   });
 
   it('reads logical asset paths and importmap entrypoints', () => {

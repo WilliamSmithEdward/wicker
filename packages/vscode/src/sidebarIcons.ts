@@ -80,6 +80,7 @@ export const SIDEBAR_ICONS = {
   components: { id: 'extensions', hue: 'component' },
   component: { id: 'tag', hue: 'component' },
   warning: { id: 'warning', hue: 'warning' },
+  pending: { id: 'loading~spin' },
   retry: { id: 'refresh' },
   settings: { id: 'settings-gear' },
 } as const satisfies Record<string, { id: string; hue?: Hue }>;

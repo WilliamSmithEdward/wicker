@@ -9,10 +9,10 @@ import { TwigLoaderPaths } from '@wicker/core';
 import type { WickerApi } from '../extension.js';
 import { LoaderPathMemory } from '../loaderPathMemory.js';
 import { templatePicks } from '../pickers.js';
-import { SessionManager } from '../session.js';
+import { SessionManager, type ProjectSession } from '../session.js';
 import { SIDEBAR_ICONS, sidebarIcon, type SidebarRole } from '../sidebarIcons.js';
 import { isBundleNamespace, ProjectTreeProvider, type SidebarNode } from '../sidebar.js';
-import { tooltipOf, until } from './support.js';
+import { memorySessions, tooltipOf, until } from './support.js';
 
 const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
 const rootUri = vscode.Uri.file(ROOT);
@@ -668,7 +668,9 @@ class SidebarCreatedController {
     const drawn = new Set(['template-leaf', 'route-leaf']);
 
     const broken = Object.entries(SIDEBAR_ICONS).flatMap(([role, { id }]) => {
-      if (!drawn.has(id)) { return codicons.has(id) ? [] : [`${role}: no codicon "${id}"`]; }
+      // A modifier such as ~spin is the workbench's animation, not a glyph.
+      const [name] = id.split('~');
+      if (!drawn.has(id)) { return codicons.has(name) ? [] : [`${role}: no codicon "${id}"`]; }
       const icon = sidebarIcon(role as SidebarRole);
       if (!('dark' in icon)) { return [`${role}: "${id}" should be drawn, not a ThemeIcon`]; }
       return [icon.light, icon.dark]
@@ -771,6 +773,53 @@ class SidebarCreatedController {
     assert.ok(project);
     const templates = await section(provider, project, 'templates');
     assert.doesNotMatch((await provider.getTreeItem(templates)).contextValue ?? '', /\bopens\b/);
+  });
+
+  /*
+   * Six kernel boots on a container or a remote machine take longer than
+   * reading the project, and the tree used to wait for them with nothing to
+   * show. It is drawn from the files first and says it is waiting, rather
+   * than warning about a console it has not heard from yet.
+   */
+  test('draws the project before the console answers, with a row saying so', async () => {
+    const settings = vscode.workspace.getConfiguration('wicker');
+    const previousCommand = settings.inspect<string[]>('console.command')?.workspaceValue;
+    const previousEnabled = settings.inspect<boolean>('console.enabled')?.workspaceValue;
+    const node = process.env['npm_node_execpath'] ?? 'node';
+    const answer = JSON.stringify({ loader_paths: { '(None)': ['templates'] } });
+    const own = memorySessions();
+    const tree = new ProjectTreeProvider(own);
+    const published = (): ProjectSession | undefined => own.all()
+      .find((candidate) => candidate.fileSystem.toUri(candidate.project.root).toString() === rootUri.toString());
+    try {
+      await settings.update('console.enabled', true, vscode.ConfigurationTarget.Workspace);
+      await settings.update('console.command', [node, '-e',
+        `setTimeout(() => process.stdout.write(${JSON.stringify(answer)}), 2500)`, '--'], vscode.ConfigurationTarget.Workspace);
+      const initialized = own.initialize();
+      await until(() => published() !== undefined, 'the project should be published before the console answers');
+      const session = published()!;
+      assert.equal(session.consolePending, true);
+      const project = (await tree.getChildren()).find((child) => child.root.toString() === rootUri.toString());
+      assert.ok(project);
+      const children = await tree.getChildren(project);
+      assert.equal(children[0]?.kind, 'pending');
+      assert.ok(!children.some((child) => child.kind === 'warning'), 'nothing is unavailable until the console has answered');
+      const item = await tree.getTreeItem(children[0]);
+      assert.equal(item.label, 'Asking the Symfony console...');
+      assert.match(tooltipOf(item), /has not answered yet/);
+      assert.match(tooltipOf(await tree.getTreeItem(project)), /waiting for the Symfony console/);
+
+      await initialized;
+      assert.equal(session.consolePending, false);
+      assert.equal(session.loaderPaths.source, 'console');
+      assert.ok(!(await tree.getChildren(project)).some((child) => child.kind === 'pending'));
+    } finally {
+      tree.dispose();
+      own.dispose();
+      await settings.update('console.command', previousCommand, vscode.ConfigurationTarget.Workspace);
+      await settings.update('console.enabled', previousEnabled, vscode.ConfigurationTarget.Workspace);
+      await vscode.commands.executeCommand('wicker.reindex');
+    }
   });
 
   test('has an empty tree when no Symfony project is detected', async () => {

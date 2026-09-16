@@ -108,6 +108,8 @@ export class ProjectSession implements vscode.Disposable {
   /** Configuration answers from the console, kept until configuration changes. */
   private readonly consoleAnswers = new Map<string, ConsoleResult>();
   private discoveryPending = false;
+  /** Whether the console has answered once, so the tree is no longer provisional. */
+  private consoleAnswered = false;
   /** Files read from disk on demand, cleared whenever the project is rebuilt. */
   private readonly sourceMaps = new Map<string, string | undefined>();
   private disposed = false;
@@ -175,12 +177,32 @@ export class ProjectSession implements vscode.Disposable {
     return !this.discoveryPending;
   }
 
+  /**
+   * Whether the tree is provisional: the console has been asked and has not
+   * answered yet.
+   *
+   * Routes, components and bundle namespaces come only from the console, so
+   * until its first answer they are missing rather than absent, and the tree
+   * says it is waiting instead of warning about a console it has not heard
+   * from. Later refreshes update in place; this is about the first answer.
+   */
+  get consolePending(): boolean {
+    return !this.consoleAnswered && this.consoleCommand !== undefined;
+  }
+
   get canCheckCallables(): boolean {
     return !this.discoveryPending && !vscode.workspace.textDocuments.some((document) =>
       document.isDirty && this.affectsTwigEnvironment(document.uri));
   }
 
-  /** Detects a project at or above a workspace folder, and indexes it. */
+  /**
+   * Detects a project at or above a workspace folder, and indexes its files.
+   *
+   * The console is not asked here. It is asked by the first refresh, once
+   * the session is published: six kernel boots on a container or a remote
+   * machine took longer than reading the whole project, and the tree waited
+   * for them with nothing to show.
+   */
   static async create(
     folder: vscode.WorkspaceFolder,
     memory: LoaderPathMemory,
@@ -190,20 +212,22 @@ export class ProjectSession implements vscode.Disposable {
     if (project === undefined) {
       return undefined;
     }
-    const built = await buildIndex(fileSystem, project, memory);
+    const runner = ProcessConsoleRunner.create(project.root) === undefined ? undefined : CONSOLE_PENDING;
+    const environment = await discoverEnvironment(fileSystem, project, memory, runner);
+    const index = await indexTemplates(fileSystem, project, environment.loaderPaths);
     const session = new ProjectSession(
       project,
       folder.uri,
       fileSystem,
-      built.index,
-      built.loaderPaths,
-      built.components,
-      built.frontend,
-      built.assets,
+      index,
+      environment.loaderPaths,
+      environment.components,
+      environment.frontend,
+      environment.assets,
       memory,
     );
     try {
-      await session.rebuildIndexes(built.index);
+      await session.rebuildIndexes(index);
       return session;
     } catch (error) {
       session.dispose();
@@ -350,6 +374,7 @@ export class ProjectSession implements vscode.Disposable {
           ? { loaderPaths: this.loaderPathInfo, components: this.componentInfo, frontend: this.frontend, assets: this.assets }
           : await discoverEnvironment(this.fileSystem, this.project, this.memory, this.rememberingRunner());
         if (this.disposed) { return; }
+        if (scope !== 'templates') { this.consoleAnswered = true; }
         const index = await indexTemplates(this.fileSystem, this.project, environment.loaderPaths);
         if (this.disposed) { return; }
         this.templateIndex = index;
@@ -616,14 +641,18 @@ class RememberingRunner implements ConsoleRunner {
   }
 }
 
-async function buildIndex(
-  fileSystem: VsCodeFileSystem,
-  project: SymfonyProject,
-  memory: LoaderPathMemory,
-): Promise<Environment & { index: TwigTemplateIndex }> {
-  const environment = await discoverEnvironment(fileSystem, project, memory, ProcessConsoleRunner.create(project.root));
-  return { ...environment, index: await indexTemplates(fileSystem, project, environment.loaderPaths) };
-}
+/**
+ * The console before it has been asked.
+ *
+ * Every question reads as not answered yet, which is what lets a project be
+ * indexed and shown before its console has booted: the remembered bundle
+ * namespaces stand in, as they do for a console that was tried and failed,
+ * and the sections only the console can fill wait for it rather than
+ * reporting a console that was never reached.
+ */
+const CONSOLE_PENDING: ConsoleRunner = {
+  run: () => Promise.resolve({ ok: false, stdout: '', error: 'waiting for the Symfony console' }),
+};
 
 async function discoverEnvironment(
   fileSystem: VsCodeFileSystem,
@@ -697,17 +726,26 @@ export class SessionManager implements vscode.Disposable {
 
   constructor(private readonly memory: LoaderPathMemory) {}
 
-  async initialize(): Promise<void> {
+  /**
+   * Detects and indexes every workspace folder.
+   *
+   * Each project is published as soon as its files are read, and the console
+   * is asked after that. The promise resolves once it has answered too, so a
+   * caller that goes on to read routes or components reads the real ones;
+   * `progress` is told which of the two is under way.
+   */
+  async initialize(progress?: (message: string) => void): Promise<void> {
     for (const folder of vscode.workspace.workspaceFolders ?? []) {
-      await this.addFolder(folder);
+      await this.addFolder(folder, progress);
     }
   }
 
-  async addFolder(folder: vscode.WorkspaceFolder): Promise<void> {
+  async addFolder(folder: vscode.WorkspaceFolder, progress?: (message: string) => void): Promise<void> {
     const key = folder.uri.toString();
     if (this.sessions.has(key)) {
       return;
     }
+    progress?.('indexing templates');
     const session = await ProjectSession.create(folder, this.memory);
     if (session === undefined) {
       return;
@@ -718,6 +756,13 @@ export class SessionManager implements vscode.Disposable {
     this.sessions.set(key, session);
     this.layout++;
     this.changed.fire();
+    // Published; now what only Symfony can say. Whether the workspace is
+    // trusted and the console enabled is read here, after the files, so a
+    // trust prompt answered while they were read is not missed.
+    if (session.consolePending) {
+      progress?.('asking the Symfony console');
+      await session.refresh('environment');
+    }
   }
 
   removeFolder(folder: vscode.WorkspaceFolder): void {

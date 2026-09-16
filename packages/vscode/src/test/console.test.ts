@@ -60,6 +60,29 @@ suite('console', () => {
   });
 
   /*
+   * A command still running when its time is up is killed, and the reason
+   * has to say so: "Command failed" with no output reads as a broken console,
+   * when the first answer on a cold container is the one most likely to be
+   * slow rather than broken.
+   */
+  test('a command that runs out of time says how long it was given', async () => {
+    const settings = vscode.workspace.getConfiguration('wicker');
+    const previous = settings.inspect<string[]>('console.command')?.workspaceValue;
+    try {
+      await settings.update('console.command', [process.env['npm_node_execpath'] ?? 'node', '-e',
+        "setTimeout(() => process.stdout.write('{}'), 2000)", '--'], vscode.ConfigurationTarget.Workspace);
+      const runner = ProcessConsoleRunner.create(ROOT, 300)!;
+      assert.ok(runner);
+      const result = await runner.run(['debug:probe']);
+      assert.equal(result.ok, false);
+      assert.equal(result.error, 'no answer within 0.3 seconds');
+    } finally {
+      await settings.update('console.command', previous, vscode.ConfigurationTarget.Workspace);
+      await vscode.commands.executeCommand('wicker.reindex');
+    }
+  });
+
+  /*
    * Opening a project asks the console several questions at once and two of
    * them are the same question. Each answer costs a Symfony kernel boot, which
    * on a container or a remote machine is the slowest thing the extension

@@ -214,6 +214,16 @@ a components directory is an environment change. The test that guards it is
 waiting together are answered at the wider scope, and a pass takes its scope at
 the start so a change arriving mid-pass widens the next one.
 
+**The tree used to wait for the console.** A session was constructed only
+after every console command had answered or hit its fifteen-second cap, so
+on a remote machine with a cold cache six kernel boots at once timed out
+together, the project appeared late, and every console-backed section came
+up as unavailable until a retry ran against the cache those boots had warmed.
+A session is now built from the files first and published, and the console
+is asked by the first refresh with a minute to answer; `consolePending` is
+what the sidebar reads to show a waiting row instead of warnings. Keep that
+order: publish, then ask.
+
 **A memo has to be keyed on everything its answer was read from.** The Stimulus
 wiring memo was keyed on the scanned-file index and the controller list, but the
 walk resolves names through the template index, which the scoped refresh above

@@ -237,6 +237,13 @@ tooltip while the console is unavailable. Right-click a project and choose
 **Show diagnostics** to open its detailed report in Output. The same command
 in the Command Palette reports all detected projects.
 
+A project appears as soon as its files are read. Routes, components and
+bundle namespaces come from the Symfony console, which on a container or a
+remote machine can take a while to boot; until it answers, the tree shows an
+**Asking the Symfony console** row in their place and fills them in when the
+answer arrives. A console that has not answered within a minute is reported
+as unavailable, with **Retry**.
+
 The tree updates when template files or configuration change.
 Turning off `wicker.enable` replaces the tree with a link to settings so it can
 be enabled again. In an empty workspace, the sidebar offers to open a Symfony

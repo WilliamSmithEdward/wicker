@@ -61,6 +61,7 @@ export type SidebarNode =
   | { readonly kind: 'script'; readonly root: vscode.Uri; readonly projectPath: string; readonly parent: ScriptOwner }
   | { readonly kind: 'style'; readonly root: vscode.Uri; readonly projectPath: string; readonly parent: ScriptOwner }
   | { readonly kind: 'loaded'; readonly root: vscode.Uri; readonly projectPath: string; readonly reason: string; readonly parent: SidebarNode }
+  | { readonly kind: 'pending'; readonly root: vscode.Uri }
   | { readonly kind: 'warning'; readonly root: vscode.Uri; readonly reason: WarningReason }
   | { readonly kind: 'action'; readonly root: vscode.Uri; readonly reason: WarningReason; readonly action: 'retry' | 'settings' }
   | { readonly kind: 'namespace'; readonly root: vscode.Uri; readonly namespace: string }
@@ -173,6 +174,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     }
     if (node.kind === 'project') {
       return [
+        ...(session.consolePending ? [{ kind: 'pending' as const, root: node.root }] : []),
         ...warningReasons(session).map((reason) => ({ kind: 'warning' as const, root: node.root, reason })),
         { kind: 'section', root: node.root, section: 'controllers' },
         ...(templateRoutes(this.sessions, session).length ? [{ kind: 'section' as const, root: node.root, section: 'templateRoutes' as const }] : []),
@@ -768,6 +770,14 @@ Extends ${node.name}.`;
       }
       return item;
     }
+    if (node.kind === 'pending') {
+      const item = new vscode.TreeItem('Asking the Symfony console...');
+      item.iconPath = sidebarIcon('pending');
+      item.tooltip = 'Bundle namespaces, routes, Stimulus controllers and components are read from Symfony, and its console has not answered yet. ' +
+        `The tree shows what the files say meanwhile and fills in when it does.\n\nWicker runs ${
+          session.consoleCommand ?? 'php bin/console'} in the project root.`;
+      return item;
+    }
     if (node.kind === 'warning') {
       const item = new vscode.TreeItem(node.reason === 'namespaces' ? 'Bundle namespaces unavailable'
         : node.reason === 'console' ? 'Symfony console unavailable'
@@ -879,6 +889,12 @@ export class WickerSidebar implements vscode.Disposable {
     this.view.message = 'Detecting Symfony projects...';
     this.subscriptions = [
       this.provider, this.view,
+      // Detection is over once a project is in the tree, which is before its
+      // console has answered; the message would otherwise sit over a drawn
+      // tree for as long as that takes.
+      sessions.onDidChange(() => {
+        if (this.view.message !== '' && sessions.all().length > 0) { this.view.message = ''; }
+      }),
       vscode.commands.registerCommand('wicker.openController', (node: SidebarNode, options?: OpenOptions) => this.openController(node, options)),
       vscode.commands.registerCommand('wicker.openControllerDependency', (node: SidebarNode, options?: OpenOptions) => this.openControllerDependency(node, options)),
       vscode.commands.registerCommand('wicker.openRelatedScript', (node: SidebarNode, options?: OpenOptions) => this.openRelatedScript(node, options)),
@@ -1419,13 +1435,16 @@ function routeIcon(sessions: SessionManager, session: ProjectSession, route: Sym
 
 function warningReasons(session: ProjectSession): WarningReason[] {
   const reasons: WarningReason[] = [];
-  if (session.loaderPaths.source === 'config') {
+  // Not yet asked is not unavailable: while the tree waits for the console's
+  // first answer it says so in its own row, and warns about nothing.
+  const pending = session.consolePending;
+  if (!pending && session.loaderPaths.source === 'config') {
     reasons.push('namespaces');
   }
   // Routes, Stimulus controllers and components all come from the console.
   // Without it every one of those sections is simply absent, which reads as a
   // project that has none rather than as an answer nothing could give.
-  if (consoleWarning(session) !== undefined) {
+  if (!pending && consoleWarning(session) !== undefined) {
     reasons.push('console');
   }
   if (session.index.truncated) {

@@ -4,8 +4,18 @@ import * as vscode from 'vscode';
 
 import type { ConsoleResult, ConsoleRunner } from '@wicker/core';
 
-/** How long a console command may take before it is abandoned. */
-const TIMEOUT_MS = 15_000;
+/**
+ * How long a console command may take before it is abandoned.
+ *
+ * Opening a project boots the kernel six times at once, and on a container
+ * or a remote machine with a cold cache that took longer than the fifteen
+ * seconds this used to be. Every answer was killed and reported as a
+ * failure, and a retry a moment later, against the cache those runs had
+ * warmed, succeeded: a console that seemed unreachable until refreshed. The
+ * tree no longer waits for the answers, so waiting longer for them costs
+ * nothing but a row saying so.
+ */
+const TIMEOUT_MS = 60_000;
 
 /** Output cap, so a runaway command cannot exhaust memory. */
 const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
@@ -37,7 +47,7 @@ export class ProcessConsoleRunner implements ConsoleRunner {
    */
   private readonly running = new Map<string, Promise<ConsoleResult>>();
 
-  private constructor(command: readonly string[], cwd: string) {
+  private constructor(command: readonly string[], cwd: string, private readonly timeoutMs: number) {
     this.command = command;
     this.cwd = cwd;
   }
@@ -49,8 +59,11 @@ export class ProcessConsoleRunner implements ConsoleRunner {
    * trusted: the command can come from workspace settings, so running it in an
    * untrusted folder would execute whatever that folder asked for. That is
    * exactly the case workspace trust exists to prevent.
+   *
+   * The wait is settable so a test can see a command run out of time without
+   * waiting a minute for it.
    */
-  static create(projectRoot: string): ProcessConsoleRunner | undefined {
+  static create(projectRoot: string, timeoutMs = TIMEOUT_MS): ProcessConsoleRunner | undefined {
     const settings = vscode.workspace.getConfiguration('wicker');
     if (!settings.get<boolean>('console.enabled', true)) {
       return undefined;
@@ -61,7 +74,7 @@ export class ProcessConsoleRunner implements ConsoleRunner {
 
     const configured = settings.get<string[]>('console.command', []);
     const command = configured.length > 0 ? configured : DEFAULT_COMMAND;
-    return new ProcessConsoleRunner(command, projectRoot);
+    return new ProcessConsoleRunner(command, projectRoot, timeoutMs);
   }
 
   /** A readable form of the command, for status messages. */
@@ -90,7 +103,7 @@ export class ProcessConsoleRunner implements ConsoleRunner {
         [...leading, ...args],
         {
           cwd: this.cwd,
-          timeout: TIMEOUT_MS,
+          timeout: this.timeoutMs,
           maxBuffer: MAX_OUTPUT_BYTES,
           windowsHide: true,
           // Not run through a shell: arguments are passed as a list, so a path
@@ -104,11 +117,16 @@ export class ProcessConsoleRunner implements ConsoleRunner {
           }
           // A non-zero exit still carries useful output sometimes, but the
           // caller cannot tell a partial result from a complete one, so a
-          // failure is reported as a failure and the reason is preserved.
+          // failure is reported as a failure and the reason is preserved. A
+          // command killed for running out of time has no output and no
+          // exit code to explain itself with, so it is named as such rather
+          // than as "Command failed", which reads as a broken console.
           resolve({
             ok: false,
             stdout,
-            error: firstLine(stderr) ?? error.message,
+            error: error.killed
+              ? `no answer within ${this.timeoutMs / 1000} seconds`
+              : firstLine(stderr) ?? error.message,
           });
         },
       );

@@ -386,10 +386,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
   // on a large or remote project the read takes long enough that a command
   // or a hover asked for meanwhile should answer with nothing rather than not
   // exist. Reading the whole template tree is also past the point where
-  // silence reads as a hang, so it shows progress.
+  // silence reads as a hang, so it shows progress, and the console, asked
+  // once the tree is up, can take most of a minute on a remote machine, so
+  // the status bar says which of the two it is waiting for.
   await vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Window, title: 'Wicker: indexing templates' },
-    () => sessions.initialize(),
+    { location: vscode.ProgressLocation.Window, title: 'Wicker' },
+    (progress) => sessions.initialize((message) => progress.report({ message })),
   );
   sidebar.finishLoading();
   refreshAllDiagnostics();
@@ -472,9 +474,16 @@ function buildDiagnostics(
     }
 
     const parsed = parseTemplateName(reference.templateName);
+    const unregistered = parsed.ok && parsed.value.namespace !== null &&
+      !session.index.allNames().some((name) => name.startsWith(`@${parsed.value.namespace}/`));
+    // Bundle namespaces come from the console. One it has not yet answered
+    // for is not unregistered, so the report waits rather than flashing red.
+    if (unregistered && session.consolePending) {
+      continue;
+    }
     const message = !parsed.ok
       ? parsed.problem.message
-      : parsed.value.namespace !== null && !session.index.allNames().some((name) => name.startsWith(`@${parsed.value.namespace}/`))
+      : unregistered
         ? `Twig namespace "@${parsed.value.namespace}" is not registered in this project.`
         : `Template "${reference.templateName}" was not found.`;
 

@@ -42,12 +42,9 @@ export class TwigComponentProvider implements vscode.CompletionItemProvider, vsc
   }
 
   async provideDefinition(document: vscode.TextDocument, position: vscode.Position): Promise<vscode.LocationLink[] | undefined> {
-    const session = this.sessions.sessionFor(document);
-    const reference = componentReferenceAt(document.getText(), document.offsetAt(position));
-    const component = session?.components.components.find((entry) => entry.name === reference?.name);
-    if (!session || !reference || !component) { return undefined; }
-    const version = document.version;
-    const source = await this.props(session, component);
+    const found = await this.locate(document, position);
+    if (found === undefined) { return undefined; }
+    const { session, reference, component, version, source } = found;
     const links: vscode.LocationLink[] = [];
     if (reference.kind === 'prop') {
       const prop = source?.props.find((entry) => entry.name === reference.prop);
@@ -61,12 +58,9 @@ export class TwigComponentProvider implements vscode.CompletionItemProvider, vsc
   }
 
   async provideHover(document: vscode.TextDocument, position: vscode.Position): Promise<vscode.Hover | undefined> {
-    const session = this.sessions.sessionFor(document);
-    const reference = componentReferenceAt(document.getText(), document.offsetAt(position));
-    const component = session?.components.components.find((entry) => entry.name === reference?.name);
-    if (!session || !reference || !component) { return undefined; }
-    const version = document.version;
-    const source = await this.props(session, component);
+    const found = await this.locate(document, position);
+    if (found === undefined) { return undefined; }
+    const { session, reference, component, version, source } = found;
     const prop = source?.props.find((entry) => entry.name === reference.prop);
     if (!this.current(document, version, session, component) || (reference.kind === 'prop' && !prop)) { return undefined; }
     const content = prop && source ? propDocumentation(prop, source.path) : documentation(component);
@@ -75,6 +69,22 @@ export class TwigComponentProvider implements vscode.CompletionItemProvider, vsc
       content.appendText(source.props.map((entry) => entry.name).join(', '));
     }
     return new vscode.Hover(content, rangeOf(document, reference.range));
+  }
+
+  /**
+   * The component named under the cursor and its declared props, with the
+   * document version they were read at, so the answer can be dropped if the
+   * text or the index moved on while the props were being read.
+   */
+  private async locate(document: vscode.TextDocument, position: vscode.Position): Promise<{
+    session: ProjectSession; reference: ComponentReference; component: TwigComponent; version: number; source: PropSource | undefined;
+  } | undefined> {
+    const session = this.sessions.sessionFor(document);
+    const reference = componentReferenceAt(document.getText(), document.offsetAt(position));
+    const component = session?.components.components.find((entry) => entry.name === reference?.name);
+    if (!session || !reference || !component) { return undefined; }
+    const version = document.version;
+    return { session, reference, component, version, source: await this.props(session, component) };
   }
 
   private current(document: vscode.TextDocument, version: number, session: ProjectSession, component: TwigComponent): boolean {

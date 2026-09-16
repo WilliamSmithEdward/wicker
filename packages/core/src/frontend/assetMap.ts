@@ -104,10 +104,6 @@ export class AssetMap {
     return new AssetMap([], false);
   }
 
-  static fromAssets(assets: readonly MappedAsset[], truncated = false): AssetMap {
-    return new AssetMap(assets, truncated);
-  }
-
   /** Walks the configured roots. Bounded, because a root can be a whole vendor tree. */
   static async build(
     fileSystem: WickerFileSystem,

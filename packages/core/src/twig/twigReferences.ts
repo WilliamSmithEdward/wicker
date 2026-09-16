@@ -266,9 +266,12 @@ function collectFromExpression(
   }
 }
 
-/** Offset of the parenthesis closing the one just opened, or `to`. */
-function findMatchingParenthesis(source: string, from: number, to: number): number {
-  let depth = 1;
+/**
+ * Offset of the first character outside a string literal that `stopAt`
+ * accepts, or `to`. Escapes inside a literal are honoured, so a quote after
+ * a backslash does not end it.
+ */
+function scanOutsideQuotes(source: string, from: number, to: number, stopAt: (char: string | undefined) => boolean): number {
   let quote: string | undefined;
 
   for (let cursor = from; cursor < to; cursor += 1) {
@@ -285,44 +288,35 @@ function findMatchingParenthesis(source: string, from: number, to: number): numb
       quote = char;
       continue;
     }
-    if (char === '(') {
-      depth += 1;
-    } else if (char === ')') {
-      depth -= 1;
-      if (depth === 0) {
-        return cursor;
-      }
+    if (stopAt(char)) {
+      return cursor;
     }
   }
   return to;
 }
 
+/** Offset of the parenthesis closing the one just opened, or `to`. */
+function findMatchingParenthesis(source: string, from: number, to: number): number {
+  let depth = 1;
+  return scanOutsideQuotes(source, from, to, (char) => {
+    if (char === '(') {
+      depth += 1;
+    } else if (char === ')') {
+      depth -= 1;
+    }
+    return depth === 0;
+  });
+}
+
 /** Offset where the first argument ends, at the top-level comma if there is one. */
 function boundFirstArgument(source: string, from: number, to: number): number {
   let depth = 0;
-  let quote: string | undefined;
-
-  for (let cursor = from; cursor < to; cursor += 1) {
-    const char = source[cursor];
-    if (quote !== undefined) {
-      if (char === '\\') {
-        cursor += 1;
-      } else if (char === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
-    if (char === "'" || char === '"') {
-      quote = char;
-      continue;
-    }
+  return scanOutsideQuotes(source, from, to, (char) => {
     if (char === '(' || char === '[' || char === '{') {
       depth += 1;
     } else if (char === ')' || char === ']' || char === '}') {
       depth -= 1;
-    } else if (char === ',' && depth === 0) {
-      return cursor;
     }
-  }
-  return to;
+    return char === ',' && depth === 0;
+  });
 }

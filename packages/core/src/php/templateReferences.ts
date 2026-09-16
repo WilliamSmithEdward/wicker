@@ -239,6 +239,38 @@ function readCall(
   }
 
   const args = splitArguments(tokens, openIndex + 1, closeIndex);
+  const read = readTemplateArguments(tokens, args);
+  if (read === undefined) {
+    return undefined;
+  }
+  const { literal, contextInfo } = read;
+
+  const closeToken = tokens[closeIndex];
+
+  return {
+    templateName: literal.value ?? '',
+    nameRange: { start: literal.contentStart ?? literal.start, end: literal.contentEnd ?? literal.end },
+    range: { start: context.rangeStart, end: closeToken?.end ?? literal.end },
+    kind: context.kind,
+    contextKeys: contextInfo.keys,
+    contextIsDynamic: contextInfo.dynamic,
+    receiver: context.receiver,
+    className: context.className,
+    methodName: context.methodName,
+  };
+}
+
+/**
+ * The template literal and the context keys of an argument list.
+ *
+ * A render call and a `#[Template]` attribute take the same two arguments,
+ * by position or by name, so both readers share this and differ only in
+ * where the call's own range starts and ends.
+ */
+function readTemplateArguments(
+  tokens: readonly PhpToken[],
+  args: readonly Argument[],
+): { literal: PhpToken; contextInfo: ContextInfo } | undefined {
   const templateArg = selectArgument(args, 0, TEMPLATE_ARGUMENT_NAMES);
   if (templateArg === undefined) {
     return undefined;
@@ -254,20 +286,7 @@ function readCall(
     contextArg === undefined
       ? { keys: [], dynamic: false }
       : readContextKeys(tokens, contextArg.start, contextArg.end);
-
-  const closeToken = tokens[closeIndex];
-
-  return {
-    templateName: literal.value ?? '',
-    nameRange: { start: literal.contentStart ?? literal.start, end: literal.contentEnd ?? literal.end },
-    range: { start: context.rangeStart, end: closeToken?.end ?? literal.end },
-    kind: context.kind,
-    contextKeys: contextInfo.keys,
-    contextIsDynamic: contextInfo.dynamic,
-    receiver: context.receiver,
-    className: context.className,
-    methodName: context.methodName,
-  };
+  return { literal, contextInfo };
 }
 
 /** Reads `#[Template('...')]`, starting at the index of the `#[`. */
@@ -301,21 +320,11 @@ function readAttribute(
   }
 
   const args = splitArguments(tokens, parenIndex + 1, argsClose);
-  const templateArg = selectArgument(args, 0, TEMPLATE_ARGUMENT_NAMES);
-  if (templateArg === undefined) {
+  const read = readTemplateArguments(tokens, args);
+  if (read === undefined) {
     return undefined;
   }
-
-  const literal = readSoleString(tokens, templateArg.start, templateArg.end);
-  if (literal === undefined) {
-    return undefined;
-  }
-
-  const contextArg = selectArgument(args, 1, CONTEXT_ARGUMENT_NAMES);
-  const contextInfo =
-    contextArg === undefined
-      ? { keys: [], dynamic: false }
-      : readContextKeys(tokens, contextArg.start, contextArg.end);
+  const { literal, contextInfo } = read;
 
   return {
     templateName: literal.value ?? '',

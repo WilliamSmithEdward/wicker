@@ -1,9 +1,6 @@
 import * as vscode from 'vscode';
 
-import {
-  parseTemplateName,
-  type IndexedTemplate,
-} from '@wicker/core';
+import { parseTemplateName } from '@wicker/core';
 
 import { CreateTemplateActionProvider } from './codeActions.js';
 import {
@@ -89,16 +86,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
   );
   sidebar.finishLoading();
 
-  const resolve = (
+  /** The template name under the cursor, and the project it is read in. */
+  const locate = (
     document: vscode.TextDocument,
-    reference: DocumentTemplateReference,
-  ): { session: ProjectSession; template: IndexedTemplate } | undefined => {
-    const session = sessions.sessionFor(document);
-    if (session === undefined) {
-      return undefined;
-    }
-    const template = session.lookup(reference.templateName);
-    return template === undefined ? undefined : { session, template };
+    position: vscode.Position,
+  ): { session: ProjectSession; reference: DocumentTemplateReference } | undefined => {
+    const reference = templateReferenceAt(document, position);
+    const session = reference === undefined ? undefined : sessions.sessionFor(document);
+    return reference === undefined || session === undefined ? undefined : { session, reference };
   };
 
   context.subscriptions.push(
@@ -119,18 +114,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
     vscode.languages.registerHoverProvider(TWIG_SELECTOR, twigComponents),
     vscode.languages.registerDefinitionProvider(SELECTOR, {
       provideDefinition(document, position) {
-        const reference = templateReferenceAt(document, position);
-        if (reference === undefined) {
-          return undefined;
-        }
-        const resolved = resolve(document, reference);
-        if (resolved === undefined) {
+        const found = locate(document, position);
+        const template = found?.session.lookup(found.reference.templateName);
+        if (found === undefined || template === undefined) {
           return undefined;
         }
         return [
           {
-            originSelectionRange: reference.nameRange,
-            targetUri: resolved.session.uriFor(resolved.template),
+            originSelectionRange: found.reference.nameRange,
+            targetUri: found.session.uriFor(template),
             targetRange: new vscode.Range(0, 0, 0, 0),
             targetSelectionRange: new vscode.Range(0, 0, 0, 0),
           } satisfies vscode.LocationLink,
@@ -140,15 +132,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
 
     vscode.languages.registerHoverProvider(SELECTOR, {
       provideHover(document, position) {
-        const reference = templateReferenceAt(document, position);
-        if (reference === undefined) {
-          return undefined;
-        }
-        const session = sessions.sessionFor(document);
-        if (session === undefined) {
-          return undefined;
-        }
-        return new vscode.Hover(hoverContent(session, reference), reference.nameRange);
+        const found = locate(document, position);
+        return found && new vscode.Hover(hoverContent(found.session, found.reference), found.reference.nameRange);
       },
     }),
 
@@ -156,14 +141,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
       SELECTOR,
       {
         provideCompletionItems(document, position) {
-          const reference = templateReferenceAt(document, position);
-          if (reference === undefined) {
+          const found = locate(document, position);
+          if (found === undefined) {
             return undefined;
           }
-          const session = sessions.sessionFor(document);
-          if (session === undefined) {
-            return undefined;
-          }
+          const { session, reference } = found;
 
           return session.index.allNames().map((name) => {
             const template = session.lookup(name);

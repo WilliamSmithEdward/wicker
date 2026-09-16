@@ -4,6 +4,7 @@ import { anonymousComponentProps, classToProjectPaths, componentClassSource, com
   type ComponentProp, type ComponentReference, type OffsetRange, type TwigComponent } from '@wicker/core';
 
 import type { ProjectSession, SessionManager } from './session.js';
+import { rangeOf } from './ranges.js';
 
 interface Source { readonly document: vscode.TextDocument; readonly path: string }
 interface PropSource extends Source { readonly props: readonly ComponentProp[]; readonly range: OffsetRange }
@@ -15,7 +16,7 @@ export class TwigComponentProvider implements vscode.CompletionItemProvider, vsc
     const session = this.sessions.sessionFor(document);
     const reference = componentReferenceAt(document.getText(), document.offsetAt(position));
     if (!session || !reference) { return undefined; }
-    const range = editorRange(document, reference.range);
+    const range = rangeOf(document, reference.range);
     if (reference.kind === 'name') {
       return session.components.components.map((component) => {
         const item = new vscode.CompletionItem(component.name, vscode.CompletionItemKind.Class);
@@ -73,7 +74,7 @@ export class TwigComponentProvider implements vscode.CompletionItemProvider, vsc
       content.appendMarkdown('\n\nProps found in source: ');
       content.appendText(source.props.map((entry) => entry.name).join(', '));
     }
-    return new vscode.Hover(content, editorRange(document, reference.range));
+    return new vscode.Hover(content, rangeOf(document, reference.range));
   }
 
   private current(document: vscode.TextDocument, version: number, session: ProjectSession, component: TwigComponent): boolean {
@@ -112,13 +113,9 @@ export class TwigComponentProvider implements vscode.CompletionItemProvider, vsc
   }
 }
 
-function editorRange(document: vscode.TextDocument, range: OffsetRange): vscode.Range {
-  return new vscode.Range(document.positionAt(range.start), document.positionAt(range.end));
-}
-
 function location(document: vscode.TextDocument, reference: ComponentReference, source: Source, range: OffsetRange): vscode.LocationLink {
-  const target = editorRange(source.document, range);
-  return { originSelectionRange: editorRange(document, reference.range), targetUri: source.document.uri,
+  const target = rangeOf(source.document, range);
+  return { originSelectionRange: rangeOf(document, reference.range), targetUri: source.document.uri,
     targetRange: target, targetSelectionRange: target };
 }
 

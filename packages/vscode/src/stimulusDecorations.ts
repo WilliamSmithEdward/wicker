@@ -1,7 +1,8 @@
-import { stimulusDeclarationRanges, stimulusIdentifier, stimulusSource, type OffsetRange } from '@wicker/core';
+import { stimulusDeclarationRanges, stimulusIdentifier, stimulusSource } from '@wicker/core';
 import * as vscode from 'vscode';
 
 import { enginePathOf } from './paths.js';
+import { rangeOf } from './ranges.js';
 import type { SessionManager } from './session.js';
 
 /**
@@ -58,10 +59,6 @@ export class StimulusMemberDecorator implements vscode.Disposable {
     }
 
     return stimulusDeclarationRanges(stimulusSource(document.getText()))
-      .map((range) => toRange(document, range));
+      .map((range) => rangeOf(document, range));
   }
-}
-
-function toRange(document: vscode.TextDocument, range: OffsetRange): vscode.Range {
-  return new vscode.Range(document.positionAt(range.start), document.positionAt(range.end));
 }

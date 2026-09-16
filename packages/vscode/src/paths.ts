@@ -41,3 +41,13 @@ const IGNORED = new Set<string>(IGNORED_DIRECTORIES);
 export function inIgnoredDirectory(projectPath: string): boolean {
   return projectPath.split('/').some((segment) => IGNORED.has(segment));
 }
+
+/** The last segment of a posix path: the file or folder it names. */
+export function basename(path: string): string {
+  return path.slice(path.lastIndexOf('/') + 1);
+}
+
+/** Everything above the last segment, or nothing when there is only one. */
+export function dirname(path: string): string {
+  return path.slice(0, Math.max(0, path.lastIndexOf('/')));
+}

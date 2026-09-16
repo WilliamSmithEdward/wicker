@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 
 import { parseTemplateName, type IncomingReference, type OffsetRange, type TwigTemplateIndex, type LoaderPathEntry, type LoaderPathSource, type RenderingController, type RenderSite, type SymfonyRoute, type TwigComponent, type TwigReferenceKind } from '@wicker/core';
 
-import { enginePathOf } from './paths.js';
+import { basename, dirname, enginePathOf } from './paths.js';
+import { rangeOf } from './ranges.js';
 import { isEnabled, type ProjectSession, type SessionManager } from './session.js';
 import { counted } from './text.js';
 import { apiRoutes, compareRoutePaths, controllerDependencies, frontendIndex, routeAction, routeConsumers, routeRequesters, stimulusControllers, templateRoutes, templatesBinding } from './frontendProject.js';
@@ -17,7 +18,7 @@ type SectionName = 'controllers' | 'templates' | 'api' | 'templateRoutes' | 'com
 /** Where a row leads: a file, and the text in it to select when there is one. */
 type Target = { readonly projectPath: string; readonly range?: OffsetRange };
 /** How a row opens its file: in the active editor group, or beside it. */
-export type OpenOptions = { readonly beside?: boolean };
+type OpenOptions = { readonly beside?: boolean };
 /** The row commands that open a file, which a menu can offer to open beside. */
 const OPENERS = new Set(['vscode.open', 'wicker.openTemplate', 'wicker.openController', 'wicker.openControllerDependency',
   'wicker.openRelatedScript', 'wicker.openEndpoint', 'wicker.openRenderedBy', 'wicker.openWiring']);
@@ -382,11 +383,10 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     }
     if (node.kind === 'template' || node.kind === 'folder') {
       const namespace = node.kind === 'template' ? namespaceOf(node.name) : node.namespace;
-      const path = node.kind === 'template' ? templatePath(node.name) : node.path;
-      const slash = path.lastIndexOf('/');
-      return slash === -1
+      const folder = dirname(node.kind === 'template' ? templatePath(node.name) : node.path);
+      return folder === ''
         ? { kind: 'namespace', root: node.root, namespace }
-        : { kind: 'folder', root: node.root, namespace, path: path.slice(0, slash) };
+        : { kind: 'folder', root: node.root, namespace, path: folder };
     }
     return { kind: 'project', root: node.root };
   }
@@ -402,12 +402,11 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     }
     const item = await this.describe(node, session);
     item.id = nodeId(node);
-    // Words a menu's when-clause can test: the kind, whether the row opens a
-    // file, whether it has one to reveal, and whether its action is routed.
-    item.contextValue = [`wicker.${node.kind}`,
+    // Words a menu's when-clause can test: the kind, any word describe()
+    // added, whether the row opens a file and whether it has one to reveal.
+    item.contextValue = [`wicker.${node.kind}`, ...(item.contextValue === undefined ? [] : [item.contextValue]),
       ...(item.command !== undefined && OPENERS.has(item.command.command) ? ['opens'] : []),
       ...(item.resourceUri === undefined ? [] : ['file']),
-      ...(node.kind === 'controllerMethod' && controllerRoutes(this.sessions, session, node).length ? ['routed'] : []),
     ].join(' ');
     // Without an explicit accessible name, VS Code reads the path-heavy tooltip
     // instead of the visible namespace or project label.
@@ -503,7 +502,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     if (node.kind === 'stimulusUse') {
       const uri = session.uriOf(node.projectPath);
       const item = new vscode.TreeItem(basename(node.projectPath));
-      item.description = node.projectPath.slice(0, Math.max(0, node.projectPath.lastIndexOf('/')));
+      item.description = dirname(node.projectPath);
       item.iconPath = sidebarIcon('template');
       item.tooltip = `${node.projectPath}\n\nBinds ${node.name}.`;
       return opens(item, uri, 'Open template');
@@ -589,7 +588,7 @@ Open the render call that names ${node.name}.`;
     }
     if (node.kind === 'extending') {
       const item = new vscode.TreeItem(basename(templatePath(node.templateName)));
-      item.description = templatePath(node.templateName).slice(0, Math.max(0, templatePath(node.templateName).lastIndexOf('/')));
+      item.description = dirname(templatePath(node.templateName));
       item.iconPath = sidebarIcon('template');
       item.tooltip = `${node.templateName}
 
@@ -602,7 +601,7 @@ Extends ${node.name}.`;
     if (node.kind === 'script') {
       const script = (await scriptsForOwner(this.sessions, session, node.parent)).find((entry) => entry.projectPath === node.projectPath);
       const item = new vscode.TreeItem(basename(node.projectPath));
-      item.description = node.projectPath.slice(0, node.projectPath.lastIndexOf('/'));
+      item.description = dirname(node.projectPath);
       item.iconPath = sidebarIcon(scriptIcon(node.projectPath));
       item.tooltip = `${node.projectPath}\n\n${script?.reasons.join('\n') ?? ''}${script?.generatedPaths.length
         ? `\n\nTypeScript source for:\n${script.generatedPaths.join('\n')}` : ''}`;
@@ -613,7 +612,7 @@ Extends ${node.name}.`;
     if (node.kind === 'style') {
       const style = (await stylesForOwner(this.sessions, session, node.parent)).find((entry) => entry.projectPath === node.projectPath);
       const item = new vscode.TreeItem(basename(node.projectPath));
-      item.description = node.projectPath.slice(0, node.projectPath.lastIndexOf('/'));
+      item.description = dirname(node.projectPath);
       item.iconPath = sidebarIcon('stylesheet');
       // Which template links it, because the link is usually in a layout and
       // not in the page the reader started from.
@@ -722,6 +721,8 @@ Extends ${node.name}.`;
           routes.length ? `${node.methodName}()` : templateNames.join(', ');
         if (routes.length) {
           item.tooltip += `\n\nRoutes:\n${routes.map((route) => `${route.methods} ${route.path} (${route.name})`).join('\n')}`;
+          // A word for the menu: the row has a route to copy.
+          item.contextValue = 'routed';
         }
         if (!controller && templateNames.length) { item.tooltip += `\n\nRenders:\n${templateNames.join('\n')}`; }
         item.tooltip += controller ? '\nOpen controller file.' : '\nOpen the first render call or #[Template] attribute.';
@@ -826,7 +827,7 @@ Extends ${node.name}.`;
       const item = new vscode.TreeItem(basename(node.projectPath),
         chainChildren(this.sessions, session, node.projectPath).length
           ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
-      item.description = node.projectPath.slice(0, node.projectPath.lastIndexOf('/'));
+      item.description = dirname(node.projectPath);
       item.iconPath = sidebarIcon(node.projectPath.toLowerCase().endsWith('.css')
         ? 'stylesheet' : scriptIcon(node.projectPath));
       // The reason is the point of the row: a file this deep in the chain is
@@ -920,7 +921,11 @@ export class WickerSidebar implements vscode.Disposable {
       vscode.commands.registerCommand('wicker.copyControllerName', (node: SidebarNode) => this.copyControllerName(node)),
       vscode.commands.registerCommand('wicker.showBundleTemplates', () => this.setShowBundleTemplates(true)),
       vscode.commands.registerCommand('wicker.hideBundleTemplates', () => this.setShowBundleTemplates(false)),
-      vscode.window.onDidChangeActiveTextEditor(() => { this.updateRevealContext(); void this.followActiveEditor(); }),
+      vscode.window.onDidChangeActiveTextEditor(() => {
+        const node = this.activeTemplateNode();
+        this.updateRevealContext(node);
+        void this.followActiveEditor(node);
+      }),
       this.view.onDidChangeVisibility((event) => { if (event.visible) { void this.followActiveEditor(); } }),
       this.provider.onDidChangeTreeData(() => this.updateRevealContext()),
     ];
@@ -958,9 +963,7 @@ export class WickerSidebar implements vscode.Disposable {
     const range = current.range;
     await vscode.window.showTextDocument(document, { preview: true,
       ...(options?.beside ? { viewColumn: vscode.ViewColumn.Beside } : {}),
-      ...(range === undefined ? {} : {
-        selection: new vscode.Range(document.positionAt(range.start), document.positionAt(range.end)),
-      }) });
+      ...(range === undefined ? {} : { selection: rangeOf(document, range) }) });
   }
 
   private openRenderedBy(node: SidebarNode, options?: OpenOptions): Promise<void> {
@@ -1094,19 +1097,17 @@ export class WickerSidebar implements vscode.Disposable {
    * hidden: opening a vendor file is not a request to browse the bundle, and
    * the reveal button is there for that.
    */
-  private async followActiveEditor(): Promise<void> {
+  private async followActiveEditor(node = this.activeTemplateNode()): Promise<void> {
     if (!this.view.visible || !vscode.workspace.getConfiguration('wicker').get<boolean>('sidebar.autoReveal', true)) { return; }
-    const node = this.activeTemplateNode();
     if (node?.kind !== 'template' || !this.provider.isTemplateVisible(node.root, node.name)) { return; }
     try {
       await this.view.reveal(node, { select: true, focus: false, expand: false });
     } catch { /* The tree changed under the reveal; the next editor change tries again. */ }
   }
 
-  private updateRevealContext(): void {
+  private updateRevealContext(node = this.activeTemplateNode()): void {
     // A view's resource context can describe a tree row instead of the editor.
-    void vscode.commands.executeCommand('setContext', 'wicker.canRevealTemplate',
-      this.activeTemplateNode() !== undefined);
+    void vscode.commands.executeCommand('setContext', 'wicker.canRevealTemplate', node !== undefined);
   }
 
   private activeTemplateNode(): SidebarNode | undefined {
@@ -1466,10 +1467,6 @@ function namespaceWarning(session: ProjectSession): string {
 function templatePath(name: string): string {
   const parsed = parseTemplateName(name);
   return parsed.ok ? parsed.value.path : name;
-}
-
-function basename(path: string): string {
-  return path.slice(path.lastIndexOf('/') + 1);
 }
 
 /** A row that opens a file: the editor's own open command, and the URI as the

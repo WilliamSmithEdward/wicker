@@ -7,6 +7,7 @@ import {
 } from '@wicker/core';
 
 import type { ProjectSession, SessionManager } from './session.js';
+import { rangeOf } from './ranges.js';
 
 /** Native Twig expression assistance, using this project's discovered registrations. */
 export class TwigCallableProvider implements vscode.CompletionItemProvider, vscode.HoverProvider {
@@ -20,7 +21,7 @@ export class TwigCallableProvider implements vscode.CompletionItemProvider, vsco
     return callableGroup(catalog, context.kind).entries.filter((entry) => isConcreteTwigCallable(entry.name)).map((entry) => {
       const item = new vscode.CompletionItem(entry.name, vscode.CompletionItemKind.Function);
       item.detail = `Wicker · Twig ${entry.kind}`;
-      item.range = new vscode.Range(document.positionAt(context.range.start), document.positionAt(context.range.end));
+      item.range = rangeOf(document, context.range);
       // Keep existing parentheses intact. Reflection output is not reliable
       // enough to insert required arguments or infer a Twig signature.
       item.insertText = entry.name;
@@ -37,7 +38,7 @@ export class TwigCallableProvider implements vscode.CompletionItemProvider, vsco
     if (reference === undefined) { return undefined; }
     const entry = findTwigCallable(catalog, reference.kind, reference.name);
     return entry === undefined ? undefined : new vscode.Hover(documentation(entry, reference.name),
-      new vscode.Range(document.positionAt(reference.range.start), document.positionAt(reference.range.end)));
+      rangeOf(document, reference.range));
   }
 }
 
@@ -51,7 +52,7 @@ export function twigCallableDiagnostics(session: ProjectSession, document: vscod
     callableGroup(catalog, reference.kind).complete && findTwigCallable(catalog, reference.kind, reference.name) === undefined,
   ).map((reference) => {
     const diagnostic = new vscode.Diagnostic(
-      new vscode.Range(document.positionAt(reference.range.start), document.positionAt(reference.range.end)),
+      rangeOf(document, reference.range),
       `Twig ${reference.kind} "${reference.name}" is not registered in this project.`, severity,
     );
     diagnostic.source = 'wicker';

@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 
 import { enginePathOf } from './paths.js';
 import type { ProjectSession, SessionManager } from './session.js';
+import { rangeOf } from './ranges.js';
 
 /**
  * Reports an import the browser will not be able to resolve.
@@ -65,7 +66,7 @@ export function missingImportDiagnostics(
 
     if (message === undefined) { continue; }
     const diagnostic = new vscode.Diagnostic(
-      new vscode.Range(document.positionAt(found.range.start), document.positionAt(found.range.end)),
+      rangeOf(document, found.range),
       message,
       severity,
     );

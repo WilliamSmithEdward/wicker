@@ -4,6 +4,7 @@ import { counted } from './text.js';
 import type { RenderSite } from '@wicker/core';
 
 import type { SessionManager } from './session.js';
+import { rangeOf } from './ranges.js';
 
 const OPEN_RENDER_SITE = 'wicker.openRenderSite';
 
@@ -99,11 +100,7 @@ export class RenderedByProvider implements vscode.CodeLensProvider, vscode.Dispo
       this.refresh();
       return;
     }
-    await vscode.window.showTextDocument(source, {
-      selection: new vscode.Range(
-        source.positionAt(site.nameRange.start), source.positionAt(site.nameRange.end),
-      ),
-    });
+    await vscode.window.showTextDocument(source, { selection: rangeOf(source, site.nameRange) });
   }
 
   dispose(): void {

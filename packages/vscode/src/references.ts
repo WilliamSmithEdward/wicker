@@ -1,10 +1,11 @@
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
 
 import {
   scanTemplateReferences,
   scanTwigTemplateReferences,
   type OffsetRange,
 } from '@wicker/core';
+import { rangeOf } from './ranges.js';
 
 /** A template reference found in a document, in editor coordinates. */
 export interface DocumentTemplateReference {
@@ -112,8 +113,7 @@ function scanDocument(document: vscode.TextDocument): readonly DocumentTemplateR
     return [];
   }
   const text = document.getText();
-  const toRange = (range: OffsetRange): vscode.Range =>
-    new vscode.Range(document.positionAt(range.start), document.positionAt(range.end));
+  const toRange = (range: OffsetRange): vscode.Range => rangeOf(document, range);
 
   if (origin === 'php') {
     const { references, parseFailed } = scanTemplateReferences(text);

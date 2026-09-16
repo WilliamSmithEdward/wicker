@@ -3,6 +3,7 @@ import { cssImports, cssUrls, importSpecifiers } from '@wicker/core';
 import { frontendIndex, isStylesheet, resolveSpecifier } from './frontendProject.js';
 import { walkTemplates } from './relatedScripts.js';
 import type { ProjectSession, SessionManager } from './session.js';
+import { basename } from './paths.js';
 
 export interface ChainEntry {
   readonly projectPath: string;
@@ -65,7 +66,7 @@ export function chainChildren(sessions: SessionManager, session: ProjectSession,
     ? [...cssImports(source), ...cssUrls(source)].map((entry) => ({ text: entry.specifier, how: 'imported by' }))
     : importSpecifiers(source).map((entry) => ({ text: entry.specifier, how: entry.dynamic ? 'imported on demand by' : 'imported by' }));
 
-  const file = projectPath.slice(projectPath.lastIndexOf('/') + 1);
+  const file = basename(projectPath);
   const found = new Map<string, string>();
   for (const specifier of specifiers) {
     const target = resolveSpecifier(session, projectPath, specifier.text);

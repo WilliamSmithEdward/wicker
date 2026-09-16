@@ -8,6 +8,7 @@ import {
 } from '@wicker/core';
 
 import type { SessionManager } from './session.js';
+import { rangeOf } from './ranges.js';
 
 /** Variable name evidence from PHP, local Twig bindings and literal rendering paths. */
 export class TwigVariableProvider implements vscode.CompletionItemProvider, vscode.HoverProvider {
@@ -19,7 +20,7 @@ export class TwigVariableProvider implements vscode.CompletionItemProvider, vsco
     if (context === undefined) {
       return undefined;
     }
-    const range = new vscode.Range(document.positionAt(context.range.start), document.positionAt(context.range.end));
+    const range = rangeOf(document, context.range);
     return this.sessions.contextVariablesFor(document, document.offsetAt(position))
       .map((variable) => {
         const item = new vscode.CompletionItem(variable.name, vscode.CompletionItemKind.Variable);
@@ -42,9 +43,8 @@ export class TwigVariableProvider implements vscode.CompletionItemProvider, vsco
       return undefined;
     }
     const direct = this.directVariable(document, variable);
-    return new vscode.Hover(direct === undefined ? twigDocumentation(variable) : variableDocumentation(direct), new vscode.Range(
-      document.positionAt(context.range.start), document.positionAt(context.range.end),
-    ));
+    return new vscode.Hover(direct === undefined ? twigDocumentation(variable) : variableDocumentation(direct),
+      rangeOf(document, context.range));
   }
 
   private directVariable(document: vscode.TextDocument, variable: TwigContextVariable): TemplateContextVariable | undefined {

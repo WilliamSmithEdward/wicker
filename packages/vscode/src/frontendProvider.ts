@@ -4,7 +4,8 @@ import { ACTION_OPTIONS, COMMON_EVENTS, EVENT_TARGETS, KEY_FILTERS,
   stimulusCallbackOwners, stimulusGeneratedMembers, stimulusHtmlName, stimulusSource,
   type FrontendReference, type OffsetRange, type ResponseField, type StimulusMember, type StimulusValue,
   type SymfonyRoute } from '@wicker/core';
-import { enginePathOf } from './paths.js';
+import { basename, enginePathOf } from './paths.js';
+import { rangeOf } from './ranges.js';
 import type { ProjectSession, SessionManager } from './session.js';
 import { fetchValuesOf, frontendIndex, resolveSpecifier, routeAction, routeConsumers, scanOf } from './frontendProject.js';
 import { OutletQueries } from './outletQueries.js';
@@ -419,7 +420,6 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
     return { name, range, candidates, ...(unresolved ? { documentation: unresolved } : {}) };
   }
 }
-function rangeOf(document: vscode.TextDocument, range: OffsetRange): vscode.Range { return new vscode.Range(document.positionAt(range.start), document.positionAt(range.end)); }
 function outletDocumentation(text: string): vscode.MarkdownString {
   const content = new vscode.MarkdownString(); content.appendText(text);
   // appendText escapes source names safely, but turns spaces into nonbreaking
@@ -464,7 +464,7 @@ function descriptorQuery(ref: FrontendReference): Query {
  */
 function explain(ref: FrontendReference, controller: string, projectPath: string,
   member: StimulusMember): { documentation?: string } {
-  const file = projectPath.slice(projectPath.lastIndexOf('/') + 1);
+  const file = basename(projectPath);
   const sentences: string[] = [];
 
   if (ref.kind === 'action') {
@@ -521,7 +521,7 @@ function unresolvedReason(kind: FrontendReference['kind'], controller: string | 
     return `"${controller}" is registered but its source could not be read, so its members cannot be checked.`;
   }
 
-  const file = projectPath.slice(projectPath.lastIndexOf('/') + 1);
+  const file = basename(projectPath);
   if (kind === 'action') {
     return `${file} declares no ${name}() method, so Stimulus attaches no listener and this element does nothing.`;
   }

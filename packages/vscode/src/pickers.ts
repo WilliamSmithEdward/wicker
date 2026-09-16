@@ -3,6 +3,8 @@ import * as vscode from 'vscode';
 import type { OffsetRange } from '@wicker/core';
 
 import { compareRoutePaths, routeAction } from './frontendProject.js';
+import { basename } from './paths.js';
+import { rangeOf } from './ranges.js';
 import type { ProjectSession, SessionManager } from './session.js';
 
 /** Where choosing a row goes: a file, and the text in it to select when there is one. */
@@ -86,13 +88,11 @@ export async function goToTemplate(sessions: SessionManager): Promise<void> {
 
 /** Only a workspace with several projects needs a row to say whose it is. */
 function whose(projects: readonly ProjectSession[], session: ProjectSession): string {
-  return projects.length > 1 ? ` · ${session.project.root.split(/[\\/]/).filter(Boolean).at(-1) ?? ''}` : '';
+  return projects.length > 1 ? ` · ${basename(session.project.root)}` : '';
 }
 
 async function open(destination: Destination): Promise<void> {
   const document = await vscode.workspace.openTextDocument(destination.session.uriOf(destination.projectPath));
   const { range } = destination;
-  await vscode.window.showTextDocument(document, { preview: true, ...(range === undefined ? {} : {
-    selection: new vscode.Range(document.positionAt(range.start), document.positionAt(range.end)),
-  }) });
+  await vscode.window.showTextDocument(document, { preview: true, ...(range === undefined ? {} : { selection: rangeOf(document, range) }) });
 }

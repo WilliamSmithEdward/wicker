@@ -25,7 +25,7 @@ import { ProcessConsoleRunner } from './console.js';
 import { discoverComponents, type ComponentDiscovery } from './componentDiscovery.js';
 import { VsCodeFileSystem, type KnownSources } from './fileSystem.js';
 import type { LoaderPathMemory } from './loaderPathMemory.js';
-import { enginePathOf, inIgnoredDirectory } from './paths.js';
+import { dirname, enginePathOf, inIgnoredDirectory } from './paths.js';
 import { RenderSiteTracker } from './renderSiteTracker.js';
 import { TemplateContextTracker } from './templateContextTracker.js';
 import { FrontendTracker } from './frontendTracker.js';
@@ -449,16 +449,13 @@ export class ProjectSession implements vscode.Disposable {
   private isComponentTemplate(projectPath: string): boolean {
     const directories = new Set(['components']);
     for (const component of this.componentInfo.components) {
-      const within = component.template.replace(/^@!?[^/]+\//, '');
-      const slash = within.lastIndexOf('/');
-      if (slash !== -1) { directories.add(within.slice(0, slash)); }
+      const folder = dirname(component.template.replace(/^@!?[^/]+\//, ''));
+      if (folder !== '') { directories.add(folder); }
     }
     for (const entry of this.loaderPathInfo.paths.all()) {
       for (const directory of entry.directories) {
         if (!projectPath.startsWith(`${directory}/`)) { continue; }
-        const within = projectPath.slice(directory.length + 1);
-        const slash = within.lastIndexOf('/');
-        const folder = slash === -1 ? '' : within.slice(0, slash);
+        const folder = dirname(projectPath.slice(directory.length + 1));
         if ([...directories].some((known) => folder === known || folder.startsWith(`${known}/`))) { return true; }
       }
     }

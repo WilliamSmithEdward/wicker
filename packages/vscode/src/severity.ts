@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 /** The diagnostics a setting can turn down or off. */
-export type SeveritySetting = 'missingTemplate' | 'missingImport' | 'unknownCallable' | 'missingRouteParameter';
+export type SeveritySetting = 'missingTemplate' | 'missingImport' | 'unknownCallable' | 'missingRouteParameter' | 'unknownBlock';
 
 /**
  * How a diagnostic setting maps to a severity, or to none at all.

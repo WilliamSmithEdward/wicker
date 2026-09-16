@@ -317,6 +317,19 @@ Template text and graph traversal have bounded limits. There are no inferred
 value types or unknown-variable diagnostics. Turning off `wicker.enable`
 disables all variable assistance.
 
+### Twig blocks
+
+A block overrides the nearest ancestor's block of the same name, and neither
+file says so. Go to Definition on a block name, or on `parent()` inside the
+block, opens the block it overrides. Find All References lists every
+definition up and down the inheritance chain, and hover names the ancestor a
+block overrides and the templates overriding it. After `{% block`, completion
+offers the names the ancestors declare and this template has not overridden.
+A top-level block that no ancestor defines is reported, because Twig renders
+nothing for it and says nothing; `wicker.diagnostics.unknownBlock` turns that
+down or off. Blocks inside `{% embed %}` are read against the embedded
+template, `{% use %}` counts, and a layout named at runtime is left alone.
+
 ### Twig filters and functions
 
 Type `|` after a value for filter suggestions, or use Ctrl+Space at a Twig

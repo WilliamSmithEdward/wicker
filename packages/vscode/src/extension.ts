@@ -31,6 +31,7 @@ import { SessionManager, type ProjectSession } from './session.js';
 import { WickerSidebar, type SidebarNode } from './sidebar.js';
 import { TwigVariableProvider } from './twigVariables.js';
 import { TwigCallableProvider, twigCallableDiagnostics } from './twigCallables.js';
+import { TwigBlockProvider, twigBlockDiagnostics } from './twigBlocks.js';
 import { TwigComponentProvider } from './twigComponents.js';
 import { FrontendProvider } from './frontendProvider.js';
 import { goToRoute, goToTemplate } from './pickers.js';
@@ -70,6 +71,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
   const twigVariables = new TwigVariableProvider(sessions);
   const twigCallables = new TwigCallableProvider(sessions);
   const twigComponents = new TwigComponentProvider(sessions);
+  const twigBlocks = new TwigBlockProvider(sessions);
   const frontend = new FrontendProvider(sessions);
   const sidebar = new WickerSidebar(sessions, context.workspaceState);
   const output = vscode.window.createOutputChannel('Wicker');
@@ -109,6 +111,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
     vscode.languages.registerCompletionItemProvider(TWIG_SELECTOR, twigComponents, ':', ' ', "'", '"'),
     vscode.languages.registerDefinitionProvider(TWIG_SELECTOR, twigComponents),
     vscode.languages.registerHoverProvider(TWIG_SELECTOR, twigComponents),
+    vscode.languages.registerCompletionItemProvider(TWIG_SELECTOR, twigBlocks),
+    vscode.languages.registerDefinitionProvider(TWIG_SELECTOR, twigBlocks),
+    vscode.languages.registerHoverProvider(TWIG_SELECTOR, twigBlocks),
+    vscode.languages.registerReferenceProvider(TWIG_SELECTOR, twigBlocks),
     vscode.languages.registerDefinitionProvider(SELECTOR, {
       provideDefinition(document, position) {
         const found = locate(document, position);
@@ -272,7 +278,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
     }
     diagnostics.set(document.uri, script
       ? missingImportDiagnostics(sessions, session, document)
-      : [...buildDiagnostics(session, document), ...twigCallableDiagnostics(session, document), ...routeDiagnostics(sessions, session, document)]);
+      : [...buildDiagnostics(session, document), ...twigCallableDiagnostics(session, document),
+        ...routeDiagnostics(sessions, session, document), ...twigBlockDiagnostics(sessions, session, document)]);
   };
 
   const refreshAllDiagnostics = (): void => {

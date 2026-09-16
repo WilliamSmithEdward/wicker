@@ -7,6 +7,7 @@ import './sidebar.test.js';
 import './twigVariables.test.js';
 import './twigCallables.test.js';
 import './twigContext.test.js';
+import './twigBlocks.test.js';
 import './twigComponents.test.js';
 import './frontend.test.js';
 import './console.test.js';

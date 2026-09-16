@@ -98,6 +98,7 @@ export {
   type TwigTemplateName,
 } from './twig/templateName.js';
 export { lexTwigRegions, readStringLiterals, type TwigRegion } from './twig/twigLexer.js';
+export { twigBlocks, twigEmbeds, type TwigBlock, type TwigEmbed } from './twig/blocks.js';
 export { componentsFromDebug, componentClassSource, anonymousComponentProps,
   type TwigComponent, type ComponentProp } from './twig/components.js';
 export { componentReferenceAt, type ComponentReference } from './twig/componentReferences.js';

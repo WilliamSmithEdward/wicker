@@ -294,6 +294,17 @@
           "default": "warning",
           "markdownDescription": "How to report a `path()` or `url()` call that names a route the router does not know, or leaves out a placeholder its route requires. A key the route does not declare is not reported: Symfony appends it as a query string. Suspended while the route list is being rebuilt."
         },
+        "wicker.diagnostics.unknownBlock": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "off"
+          ],
+          "default": "warning",
+          "markdownDescription": "How to report a top-level `{% block %}` in a template that extends another when no ancestor defines a block of that name, so Twig never renders it. Blocks inside `{% embed %}` are read against the embedded template; a layout named at runtime is not checked."
+        },
         "wicker.sidebar.colors": {
           "type": "boolean",
           "default": true,

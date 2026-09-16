@@ -27,6 +27,19 @@
   "activationEvents": [
     "workspaceContains:**/composer.json"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "The Symfony console is not run in an untrusted workspace, so bundle namespaces, routes, Stimulus controllers and components come from configuration files only.",
+      "restrictedConfigurations": [
+        "wicker.console.command"
+      ]
+    },
+    "virtualWorkspaces": {
+      "supported": "limited",
+      "description": "The Symfony console cannot run in a virtual workspace, so bundle namespaces, routes, Stimulus controllers and components come from configuration files only."
+    }
+  },
   "contributes": {
     "configurationDefaults": {
       "[twig]": {

@@ -361,9 +361,11 @@ prop identifies its declaration.
 
 Prop suggestions follow unsaved PHP/Twig edits. Saved PHP, configuration and
 dependency changes, plus template creation/deletion, refresh registrations.
-Console execution must be enabled and the workspace trusted. When discovery is
-unavailable, component assistance stays quiet; the project's diagnostics report
-explains why. No unknown-component or unknown-prop warnings are added.
+Console execution must be enabled and the workspace trusted. In Restricted
+Mode, and in a virtual workspace, the console is not run and everything else
+still works. When discovery is unavailable, component assistance stays quiet;
+the project's diagnostics report explains why. No unknown-component or
+unknown-prop warnings are added.
 
 This first component step covers literal names and directly declared props.
 Inherited/trait props, dynamic component names, prop type checking, custom

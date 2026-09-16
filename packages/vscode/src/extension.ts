@@ -72,6 +72,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
   const sidebar = new WickerSidebar(sessions, context.workspaceState);
   const output = vscode.window.createOutputChannel('Wicker');
   const diagnostics = vscode.languages.createDiagnosticCollection('wicker');
+  // The sidebar settings change how rows look, not what is indexed, and the
+  // tree listens for those itself. The rest are read from the manifest so a
+  // new setting is not missed here.
+  const manifest = context.extension.packageJSON as { contributes: { configuration: { properties: Record<string, unknown> } } };
+  const indexingSettings = Object.keys(manifest.contributes.configuration.properties)
+    .filter((key) => !key.startsWith('wicker.sidebar.'));
 
   context.subscriptions.push(sessions, output, diagnostics, renderedBy, sidebar);
 
@@ -335,9 +341,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
     }),
     vscode.workspace.onDidGrantWorkspaceTrust(() => sessions.refreshAll()),
     vscode.workspace.onDidChangeConfiguration(async (event) => {
-      // The sidebar settings change how rows look, not what is indexed; the
-      // tree listens for those itself.
-      if (event.affectsConfiguration('wicker') && !event.affectsConfiguration('wicker.sidebar')) {
+      // One by one: a change touching a sidebar setting and another at once
+      // still has to reindex.
+      if (indexingSettings.some((setting) => event.affectsConfiguration(setting))) {
         await sessions.refreshAll();
         refreshAllDiagnostics();
         // Toggling wicker.enable has to refresh colouring as well as diagnostics.

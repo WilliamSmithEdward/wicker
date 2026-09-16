@@ -16,8 +16,15 @@ import * as vscode from 'vscode';
  * red, Stimulus is orange. The hues are the theme's chart and terminal
  * colours, defined in light, dark and high contrast alike, and a warning keeps
  * the warning colour, which is a darker yellow than the JavaScript one.
+ *
+ * With colours off every hue but the warning becomes `plain`, the theme's own
+ * icon colour, stated rather than left out: the workbench colours a `symbol-*`
+ * codicon from its symbol palette whenever nothing is stated, so an icon with
+ * no colour is not an uncoloured icon. A warning keeps its colour because it
+ * marks a problem, not a family.
  */
 const HUES = {
+  plain: 'icon.foreground',
   template: 'charts.green',
   templateRoute: 'terminal.ansiBrightGreen',
   apiRoute: 'terminal.ansiCyan',
@@ -121,6 +128,12 @@ function colorsOn(): boolean {
   return colored;
 }
 
+/** The hue a role wears now: its own, or plain while colours are off. */
+function hueOf(entry: { readonly hue?: Hue }): Hue | undefined {
+  if (entry.hue === undefined || entry.hue === 'warning' || colorsOn()) { return entry.hue; }
+  return 'plain';
+}
+
 /**
  * The icon as a data URI, rather than a file inside the extension.
  *
@@ -147,14 +160,15 @@ const leaves = new Map<string, { light: vscode.Uri; dark: vscode.Uri }>();
 export function sidebarIcon(role: SidebarRole): vscode.ThemeIcon | { light: vscode.Uri; dark: vscode.Uri } {
   const entry: { readonly id: string; readonly hue?: Hue } = SIDEBAR_ICONS[role];
   const { id } = entry;
-  const hue = colorsOn() ? entry.hue : undefined;
+  const hue = hueOf(entry);
   if (id !== 'template-leaf' && id !== 'route-leaf') {
     return hue === undefined ? new vscode.ThemeIcon(id) : new vscode.ThemeIcon(id, new vscode.ThemeColor(HUES[hue]));
   }
-  const key = `${id}:${hue === undefined ? 'plain' : 'coloured'}`;
+  const plain = hue === 'plain';
+  const key = `${id}:${plain ? 'plain' : 'coloured'}`;
   let drawn = leaves.get(key);
   if (drawn === undefined) {
-    drawn = { light: leafIcon(id, 'light', hue === undefined), dark: leafIcon(id, 'dark', hue === undefined) };
+    drawn = { light: leafIcon(id, 'light', plain), dark: leafIcon(id, 'dark', plain) };
     leaves.set(key, drawn);
   }
   return drawn;

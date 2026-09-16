@@ -245,8 +245,7 @@ application folder.
 Rows are coloured by what they are: green for templates, purple for PHP,
 yellow for JavaScript, blue for TypeScript, cyan for API routes, orange for
 Stimulus, magenta for stylesheets and red for components.
-`wicker.sidebar.colors` turns the colours off and draws every icon in the
-theme's icon colour.
+`wicker.sidebar.colors` turns the colours off, and only warnings keep theirs.
 
 ### Navigating back to PHP
 
@@ -391,9 +390,10 @@ format or by what the action returns. Click an endpoint to open its action;
 expand it to browse what calls it. A `/api` path prefix alone does not claim
 that an endpoint returns JSON, and a route that renders a template is never
 listed here.
-JSON routes use the `{}` object icon. Twig template files use a leaf; routes
-rendering Twig use a leaf with a route arrow
-and under their controller. The icons include light and dark theme variants.
+JSON routes use the `{}` object icon and routes rendering Twig a leaf with a
+route arrow. Twig template files use a plain leaf. A row under a controller is
+a PHP method and keeps the method icon whatever its route returns. The icons
+include light and dark theme variants.
 
 JSON field completion and navigation follow local awaited assignments:
 

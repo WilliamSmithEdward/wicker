@@ -278,25 +278,25 @@ suite('Stimulus and API connections', () => {
       // with itself about what the controller contains.
       assert.deepEqual(await Promise.all(controllerActions.map(async (node) => (await tree.getTreeItem(node)).label)),
         ['GET /_wicker-test/alpha', 'GET /_wicker-test/api', 'GET /_wicker-test/fragment', 'GET /_wicker-test/zebra']);
-      // And it carries the icon its route carries in the API section. A leaf
-      // here would claim a template is rendered, which is the one thing this
-      // action does not do.
+      // Every action is a PHP method and wears the method icon, whether it
+      // answers JSON or renders a template. The object and the leaf belong to
+      // the route sections; a leaf on a PHP row reads as a Twig file.
       const jsonAction = controllerActions.find((node) => node.kind === 'controllerMethod' && node.methodName === 'data')!;
-      assert.equal(((await tree.getTreeItem(jsonAction)).iconPath as vscode.ThemeIcon).id, 'symbol-object');
+      assert.equal(((await tree.getTreeItem(jsonAction)).iconPath as vscode.ThemeIcon).id, 'symbol-method');
       const action = controllerActions.find((node) => node.kind === 'controllerMethod' && node.methodName === 'fragment')!;
       const actionItem = await tree.getTreeItem(action);
       assert.equal(actionItem.label, 'GET /_wicker-test/fragment');
       assert.equal(actionItem.description, 'fragment()');
-      assert.equal(leafIconName(actionItem), 'route-leaf');
+      assert.equal((actionItem.iconPath as vscode.ThemeIcon).id, 'symbol-method');
       assert.ok(typeof actionItem.tooltip === 'string');
       assert.ok(actionItem.tooltip.includes('wicker_test_fragment'));
       assert.ok(actionItem.tooltip.includes('wicker_frontend_test.html.twig'));
       // The same action under the template it renders wears the same icon it
-      // wears here, not a generic method: one entity, one icon.
+      // wears here: one entity, one icon.
       const renders = (await tree.getChildren({ kind: 'template', root: root.root, name: TWIG.slice(10) }))
         .find((node) => node.kind === 'renderedBy' && node.label === 'WickerFrontendTestController::fragment()');
       assert.ok(renders, 'the template should list the action that renders it');
-      assert.equal(leafIconName(await tree.getTreeItem(renders)), 'route-leaf');
+      assert.equal(((await tree.getTreeItem(renders)).iconPath as vscode.ThemeIcon).id, 'symbol-method');
       assert.match(tooltipOf(await tree.getTreeItem(renders)), /Routes:\nGET \/_wicker-test\/fragment/);
       const owningSession = sessions.sessionFor({ uri: uri('') })!;
       const discovered = owningSession.frontend;

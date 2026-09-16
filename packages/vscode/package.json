@@ -214,7 +214,7 @@
         "wicker.sidebar.colors": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Colour sidebar rows by what they are: green for templates, purple for PHP, yellow for JavaScript, blue for TypeScript, cyan for API routes, orange for Stimulus, magenta for stylesheets and red for components. Off draws every icon in the theme's icon colour."
+          "markdownDescription": "Colour sidebar rows by what they are: green for templates, purple for PHP, yellow for JavaScript, blue for TypeScript, cyan for API routes, orange for Stimulus, magenta for stylesheets and red for components. Off draws every icon but a warning in the theme's icon colour."
         },
         "wicker.codeLens.enabled": {
           "type": "boolean",

@@ -677,10 +677,12 @@ class SidebarCreatedController {
     assert.deepEqual(broken, []);
   });
 
-  test('wicker.sidebar.colors off draws every icon in the plain icon colour', async () => {
+  test('wicker.sidebar.colors off draws every icon but a warning in the plain icon colour', async () => {
     // A codicon takes a theme colour and a drawn leaf carries its stroke
     // inline, so both must follow the setting, and the tree must redraw when
-    // it changes or the old colours stay on screen.
+    // it changes or the old colours stay on screen. Off states the plain
+    // colour rather than omitting one: the workbench colours a symbol-*
+    // codicon from its own palette whenever nothing is stated.
     const codiconColour = (role: SidebarRole): vscode.ThemeColor | undefined => {
       const icon = sidebarIcon(role);
       assert.ok(!('dark' in icon), `${role} should be a ThemeIcon`);
@@ -692,7 +694,7 @@ class SidebarCreatedController {
       const svg = Buffer.from(icon.dark.toString(true).split(',')[1] ?? '', 'base64').toString('utf8');
       return /stroke="(#[0-9a-f]{6})"/.exec(svg)?.[1];
     };
-    assert.ok(codiconColour('controller'));
+    assert.equal(codiconColour('controller')?.id, 'charts.purple');
     assert.equal(leafStroke('template'), '#89d185');
 
     const settings = vscode.workspace.getConfiguration('wicker');
@@ -702,14 +704,15 @@ class SidebarCreatedController {
     try {
       await settings.update('sidebar.colors', false, vscode.ConfigurationTarget.Workspace);
       await until(() => changes > 0, 'the tree should redraw when colours are turned off');
-      assert.equal(codiconColour('controller'), undefined);
+      assert.equal(codiconColour('controller')?.id, 'icon.foreground');
+      assert.equal(codiconColour('warning')?.id, 'list.warningForeground');
       assert.equal(leafStroke('template'), '#c5c5c5');
       assert.equal(leafStroke('templateRoute'), '#c5c5c5');
     } finally {
       listener.dispose();
       await settings.update('sidebar.colors', previous, vscode.ConfigurationTarget.Workspace);
     }
-    assert.ok(codiconColour('controller'));
+    assert.equal(codiconColour('controller')?.id, 'charts.purple');
   });
 
   test('has an empty tree when no Symfony project is detected', async () => {

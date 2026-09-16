@@ -521,15 +521,14 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     if (node.kind === 'renderedBy') {
       const item = new vscode.TreeItem(node.label);
       item.description = 'Renders this';
-      // The same action wears the same icon here as under its controller: a
-      // route leaf when it renders, the object when it answers JSON, a method
-      // only when nothing routes to it.
+      // A render site is a PHP method and wears the method icon, as the same
+      // action does under its controller. Its routes go in the tooltip.
       const site = renderedBy(this.sessions, session, node.name)
         .find((entry) => entry.projectPath === node.projectPath && entry.offset === node.offset);
       const routes = site?.className !== undefined && site.methodName !== undefined
         ? controllerRoutes(this.sessions, session, { root: node.root, projectPath: node.projectPath,
           className: site.className, methodName: site.methodName }) : [];
-      item.iconPath = sidebarIcon(actionRouteIcon(routes.map((route) => routeIcon(this.sessions, session, route))));
+      item.iconPath = sidebarIcon('method');
       item.tooltip = `${node.projectPath}${routes.length ? `\n\nRoutes:\n${
         routes.map((route) => `${route.methods} ${route.path} (${route.name})`).join('\n')}` : ''}
 
@@ -703,8 +702,9 @@ Extends ${node.name}.`;
       const item = new vscode.TreeItem(template ? node.name : controller ? node.className.split('\\').at(-1)! :
         routeLabels.length ? routeLabels.join(' · ') : `${node.methodName}()`,
         (template ? (await this.getChildren(node)).length === 0 : sites.length === 0) ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Collapsed);
-      const actionIcon = actionRouteIcon(routes.map((route) => routeIcon(this.sessions, session, route)));
-      item.iconPath = sidebarIcon(template ? 'template' : controller ? 'controller' : actionIcon);
+      // An action is a PHP method whatever its route returns. The leaf and the
+      // object belong to the route sections; what it renders sits below it.
+      item.iconPath = sidebarIcon(template ? 'template' : controller ? 'controller' : 'method');
       item.tooltip = `${node.className}${controller ? '' : `::${node.methodName}()`}\n${node.projectPath}`;
       if (!template) {
         item.description = controller ? String(new Set(sites.map((site) => site.methodName)).size) :
@@ -1321,24 +1321,16 @@ function controllerActionMethods(sessions: SessionManager, session: ProjectSessi
 }
 
 /**
- * The icon for a route, decided by what the route actually does.
+ * The icon for a route row, decided by what the route actually does.
  *
- * Shared by the route sections and the rows under a controller, because the
- * same route appearing in both places must not be drawn two different ways.
- * The leaf icon claims a template is rendered, so it must never land on an
- * endpoint that renders nothing.
+ * Only the route sections draw routes; a row under a controller is a PHP
+ * method and keeps the method icon. The leaf icon claims a template is
+ * rendered, so it must never land on an endpoint that renders nothing.
  */
 function routeIcon(sessions: SessionManager, session: ProjectSession, route: SymfonyRoute): SidebarRole {
   const action = routeAction(sessions, session, route)?.action;
   if (route.format === 'json' || action?.json) { return 'jsonRoute'; }
   return action?.templates.length ? 'templateRoute' : 'route';
-}
-
-/** One icon for an action that may carry several routes, by strongest claim. */
-function actionRouteIcon(routes: readonly SidebarRole[]): SidebarRole {
-  if (!routes.length) { return 'method'; }
-  if (routes.includes('jsonRoute')) { return 'jsonRoute'; }
-  return routes.includes('templateRoute') ? 'templateRoute' : 'route';
 }
 
 function warningReasons(session: ProjectSession): WarningReason[] {

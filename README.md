@@ -245,6 +245,11 @@ console** row and holds back the checks that need a current answer. What the
 console says then replaces what was remembered. A console that has not
 answered within a minute is reported as unavailable, with **Retry**.
 
+Symfony rewrites its cache under `var/` every time the console boots, and
+VS Code's own watcher exclusions do not cover it, so Wicker excludes
+`**/var/**` from the file watcher by default. Set it to `false` in your own
+`files.watcherExclude` to watch it again.
+
 The tree updates when template files or configuration change.
 Turning off `wicker.enable` replaces the tree with a link to settings so it can
 be enabled again. In an empty workspace, the sidebar offers to open a Symfony

@@ -2,7 +2,7 @@
   "name": "wicker",
   "displayName": "Wicker: Symfony & Twig Tooling",
   "description": "Symfony and Twig navigation, variables, filters, functions and components.",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "publisher": "WilliamSmithE",
   "license": "MIT",
   "repository": {
@@ -42,6 +42,9 @@
   },
   "contributes": {
     "configurationDefaults": {
+      "files.watcherExclude": {
+        "**/var/**": true
+      },
       "[twig]": {
         "editor.minimap.showRegionSectionHeaders": false
       }
@@ -446,7 +449,7 @@
     "vsix": "npm run build && node scripts/package.mjs"
   },
   "dependencies": {
-    "@wicker/core": "0.9.0"
+    "@wicker/core": "0.9.1"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

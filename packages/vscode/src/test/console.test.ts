@@ -222,4 +222,17 @@ suite('console', () => {
       await settings.update('console.command', previous, vscode.ConfigurationTarget.Workspace);
     }
   });
+
+  /*
+   * Symfony rewrites its cache under var/ whenever the console boots, and the
+   * editor's own watcher exclusions do not cover it, so every extension on
+   * the machine was handed those events while Wicker indexed. The exclusion
+   * is contributed as a default, which the editor merges with its own list
+   * rather than replacing it.
+   */
+  test('excludes var/ from the file watcher without displacing the editor\'s own exclusions', () => {
+    const excluded = vscode.workspace.getConfiguration('files').get<Record<string, boolean>>('watcherExclude') ?? {};
+    assert.equal(excluded['**/var/**'], true);
+    assert.equal(excluded['.git/objects/**'], true);
+  });
 });

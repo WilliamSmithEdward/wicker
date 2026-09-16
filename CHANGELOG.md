@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.9.1
+
+The first open of a project no longer waits for Symfony.
+
+### Fixed
+
+- **Opening a project over a slow console.** The tree waited until every
+  console command had answered or hit a fifteen-second cap, so on a remote
+  machine six kernel boots at once timed out together, the project appeared
+  late, and its routes, components and bundle namespaces came up as
+  unavailable until a retry ran against the cache those boots had warmed. A
+  project is now drawn as soon as its files are read, with what the console
+  said the last time it was opened, and the console is asked after: an
+  **Asking the Symfony console** row stands in until it answers, checks that
+  need a current answer wait, and a command gets a minute rather than fifteen
+  seconds. One that runs out of time says so instead of "Command failed". A
+  trust prompt answered during the first read is no longer missed, and every
+  workspace folder is drawn before any console is asked.
+
+### Changed
+
+- **Console answers are remembered between sessions**, command by command,
+  in workspace state. Routes and components stand in from the last answer
+  only until the console answers; namespaces keep falling back to it when
+  the console fails, as before. The three configuration answers are kept for
+  the first pass and confirmed after it, so a first open boots the kernel
+  three times before anything is shown and three times after, and a
+  configuration changed while the editor was closed is read again.
+- **`var/` is excluded from the file watcher by default.** Symfony writes its
+  cache there every time the console boots, and VS Code's own exclusions do
+  not cover it. Set `"**/var/**": false` in `files.watcherExclude` to watch
+  it again.
+
 ## 0.9.0
 
 Routes, blocks and live components read from the template side, and a

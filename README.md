@@ -242,6 +242,15 @@ Turning off `wicker.enable` replaces the tree with a link to settings so it can
 be enabled again. In an empty workspace, the sidebar offers to open a Symfony
 application folder.
 
+The sidebar follows the active editor: opening a template selects its row, as
+the Explorer selects the active file. `wicker.sidebar.autoReveal` turns that
+off. The Reveal button in the view title still finds the current template, and
+shows bundle templates when it is one of those.
+
+Right-click a row to open its file to the side, reveal it in the Explorer, or
+copy what it names: a template's logical name, ready for `render()` or an
+include tag, and a route's name or path.
+
 Rows are coloured by what they are: green for templates, purple for PHP,
 yellow for JavaScript, blue for TypeScript, cyan for API routes, orange for
 Stimulus, magenta for stylesheets and red for components.
@@ -379,7 +388,9 @@ Stimulus URL value supplied by a Twig helper/data attribute, to follow the
 request. When the action renders Twig, Go to Definition also offers its
 template. Hover shows the route, response fields, rendered templates and known
 consumers. Find All References on a route reference or PHP action name opens
-its Twig and JavaScript consumers.
+its Twig and JavaScript consumers. **Wicker: Go to Route** in the Command
+Palette lists every route whose action is in the workspace, by path, name and
+controller, and opens the action.
 
 The sidebar's **Template routes** branch lists routes whose actions render Twig
 HTML. Click a URL to open its PHP action, or expand it to open the template. A

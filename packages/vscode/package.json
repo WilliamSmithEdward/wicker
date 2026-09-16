@@ -90,12 +90,42 @@
           "command": "wicker.hideBundleTemplates",
           "when": "view == wicker.projects && config.wicker.enable && wicker.showBundleTemplates",
           "group": "1_display@1"
+        },
+        {
+          "command": "wicker.showProjectInfo",
+          "when": "view == wicker.projects && config.wicker.enable",
+          "group": "2_help@1"
         }
       ],
       "view/item/context": [
         {
+          "command": "wicker.openToSide",
+          "when": "view == wicker.projects && viewItem =~ /\\bopens\\b/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "wicker.revealInExplorer",
+          "when": "view == wicker.projects && viewItem =~ /\\bfile\\b/",
+          "group": "navigation@2"
+        },
+        {
+          "command": "wicker.copyTemplateName",
+          "when": "view == wicker.projects && viewItem =~ /^wicker\\.(template|controllerTemplate|routeTemplate|extending)\\b/",
+          "group": "1_copy@1"
+        },
+        {
+          "command": "wicker.copyRouteName",
+          "when": "view == wicker.projects && viewItem =~ /^wicker\\.route\\b|\\brouted\\b/",
+          "group": "1_copy@2"
+        },
+        {
+          "command": "wicker.copyRoutePath",
+          "when": "view == wicker.projects && viewItem =~ /^wicker\\.route\\b|\\brouted\\b/",
+          "group": "1_copy@3"
+        },
+        {
           "command": "wicker.showProjectInfo",
-          "when": "view == wicker.projects && viewItem == wicker.project && config.wicker.enable",
+          "when": "view == wicker.projects && viewItem =~ /^wicker\\.project\\b/ && config.wicker.enable",
           "group": "diagnostics"
         }
       ],
@@ -107,6 +137,26 @@
         {
           "command": "wicker.hideBundleTemplates",
           "when": "wicker.showBundleTemplates"
+        },
+        {
+          "command": "wicker.openToSide",
+          "when": "false"
+        },
+        {
+          "command": "wicker.revealInExplorer",
+          "when": "false"
+        },
+        {
+          "command": "wicker.copyTemplateName",
+          "when": "false"
+        },
+        {
+          "command": "wicker.copyRouteName",
+          "when": "false"
+        },
+        {
+          "command": "wicker.copyRoutePath",
+          "when": "false"
         }
       ]
     },
@@ -216,6 +266,11 @@
           "default": true,
           "markdownDescription": "Colour sidebar rows by what they are: green for templates, purple for PHP, yellow for JavaScript, blue for TypeScript, cyan for API routes, orange for Stimulus, magenta for stylesheets and red for components. Off draws every icon but a warning in the theme's icon colour."
         },
+        "wicker.sidebar.autoReveal": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Select the active editor's template in the sidebar as editors change, the way the Explorer follows the active file. A bundle template is selected only while bundle templates are shown; the Reveal button in the view title shows them regardless."
+        },
         "wicker.codeLens.enabled": {
           "type": "boolean",
           "default": true,
@@ -282,6 +337,36 @@
         "command": "wicker.hideBundleTemplates",
         "title": "Wicker: Hide bundle templates",
         "icon": "$(eye-closed)",
+        "enablement": "config.wicker.enable"
+      },
+      {
+        "command": "wicker.goToRoute",
+        "title": "Wicker: Go to Route...",
+        "enablement": "config.wicker.enable"
+      },
+      {
+        "command": "wicker.openToSide",
+        "title": "Open to the Side",
+        "enablement": "config.wicker.enable"
+      },
+      {
+        "command": "wicker.revealInExplorer",
+        "title": "Reveal in Explorer View",
+        "enablement": "config.wicker.enable"
+      },
+      {
+        "command": "wicker.copyTemplateName",
+        "title": "Copy Template Name",
+        "enablement": "config.wicker.enable"
+      },
+      {
+        "command": "wicker.copyRouteName",
+        "title": "Copy Route Name",
+        "enablement": "config.wicker.enable"
+      },
+      {
+        "command": "wicker.copyRoutePath",
+        "title": "Copy Route Path",
         "enablement": "config.wicker.enable"
       }
     ]

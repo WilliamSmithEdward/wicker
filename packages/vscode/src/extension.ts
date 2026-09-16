@@ -34,6 +34,7 @@ import { TwigVariableProvider } from './twigVariables.js';
 import { TwigCallableProvider, twigCallableDiagnostics } from './twigCallables.js';
 import { TwigComponentProvider } from './twigComponents.js';
 import { FrontendProvider } from './frontendProvider.js';
+import { goToRoute } from './routePicker.js';
 
 const TWIG_SELECTOR: vscode.DocumentFilter[] = [
   { language: 'twig', scheme: 'file' },
@@ -54,7 +55,10 @@ const FRONTEND_SELECTOR: vscode.DocumentFilter[] = [
   { language: 'css', scheme: 'file' },
 ];
 
-export async function activate(context: vscode.ExtensionContext): Promise<void> {
+/** What the running extension exposes. Tests read the sidebar through it. */
+export interface WickerApi { readonly sidebar: { readonly selection: readonly SidebarNode[] } }
+
+export async function activate(context: vscode.ExtensionContext): Promise<WickerApi> {
   // Workspace-scoped, because the remembered namespaces describe this project
   // and mean nothing anywhere else.
   const sessions = new SessionManager(new LoaderPathMemory(context.workspaceState));
@@ -183,6 +187,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       refreshAllDiagnostics();
     }),
+
+    vscode.commands.registerCommand('wicker.goToRoute', () => goToRoute(sessions)),
 
     vscode.commands.registerCommand('wicker.showProjectInfo', (node?: SidebarNode) => {
       let all = sessions.all();
@@ -328,7 +334,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.workspace.onDidGrantWorkspaceTrust(() => sessions.refreshAll()),
     vscode.workspace.onDidChangeConfiguration(async (event) => {
-      if (event.affectsConfiguration('wicker')) {
+      // The sidebar settings change how rows look, not what is indexed; the
+      // tree listens for those itself.
+      if (event.affectsConfiguration('wicker') && !event.affectsConfiguration('wicker.sidebar')) {
         await sessions.refreshAll();
         refreshAllDiagnostics();
         // Toggling wicker.enable has to refresh colouring as well as diagnostics.
@@ -369,6 +377,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   refreshAllDiagnostics();
   // Editors already open when the extension activated get their colour too.
   stimulusMembers.refresh();
+  return { sidebar };
 }
 
 export function deactivate(): void {
@@ -458,6 +467,4 @@ function buildDiagnostics(
   }
   return result;
 }
-
-/** "1 template", "37 templates". */
 

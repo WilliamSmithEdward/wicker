@@ -6,6 +6,7 @@ import * as vscode from 'vscode';
 
 import { TwigLoaderPaths } from '@wicker/core';
 
+import type { WickerApi } from '../extension.js';
 import { LoaderPathMemory } from '../loaderPathMemory.js';
 import { SessionManager } from '../session.js';
 import { SIDEBAR_ICONS, sidebarIcon, type SidebarRole } from '../sidebarIcons.js';
@@ -713,6 +714,50 @@ class SidebarCreatedController {
       await settings.update('sidebar.colors', previous, vscode.ConfigurationTarget.Workspace);
     }
     assert.equal(codiconColour('controller')?.id, 'charts.purple');
+  });
+
+  test('follows the active editor, as the Explorer follows its file', async () => {
+    const api = await vscode.extensions.getExtension('WilliamSmithE.wicker')!.activate() as WickerApi;
+    const selected = (): string[] => api.sidebar.selection.map((node) => node.kind === 'template' ? node.name : node.kind);
+    // Following happens only while the view is showing.
+    await vscode.commands.executeCommand('wicker.projects.focus');
+    await openTemplate('templates', 'task', 'index.html.twig');
+    await until(() => selected().includes('task/index.html.twig'), 'the sidebar should select the active template');
+    // A PHP editor is nothing to follow; the template stays selected.
+    await openTemplate('src', 'Controller', 'TaskController.php');
+    assert.ok(selected().includes('task/index.html.twig'));
+
+    const settings = vscode.workspace.getConfiguration('wicker');
+    const previous = settings.inspect<boolean>('sidebar.autoReveal')?.workspaceValue;
+    try {
+      await settings.update('sidebar.autoReveal', false, vscode.ConfigurationTarget.Workspace);
+      await openTemplate('templates', 'task', '_row.html.twig');
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      assert.ok(!selected().includes('task/_row.html.twig'), 'off leaves the selection alone');
+    } finally {
+      await settings.update('sidebar.autoReveal', previous, vscode.ConfigurationTarget.Workspace);
+    }
+  });
+
+  test('a row opens to the side and copies the name it stands for', async () => {
+    const template: SidebarNode = { kind: 'template', root: rootUri, name: 'task/index.html.twig' };
+    const before = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
+    await vscode.commands.executeCommand('wicker.openToSide', template);
+    const editor = vscode.window.activeTextEditor;
+    assert.ok(editor && editor.document.uri.path.endsWith('/templates/task/index.html.twig'));
+    assert.equal(editor.viewColumn, before + 1);
+    await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+
+    await vscode.commands.executeCommand('wicker.copyTemplateName', template);
+    assert.equal(await vscode.env.clipboard.readText(), 'task/index.html.twig');
+
+    // The menu reads the context value: a row that opens a file says so, and
+    // a section, which opens nothing, does not.
+    assert.match((await provider.getTreeItem(template)).contextValue ?? '', /^wicker\.template\b.*\bopens\b.*\bfile\b/);
+    const project = (await provider.getChildren())[0];
+    assert.ok(project);
+    const templates = await section(provider, project, 'templates');
+    assert.doesNotMatch((await provider.getTreeItem(templates)).contextValue ?? '', /\bopens\b/);
   });
 
   test('has an empty tree when no Symfony project is detected', async () => {

@@ -16,6 +16,11 @@ type WarningReason = 'namespaces' | 'indexLimit' | 'console';
 type SectionName = 'controllers' | 'templates' | 'api' | 'templateRoutes' | 'components' | 'stimulus';
 /** Where a row leads: a file, and the text in it to select when there is one. */
 type Target = { readonly projectPath: string; readonly range?: OffsetRange };
+/** How a row opens its file: in the active editor group, or beside it. */
+export type OpenOptions = { readonly beside?: boolean };
+/** The row commands that open a file, which a menu can offer to open beside. */
+const OPENERS = new Set(['vscode.open', 'wicker.openTemplate', 'wicker.openController', 'wicker.openControllerDependency',
+  'wicker.openRelatedScript', 'wicker.openEndpoint', 'wicker.openRenderedBy', 'wicker.openWiring']);
 type ControllerIdentity = { readonly root: vscode.Uri; readonly projectPath: string; readonly className: string };
 type ControllerNode = ControllerIdentity & (
   | { readonly kind: 'controller' }
@@ -397,7 +402,13 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     }
     const item = await this.describe(node, session);
     item.id = nodeId(node);
-    item.contextValue = `wicker.${node.kind}`;
+    // Words a menu's when-clause can test: the kind, whether the row opens a
+    // file, whether it has one to reveal, and whether its action is routed.
+    item.contextValue = [`wicker.${node.kind}`,
+      ...(item.command !== undefined && OPENERS.has(item.command.command) ? ['opens'] : []),
+      ...(item.resourceUri === undefined ? [] : ['file']),
+      ...(node.kind === 'controllerMethod' && controllerRoutes(this.sessions, session, node).length ? ['routed'] : []),
+    ].join(' ');
     // Without an explicit accessible name, VS Code reads the path-heavy tooltip
     // instead of the visible namespace or project label.
     item.accessibilityInformation = {
@@ -867,9 +878,9 @@ export class WickerSidebar implements vscode.Disposable {
     this.view.message = 'Detecting Symfony projects...';
     this.subscriptions = [
       this.provider, this.view,
-      vscode.commands.registerCommand('wicker.openController', (node: SidebarNode) => this.openController(node)),
-      vscode.commands.registerCommand('wicker.openControllerDependency', (node: SidebarNode) => this.openControllerDependency(node)),
-      vscode.commands.registerCommand('wicker.openRelatedScript', (node: SidebarNode) => this.openRelatedScript(node)),
+      vscode.commands.registerCommand('wicker.openController', (node: SidebarNode, options?: OpenOptions) => this.openController(node, options)),
+      vscode.commands.registerCommand('wicker.openControllerDependency', (node: SidebarNode, options?: OpenOptions) => this.openControllerDependency(node, options)),
+      vscode.commands.registerCommand('wicker.openRelatedScript', (node: SidebarNode, options?: OpenOptions) => this.openRelatedScript(node, options)),
       vscode.commands.registerCommand('wicker.openSettings', () =>
         vscode.commands.executeCommand('workbench.action.openSettings', '@ext:WilliamSmithE.wicker')),
       vscode.commands.registerCommand('wicker.retryProject', async (node: SidebarNode) => {
@@ -892,18 +903,24 @@ export class WickerSidebar implements vscode.Disposable {
           jsonEditor: false,
         });
       }),
-      vscode.commands.registerCommand('wicker.openTemplate', (root: vscode.Uri, name: string) =>
+      vscode.commands.registerCommand('wicker.openTemplate', (root: vscode.Uri, name: string, options?: OpenOptions) =>
         this.reveal(root, (session) => {
           const template = session.lookup(name);
           return template === undefined ? undefined : { projectPath: template.projectPath };
-        })),
+        }, options)),
       vscode.commands.registerCommand('wicker.revealTemplate', () => this.revealActiveTemplate()),
-      vscode.commands.registerCommand('wicker.openEndpoint', (node: SidebarNode) => this.openEndpoint(node)),
-      vscode.commands.registerCommand('wicker.openRenderedBy', (node: SidebarNode) => this.openRenderedBy(node)),
-      vscode.commands.registerCommand('wicker.openWiring', (node: SidebarNode) => this.openWiring(node)),
+      vscode.commands.registerCommand('wicker.openEndpoint', (node: SidebarNode, options?: OpenOptions) => this.openEndpoint(node, options)),
+      vscode.commands.registerCommand('wicker.openRenderedBy', (node: SidebarNode, options?: OpenOptions) => this.openRenderedBy(node, options)),
+      vscode.commands.registerCommand('wicker.openWiring', (node: SidebarNode, options?: OpenOptions) => this.openWiring(node, options)),
+      vscode.commands.registerCommand('wicker.openToSide', (node: SidebarNode) => this.openToSide(node)),
+      vscode.commands.registerCommand('wicker.revealInExplorer', (node: SidebarNode) => this.revealInExplorer(node)),
+      vscode.commands.registerCommand('wicker.copyTemplateName', (node: SidebarNode) => this.copyTemplateName(node)),
+      vscode.commands.registerCommand('wicker.copyRouteName', (node: SidebarNode) => this.copyRoute(node, 'name')),
+      vscode.commands.registerCommand('wicker.copyRoutePath', (node: SidebarNode) => this.copyRoute(node, 'path')),
       vscode.commands.registerCommand('wicker.showBundleTemplates', () => this.setShowBundleTemplates(true)),
       vscode.commands.registerCommand('wicker.hideBundleTemplates', () => this.setShowBundleTemplates(false)),
-      vscode.window.onDidChangeActiveTextEditor(() => this.updateRevealContext()),
+      vscode.window.onDidChangeActiveTextEditor(() => { this.updateRevealContext(); void this.followActiveEditor(); }),
+      this.view.onDidChangeVisibility((event) => { if (event.visible) { void this.followActiveEditor(); } }),
       this.provider.onDidChangeTreeData(() => this.updateRevealContext()),
     ];
     void vscode.commands.executeCommand('setContext', 'wicker.showBundleTemplates', showBundles);
@@ -924,7 +941,8 @@ export class WickerSidebar implements vscode.Disposable {
    * that used to mean something.
    */
   private async reveal(root: vscode.Uri,
-    target: (session: ProjectSession) => Promise<Target | undefined> | Target | undefined): Promise<void> {
+    target: (session: ProjectSession) => Promise<Target | undefined> | Target | undefined,
+    options?: OpenOptions): Promise<void> {
     const session = this.sessions.sessionAtRoot(root);
     if (session === undefined) { return; }
     const found = await target(session);
@@ -937,29 +955,31 @@ export class WickerSidebar implements vscode.Disposable {
     if (current === undefined || current.projectPath !== found.projectPath ||
       this.sessions.sessionAtRoot(root) !== session) { return; }
     const range = current.range;
-    await vscode.window.showTextDocument(document, { preview: true, ...(range === undefined ? {} : {
-      selection: new vscode.Range(document.positionAt(range.start), document.positionAt(range.end)),
-    }) });
+    await vscode.window.showTextDocument(document, { preview: true,
+      ...(options?.beside ? { viewColumn: vscode.ViewColumn.Beside } : {}),
+      ...(range === undefined ? {} : {
+        selection: new vscode.Range(document.positionAt(range.start), document.positionAt(range.end)),
+      }) });
   }
 
-  private openRenderedBy(node: SidebarNode): Promise<void> {
+  private openRenderedBy(node: SidebarNode, options?: OpenOptions): Promise<void> {
     if (node?.kind !== 'renderedBy') { return Promise.resolve(); }
     return this.reveal(node.root, (session) => {
       const site = renderedBy(this.sessions, session, node.name)
         .find((entry) => entry.projectPath === node.projectPath && entry.offset === node.offset);
       return site && { projectPath: site.projectPath, range: { start: site.offset, end: site.offset } };
-    });
+    }, options);
   }
 
-  private openWiring(node: SidebarNode): Promise<void> {
+  private openWiring(node: SidebarNode, options?: OpenOptions): Promise<void> {
     if (node?.kind !== 'wiring') { return Promise.resolve(); }
     return this.reveal(node.root, (session) => {
       const wire = wiringFor(this.sessions, session, node);
       return wire && { projectPath: wire.projectPath, range: { start: wire.offset, end: wire.offset } };
-    });
+    }, options);
   }
 
-  private openEndpoint(node: SidebarNode): Promise<void> {
+  private openEndpoint(node: SidebarNode, options?: OpenOptions): Promise<void> {
     if (node?.kind !== 'route' && node?.kind !== 'routeConsumer' && node?.kind !== 'routeTemplate') { return Promise.resolve(); }
     return this.reveal(node.root, (session) => {
       const route = session.frontend.routes.find((entry) => entry.name === node.name);
@@ -974,10 +994,10 @@ export class WickerSidebar implements vscode.Disposable {
       }
       const template = session.lookup(node.templateName);
       return template && { projectPath: template.projectPath };
-    });
+    }, options);
   }
 
-  private openController(node: SidebarNode): Promise<void> {
+  private openController(node: SidebarNode, options?: OpenOptions): Promise<void> {
     if (!isControllerNode(node)) { return Promise.resolve(); }
     return this.reveal(node.root, (session) => {
       const site = controllerSites(this.sessions, session, node)[0];
@@ -987,23 +1007,60 @@ export class WickerSidebar implements vscode.Disposable {
         return template && { projectPath: template.projectPath };
       }
       return { projectPath: node.projectPath, ...(node.kind === 'controllerMethod' ? { range: site.nameRange } : {}) };
-    });
+    }, options);
   }
 
-  private openControllerDependency(node: SidebarNode): Promise<void> {
+  private openControllerDependency(node: SidebarNode, options?: OpenOptions): Promise<void> {
     if (node?.kind !== 'controllerDependency') { return Promise.resolve(); }
     return this.reveal(node.root, (session) => {
       const dependency = controllerDependencies(this.sessions, session, node)
         .find((entry) => entry.declaration.name === node.typeName);
       return dependency && { projectPath: dependency.projectPath, range: dependency.declaration.range };
-    });
+    }, options);
   }
 
-  private openRelatedScript(node: SidebarNode): Promise<void> {
+  private openRelatedScript(node: SidebarNode, options?: OpenOptions): Promise<void> {
     if (node?.kind !== 'script') { return Promise.resolve(); }
     return this.reveal(node.root, async (session) =>
       (await scriptsForOwner(this.sessions, session, node.parent)).some((entry) => entry.projectPath === node.projectPath)
-        ? { projectPath: node.projectPath } : undefined);
+        ? { projectPath: node.projectPath } : undefined, options);
+  }
+
+  /** The row's own open, in the editor group beside the active one. */
+  private async openToSide(node: SidebarNode): Promise<void> {
+    const command = (await this.provider.getTreeItem(node)).command;
+    if (command === undefined || !OPENERS.has(command.command)) { return; }
+    const beside: OpenOptions = { beside: true };
+    const args: readonly unknown[] = command.arguments ?? [];
+    await vscode.commands.executeCommand(command.command, ...args,
+      command.command === 'vscode.open' ? vscode.ViewColumn.Beside : beside);
+  }
+
+  private async revealInExplorer(node: SidebarNode): Promise<void> {
+    const uri = (await this.provider.getTreeItem(node)).resourceUri;
+    if (uri !== undefined) { await vscode.commands.executeCommand('revealInExplorer', uri); }
+  }
+
+  /** The logical name, as render() or an include tag writes it. */
+  private async copyTemplateName(node: SidebarNode): Promise<void> {
+    const name = node?.kind === 'template' || node?.kind === 'controllerTemplate' ? node.name
+      : node?.kind === 'routeTemplate' || node?.kind === 'extending' ? node.templateName : undefined;
+    if (name !== undefined) { await copied(name); }
+  }
+
+  /** The route a row stands for; an action carrying several routes asks which. */
+  private async copyRoute(node: SidebarNode, part: 'name' | 'path'): Promise<void> {
+    if (node?.root === undefined) { return; }
+    const session = this.sessions.sessionAtRoot(node.root);
+    if (session === undefined) { return; }
+    const routes = node.kind === 'route' ? session.frontend.routes.filter((route) => route.name === node.name)
+      : node.kind === 'controllerMethod' ? controllerRoutes(this.sessions, session, node) : [];
+    const route = routes.length > 1
+      ? (await vscode.window.showQuickPick(
+        routes.map((entry) => ({ label: entry.name, description: `${entry.methods} ${entry.path}`, entry })),
+        { placeHolder: `Which route's ${part}?` }))?.entry
+      : routes[0];
+    if (route !== undefined) { await copied(route[part]); }
   }
 
   private sessionForAction(node: SidebarNode): ProjectSession | undefined {
@@ -1018,6 +1075,26 @@ export class WickerSidebar implements vscode.Disposable {
     this.provider.setShowBundleTemplates(show);
     await vscode.commands.executeCommand('setContext', 'wicker.showBundleTemplates', show);
     await this.workspaceState.update(SHOW_BUNDLES_KEY, show);
+  }
+
+  /** The rows selected in the view. */
+  get selection(): readonly SidebarNode[] { return this.view.selection; }
+
+  /**
+   * Selects the active editor's template, as the Explorer follows its file.
+   *
+   * Only while the view is showing, so a hidden sidebar costs nothing, and
+   * without taking focus, so typing carries on. A bundle template stays
+   * hidden: opening a vendor file is not a request to browse the bundle, and
+   * the reveal button is there for that.
+   */
+  private async followActiveEditor(): Promise<void> {
+    if (!this.view.visible || !vscode.workspace.getConfiguration('wicker').get<boolean>('sidebar.autoReveal', true)) { return; }
+    const node = this.activeTemplateNode();
+    if (node?.kind !== 'template' || !this.provider.isTemplateVisible(node.root, node.name)) { return; }
+    try {
+      await this.view.reveal(node, { select: true, focus: false, expand: false });
+    } catch { /* The tree changed under the reveal; the next editor change tries again. */ }
   }
 
   private updateRevealContext(): void {
@@ -1395,6 +1472,12 @@ function opens(item: vscode.TreeItem, uri: vscode.Uri, title: string): vscode.Tr
   item.resourceUri = uri;
   item.command = { command: 'vscode.open', title, arguments: [uri] };
   return item;
+}
+
+/** To the clipboard, with a word in the status bar so the click is seen to land. */
+async function copied(text: string): Promise<void> {
+  await vscode.env.clipboard.writeText(text);
+  vscode.window.setStatusBarMessage(`Copied ${text}`, 3000);
 }
 
 function namespaceKey(namespace: string | null, forcesBundleTemplate: boolean): string {

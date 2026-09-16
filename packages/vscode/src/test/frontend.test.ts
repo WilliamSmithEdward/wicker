@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { ProjectTreeProvider, type SidebarNode } from '../sidebar.js';
 import { completionItems, definitionsAt, fixture, memorySessions, replace, tooltipOf, until } from './support.js';
 import { sidebarIcon } from '../sidebarIcons.js';
+import { routePicks } from '../routePicker.js';
 
 const JS = 'assets/controllers/wicker_test_controller.js';
 const PEER = 'assets/controllers/wicker_peer_controller.ts';
@@ -288,6 +289,10 @@ suite('Stimulus and API connections', () => {
       assert.equal(actionItem.label, 'GET /_wicker-test/fragment');
       assert.equal(actionItem.description, 'fragment()');
       assert.equal((actionItem.iconPath as vscode.ThemeIcon).id, 'symbol-method');
+      // A routed action offers its route to copy, as redirectToRoute() wants it.
+      assert.match(actionItem.contextValue ?? '', /\brouted\b/);
+      await vscode.commands.executeCommand('wicker.copyRoutePath', action);
+      assert.equal(await vscode.env.clipboard.readText(), '/_wicker-test/fragment');
       assert.ok(typeof actionItem.tooltip === 'string');
       assert.ok(actionItem.tooltip.includes('wicker_test_fragment'));
       assert.ok(actionItem.tooltip.includes('wicker_frontend_test.html.twig'));
@@ -338,6 +343,18 @@ suite('Stimulus and API connections', () => {
       assert.match(tooltipOf(fragmentItem), /Fetched by:\n[^\n]*wicker_frontend_test\.html\.twig/);
       const plainRoute = templateEntries.find((node) => node.kind === 'route' && node.name === 'wicker_test_first')!;
       assert.equal((await tree.getTreeItem(plainRoute)).description, 'wicker_test_first', 'a route nothing fetches is the plain route');
+      await vscode.commands.executeCommand('wicker.copyRouteName', templateRoute);
+      assert.equal(await vscode.env.clipboard.readText(), 'wicker_test_fragment');
+      // The route picker is the router's table with the framework's own rows
+      // left out: every entry has an action in the workspace to open.
+      const picks = routePicks(sessions);
+      const fragmentPick = picks.find((pick) => pick.description === 'wicker_test_fragment');
+      assert.ok(fragmentPick);
+      assert.equal(fragmentPick.label, 'GET /_wicker-test/fragment');
+      assert.ok(fragmentPick.detail?.startsWith('WickerFrontendTestController::fragment()'), fragmentPick.detail);
+      assert.equal(fragmentPick.projectPath, PHP);
+      assert.ok(picks.every((pick) => pick.projectPath.endsWith('.php')));
+      assert.deepEqual(picks.map((pick) => pick.label), [...picks.map((pick) => pick.label)].sort(), 'sorted by path');
       assert.deepEqual(tree.getParent(templateRoute), templateSection);
       const renderedTemplate = (await tree.getChildren(templateRoute)).find((node) => node.kind === 'routeTemplate');
       assert.ok(renderedTemplate);

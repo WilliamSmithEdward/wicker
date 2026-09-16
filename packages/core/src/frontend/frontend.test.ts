@@ -5,7 +5,33 @@ import { responseAccessAt } from './responseAccess.js';
 import { endpointActions, routeForUrl, routesFromDebug, type SymfonyRoute } from './routes.js';
 import { stimulusClassProperties, stimulusDeclarationRanges, stimulusGeneratedMembers, stimulusIdentifier, stimulusSource } from './stimulus.js';
 
-const route: SymfonyRoute = { name: 'api_status', path: '/api/status', methods: 'GET', controller: 'App\\Controller\\StatusController::status', format: '' };
+const route: SymfonyRoute = { name: 'api_status', path: '/api/status', methods: 'GET', controller: 'App\\Controller\\StatusController::status', format: '', parameters: [] };
+
+describe('route parameters', () => {
+  it('reads placeholders, requirements and defaults from the router', () => {
+    const routes = routesFromDebug(JSON.stringify({ item_show: {
+      path: '/items/{id}/{page<\\d+>?1}/{_format}', host: '{tenant}.example.com', method: 'GET',
+      defaults: { _controller: 'App\\Controller\\ItemController::show', _format: 'html', _canonical_route: 'item' },
+      requirements: { id: '\\d+' },
+    } }));
+    expect(routes?.[0]?.canonical).toBe('item');
+    expect(routes?.[0]?.parameters).toEqual([
+      { name: 'tenant', required: true },
+      { name: 'id', required: true, requirement: '\\d+' },
+      { name: 'page', required: false, requirement: '\\d+', default: '1' },
+      { name: '_format', required: false, default: 'html' },
+    ]);
+  });
+
+  it('reads the keys a path() call passes, and knows when it cannot', () => {
+    const scan = scanFrontend(`{{ path('item_show', {id: item.id, 'page': 2}) }} {{ url('item_show') }} `
+      + `{{ path('item_show', params) }} {{ path('item_show', {id: 1}|merge(extra)) }} {{ path('item_show', {id: `, true);
+    expect(scan.routeCalls.map((call) => call.keys)).toEqual([['id', 'page'], [], undefined, undefined, ['id']]);
+    expect(scan.routeCalls[0]?.arguments).toBeDefined();
+    expect(scan.references.filter((ref) => ref.kind === 'routeParameter').map((ref) => [ref.name, ref.route]))
+      .toEqual([['id', 'item_show'], ['page', 'item_show'], ['id', 'item_show']]);
+  });
+});
 describe('Stimulus declarations', () => {
   it('maps nested JS/TS names using StimulusBundle conventions', () => {
     expect(stimulusIdentifier('admin/user_card_controller.ts')).toBe('admin--user-card');

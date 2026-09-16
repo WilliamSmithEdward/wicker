@@ -21,6 +21,7 @@ import { ImportExtensionActionProvider } from './importActions.js';
 import { StimulusMemberActionProvider, connectOutlet } from './stimulusActions.js';
 import { LoaderPathMemory } from './loaderPathMemory.js';
 import { RenderedByProvider } from './renderedBy.js';
+import { routeDiagnostics } from './routeDiagnostics.js';
 import {
   SEMANTIC_TOKENS_LEGEND,
   TemplateSemanticTokensProvider,
@@ -271,7 +272,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
     }
     diagnostics.set(document.uri, script
       ? missingImportDiagnostics(sessions, session, document)
-      : [...buildDiagnostics(session, document), ...twigCallableDiagnostics(session, document)]);
+      : [...buildDiagnostics(session, document), ...twigCallableDiagnostics(session, document), ...routeDiagnostics(sessions, session, document)]);
   };
 
   const refreshAllDiagnostics = (): void => {

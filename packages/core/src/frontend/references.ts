@@ -13,10 +13,14 @@ export interface FrontendReference {
   /** The halves of an action descriptor that are not the controller or method. */
   | 'event' | 'keyFilter' | 'eventTarget' | 'actionOption'
   /** `data-<controller>-<name>-param`, read in a handler as `event.params.<name>`. */
-  | 'actionParam';
+  | 'actionParam'
+  /** A key in the parameter hash of `path()` or `url()`. */
+  | 'routeParameter';
   readonly name: string;
   readonly range: OffsetRange;
   readonly controller?: string;
+  /** For a route parameter, the route whose placeholder the key fills. */
+  readonly route?: string;
   readonly selector?: { readonly name: string; readonly range: OffsetRange };
   /**
    * For an action, the event named in the same descriptor.
@@ -46,6 +50,16 @@ export interface FrontendScan {
   readonly requests: readonly FrontendReference[];
   readonly bindings: readonly StimulusEndpointBinding[];
   readonly scripts: readonly OffsetRange[];
+  readonly routeCalls: readonly RouteCall[];
+}
+/** A `path()` or `url()` call with a literal route name, and what it passes. */
+export interface RouteCall {
+  readonly name: string;
+  readonly nameRange: OffsetRange;
+  /** Between the braces of a literal parameter hash, where a key can be completed. */
+  readonly arguments?: OffsetRange;
+  /** The keys the hash names; absent when the argument is not a literal hash, so nothing is known. */
+  readonly keys?: readonly string[];
 }
 const kebab = (name: string): string => name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
 export const stimulusHtmlName = kebab;
@@ -53,8 +67,9 @@ export const stimulusHtmlName = kebab;
 /** Parses the actual Twig helpers and literal HTML attributes. Comments,
  * verbatim blocks and JS strings that resemble markup are never HTML. */
 export function scanFrontend(source: string, twig: boolean): FrontendScan {
-  if (!twig) { const requests = fetchReferences(source, 0, source.length); return { references: requests, requests, bindings: [], scripts: [{ start: 0, end: source.length }] }; }
+  if (!twig) { const requests = fetchReferences(source, 0, source.length); return { references: requests, requests, bindings: [], scripts: [{ start: 0, end: source.length }], routeCalls: [] }; }
   const references: FrontendReference[] = [], requests: FrontendReference[] = [], bindings: StimulusEndpointBinding[] = [], scripts: OffsetRange[] = [];
+  const routeCalls: RouteCall[] = [];
   const comments: OffsetRange[] = [...source.matchAll(/<!--[\s\S]*?(?:-->|$)/g)].map((match) => ({ start: match.index, end: match.index + match[0].length }));
   const blanked: OffsetRange[] = [];
   let verbatim = false;
@@ -80,6 +95,7 @@ export function scanFrontend(source: string, twig: boolean): FrontendScan {
         const helperKind = helper === 'path' || helper === 'url' ? 'route'
           : helper === 'asset' ? 'asset' : helper === 'importmap' ? 'entrypoint' : 'controller';
         references.push({ kind: helperKind, name, range: firstRange });
+        if (helperKind === 'route') { routeCalls.push(routeCall(name, firstRange, args[1], references)); i = end; continue; }
         // The remaining arguments belong to the Stimulus helpers only.
         if (helper === 'asset' || helper === 'importmap') { i = end; continue; }
         const second = args[1]?.[0];
@@ -252,11 +268,43 @@ export function scanFrontend(source: string, twig: boolean): FrontendScan {
       tag.lastIndex = finish ? closing.lastIndex : html.length;
     }
   }
-  return { references, requests, bindings, scripts };
+  return { references, requests, bindings, scripts, routeCalls };
 }
 
 /** Named arguments are reordered to the public helper signature. Filters have
  * the same explicit arguments: Twig supplies their implicit attributes object. */
+/**
+ * What a route call passes, when that can be read.
+ *
+ * Only a literal hash says which keys it has: a variable, or a hash with a
+ * filter applied, could hold anything, and a call with no second argument
+ * passes nothing. An unclosed hash is still being typed and counts to its end.
+ */
+function routeCall(name: string, nameRange: OffsetRange, argument: readonly TwigExpressionToken[] | undefined,
+  references: FrontendReference[]): RouteCall {
+  const open = argument?.[0];
+  if (argument === undefined || open === undefined) { return { name, nameRange, keys: [] }; }
+  if (open.value !== '{') { return { name, nameRange }; }
+  let depth = 0, close: number | undefined;
+  for (let index = 0; index < argument.length; index++) {
+    const value = argument[index]!.value;
+    if (value === '{' || value === '[' || value === '(') { depth++; }
+    else if ((value === '}' || value === ']' || value === ')') && --depth === 0) { close = index; break; }
+  }
+  if (close !== undefined && close !== argument.length - 1) { return { name, nameRange }; }
+  const keys: string[] = [];
+  for (const entry of splitTwigTokens(argument.slice(1, close), ',')) {
+    const key = entry[0];
+    const value = key?.kind === 'name' ? key.value : literalTwigString(key);
+    if (!key || value === undefined || entry[1]?.value !== ':') { continue; }
+    keys.push(value);
+    references.push({ kind: 'routeParameter', name: value, route: name,
+      range: key.kind === 'string' ? { start: key.start + 1, end: key.end - 1 } : { start: key.start, end: key.end } });
+  }
+  const last = argument[close ?? argument.length - 1]!;
+  return { name, nameRange, keys, arguments: { start: open.end, end: close === undefined ? last.end : last.start } };
+}
+
 function helperArguments(args: readonly (readonly TwigExpressionToken[])[], helper: string): readonly (readonly TwigExpressionToken[])[] {
   const names = helper === 'stimulus_controller' ? ['controllerName', 'controllerValues', 'controllerClasses', 'controllerOutlets']
     : helper === 'stimulus_action' ? ['controllerName', 'actionName', 'eventName', 'parameters']

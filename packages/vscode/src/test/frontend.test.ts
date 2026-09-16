@@ -15,6 +15,8 @@ const routes = {
   wicker_test_json: { path: '/_wicker-test/api', method: 'GET', defaults: { _controller: 'App\\Controller\\WickerFrontendTestController::data' } },
   wicker_test_first: { path: '/_wicker-test/zebra', method: 'GET', defaults: { _controller: 'App\\Controller\\WickerFrontendTestController::aaa' } },
   wicker_test_last: { path: '/_wicker-test/alpha', method: 'GET', defaults: { _controller: 'App\\Controller\\WickerFrontendTestController::zzz' } },
+  wicker_test_show: { path: '/_wicker-test/items/{id}/{page}', method: 'GET', requirements: { id: '\\d+' },
+    defaults: { _controller: 'App\\Controller\\WickerFrontendTestController::show', page: 1 } },
 };
 const CONSOLE = `const args = process.argv; const root = process.cwd();
 const routes = ${JSON.stringify(routes)};
@@ -58,6 +60,13 @@ const definitions = async (doc: vscode.TextDocument, pos: vscode.Position): Prom
   (await definitionsAt(doc, pos)).filter((link): link is vscode.LocationLink => 'targetUri' in link);
 const eventually = (check: () => Promise<boolean> | boolean): Promise<void> =>
   until(check, 'Frontend discovery should follow file changes');
+/** Hover text as rendered: appendText escapes punctuation, and the reader never sees those backslashes. */
+const hoverTextOf = async (doc: vscode.TextDocument, marked: string): Promise<string> => {
+  const hovers = await vscode.commands.executeCommand<vscode.Hover[]>('vscode.executeHoverProvider', doc.uri, await at(doc, marked));
+  return hovers.flatMap((hover) => hover.contents)
+    .map((content) => typeof content === 'string' ? content : content.value).join('\n')
+    .replaceAll('\\', '').replaceAll('&nbsp;', ' ');
+};
 
 suite('Stimulus and API connections', () => {
   const settings = vscode.workspace.getConfiguration('wicker');
@@ -972,15 +981,7 @@ class WickerFrontendTestController {
   });
 
   test('explains a binding in the project\'s own names', async () => {
-    const hoverText = async (marked: string): Promise<string> => {
-      const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
-        'vscode.executeHoverProvider', page.uri, await at(page, marked));
-      // Markdown as rendered: appendText escapes parentheses and underscores,
-      // and the reader never sees those backslashes.
-      return hovers.flatMap((hover) => hover.contents)
-        .map((content) => typeof content === 'string' ? content : content.value).join('\n')
-        .replaceAll('\\', '').replaceAll('&nbsp;', ' ');
-    };
+    const hoverText = (marked: string): Promise<string> => hoverTextOf(page, marked);
 
     // The sentence the sprint asks for: each half of a binding names the
     // other, so the connection reads without opening the file.
@@ -1000,6 +1001,38 @@ class WickerFrontendTestController {
 
     assert.match(await hoverText(`{{ stimulus_controller('wicker-test', {u§rl: 'x'}) }}`),
       /Sets this\.urlValue/);
+  });
+
+  test('completes, explains and checks the parameters a route call passes', async () => {
+    const hoverText = (marked: string): Promise<string> => hoverTextOf(page, marked);
+    const parameters = async (marked: string): Promise<Map<string, string | undefined>> => {
+      const position = await at(page, marked);
+      return new Map((await items(page, position)).filter((item) => item.detail?.startsWith('Route parameter'))
+        .map((item) => [typeof item.label === 'string' ? item.label : item.label.label, item.detail]));
+    };
+    const offered = await parameters(`{{ path('wicker_test_show', { § }) }}`);
+    assert.equal(offered.get('id'), 'Route parameter · required');
+    assert.equal(offered.get('page'), 'Route parameter · optional, default 1');
+    // A key already passed is not offered again, and a value is not a key.
+    assert.deepEqual([...(await parameters(`{{ path('wicker_test_show', {id: 1, § }) }}`)).keys()], ['page']);
+    assert.deepEqual([...(await parameters(`{{ path('wicker_test_show', {id: it§em.id}) }}`)).keys()], []);
+    // Hover on the route lists its placeholders; on a key, what the key fills.
+    assert.match(await hoverText(`{{ path('wicker_test_s§how') }}`), /Parameters: \{id\} \(d\+\), \{page\} = 1/);
+    assert.match(await hoverText(`{{ path('wicker_test_show', {i§d: 1}) }}`), /Fills \{id\} in \/_wicker-test\/items\/\{id\}\/\{page\}, which must match d\+/);
+    assert.match(await hoverText(`{{ path('wicker_test_show', {so§rt: 1}) }}`), /appended to the URL as a query string/);
+
+    // A call leaving out a required placeholder is reported, as is a route
+    // nothing registers; a default, a variable and a filtered hash are not.
+    const codes = (): unknown[] => vscode.languages.getDiagnostics(page.uri).map((entry) => entry.code)
+      .filter((code) => code === 'missing-route-parameter' || code === 'unknown-route');
+    await replace(page, `{{ path('wicker_test_show') }} {{ url('nope') }}`);
+    await until(() => codes().length === 2, 'a missing parameter and an unknown route should be reported');
+    const missing = vscode.languages.getDiagnostics(page.uri).find((entry) => entry.code === 'missing-route-parameter');
+    assert.ok(missing);
+    assert.match(missing.message, /needs \{id\}/);
+    assert.ok(!missing.message.includes('{page}'), 'a placeholder with a default is not required');
+    await replace(page, `{{ path('wicker_test_show', {id: 1}) }} {{ path('wicker_test_show', params) }} {{ path('wicker_test_show', {id: 1}|merge(extra)) }}`);
+    await until(() => codes().length === 0, 'a passed, dynamic or filtered argument is not reported');
   });
 
   test('offers to write the member a binding is already asking for', async () => {
@@ -1092,13 +1125,7 @@ class WickerFrontendTestController {
   });
 
   test('explains a binding that connects to nothing', async () => {
-    const hoverText = async (marked: string): Promise<string> => {
-      const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
-        'vscode.executeHoverProvider', page.uri, await at(page, marked));
-      return hovers.flatMap((hover) => hover.contents)
-        .map((content) => typeof content === 'string' ? content : content.value).join('\n')
-        .replaceAll('\\', '').replaceAll('&nbsp;', ' ');
-    };
+    const hoverText = (marked: string): Promise<string> => hoverTextOf(page, marked);
 
     // Stimulus reports none of this. An unknown method, target or controller
     // all fail the same silent way, so naming which one it is is the whole

@@ -170,6 +170,11 @@ export class ProjectSession implements vscode.Disposable {
   }
 
   /** Console data describes saved files; unsaved registration edits cannot disprove a name. */
+  /** Whether the console's last answers are current: no rebuild is under way. */
+  get discoveryCurrent(): boolean {
+    return !this.discoveryPending;
+  }
+
   get canCheckCallables(): boolean {
     return !this.discoveryPending && !vscode.workspace.textDocuments.some((document) =>
       document.isDirty && this.affectsTwigEnvironment(document.uri));

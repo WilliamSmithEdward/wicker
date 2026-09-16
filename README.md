@@ -397,6 +397,12 @@ it in the controller and binding it on the element in one edit.
 
 Routes come from `debug:router --format=json`. In Twig, complete literal route
 names in `path()` and `url()`, then navigate to the application's PHP action.
+Inside the call, complete the route's parameters; hover lists each placeholder
+with its requirement and default, and hover on a key says what it fills. A
+call that names an unregistered route, or leaves out a placeholder its route
+requires, is reported; `wicker.diagnostics.missingRouteParameter` turns that
+down or off. A key the route does not declare is not an error, since Symfony
+appends it as a query string.
 In JavaScript, Ctrl-click an unambiguous root-relative `fetch()` URL, or a
 Stimulus URL value supplied by a Twig helper/data attribute, to follow the
 request. When the action renders Twig, Go to Definition also offers its

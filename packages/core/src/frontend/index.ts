@@ -80,7 +80,7 @@ export class FrontendIndex {
     }
     const scan = /\.(?:twig|js|ts)$/.test(projectPath)
       ? scanFrontend(source, projectPath.endsWith('.twig'))
-      : { references: [], requests: [], bindings: [], scripts: [] };
+      : { references: [], requests: [], bindings: [], scripts: [], routeCalls: [] };
     this.files.set(projectPath, { projectPath, source, scan,
       actions: projectPath.endsWith('.php') ? endpointActions(source) : [],
       types: projectPath.endsWith('.php') ? phpTypeDeclarations(source) : [],

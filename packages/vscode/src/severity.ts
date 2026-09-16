@@ -1,12 +1,12 @@
 import * as vscode from 'vscode';
 
-/** The three diagnostics a setting can turn down or off. */
-export type SeveritySetting = 'missingTemplate' | 'missingImport' | 'unknownCallable';
+/** The diagnostics a setting can turn down or off. */
+export type SeveritySetting = 'missingTemplate' | 'missingImport' | 'unknownCallable' | 'missingRouteParameter';
 
 /**
  * How a diagnostic setting maps to a severity, or to none at all.
  *
- * Each of the three diagnostics read its own setting through its own copy of
+ * Each of the diagnostics read its own setting through its own copy of
  * this switch. The callable one reads at the document's scope, because it is
  * the one a folder in a multi-root workspace is likely to want quiet on its
  * own; passing the scope keeps that.

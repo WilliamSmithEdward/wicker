@@ -61,6 +61,11 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
         const action = routeAction(this.sessions, session, route)?.action;
         if (action?.fields.length) { content.appendText(`\n\nJSON fields: ${action.fields.map((field) => field.name).join(', ')}`); }
         if (action?.templates.length) { content.appendText(`\n\nRenders: ${action.templates.join(', ')}`); }
+        if (route.parameters.length) {
+          content.appendText(`\n\nParameters: ${route.parameters.map((parameter) => `{${parameter.name}}`
+            + (parameter.required ? '' : ` = ${parameter.default ?? ''}`)
+            + (parameter.requirement === undefined ? '' : ` (${parameter.requirement})`)).join(', ')}`);
+        }
         const consumers = [...new Set(routeConsumers(this.sessions, session, route).map((use) => use.projectPath))];
         if (consumers.length) { content.appendText(`\n\nUsed in:\n${consumers.join('\n')}\n\nUse Find All References to open consumers.`); }
       }
@@ -112,6 +117,11 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
     const refs = scan.references.filter((ref) => offset >= ref.range.start && offset <= ref.range.end ||
       ref.selector && offset >= ref.selector.range.start && offset <= ref.selector.range.end);
     const ref = refs.at(-1);
+    // Between the braces of a route call, at a key that is not there yet:
+    // nothing since the last comma has reached its colon.
+    const call = ref === undefined && twig ? scan.routeCalls.find((entry) => entry.arguments !== undefined &&
+      offset >= entry.arguments.start && offset <= entry.arguments.end &&
+      !(source.slice(entry.arguments.start, offset).split(',').at(-1) ?? '').includes(':')) : undefined;
     let query: Query | undefined;
     if (path.endsWith('.php')) {
       const routes = session.frontend.routes.filter((route) => {
@@ -123,6 +133,14 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       const routes = session.frontend.routes.filter((route) => route.name === ref.name);
       query = this.routeQuery(session, session.frontend.routes, ref.name, ref.range);
       query.routes = routes;
+    } else if (ref?.kind === 'routeParameter' && ref.route !== undefined) {
+      const route = ref.route;
+      const passing = scan.routeCalls.find((entry) => entry.name === route && entry.arguments !== undefined &&
+        ref.range.start >= entry.arguments.start && ref.range.end <= entry.arguments.end);
+      query = this.routeParameterQuery(session, route, ref.name, ref.range, passing?.keys ?? []);
+    } else if (call?.arguments !== undefined) {
+      const start = offset - (/\w*$/.exec(source.slice(call.arguments.start, offset))?.[0].length ?? 0);
+      query = this.routeParameterQuery(session, call.name, source.slice(start, offset), { start, end: offset }, call.keys ?? []);
     } else if (ref?.kind === 'actionParam') {
       query = this.actionParamQuery(session, ref);
     } else if (ref && ['event', 'keyFilter', 'eventTarget', 'actionOption'].includes(ref.kind)) {
@@ -369,6 +387,32 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       return asset ? [{ name: logicalPath, projectPath: asset.projectPath, range: { start: 0, end: 0 },
         label: `Mapped asset · ${asset.projectPath}`, kind: vscode.CompletionItemKind.File }] : [];
     }) };
+  }
+
+  /**
+   * The placeholders a route call can fill, and what each one is.
+   *
+   * A key the route does not declare is not wrong, since Symfony appends it
+   * as a query string, so it is explained rather than refused. Navigation
+   * goes to the action, which is where the value ends up.
+   */
+  private routeParameterQuery(session: ProjectSession, routeName: string, name: string, range: OffsetRange,
+    present: readonly string[]): Query {
+    const routes = session.frontend.routes.filter((route) => route.name === routeName || route.canonical === routeName);
+    const candidates = routes.flatMap((route): Candidate[] => {
+      const action = routeAction(this.sessions, session, route);
+      return route.parameters.filter((parameter) => parameter.name === name || !present.includes(parameter.name))
+        .map((parameter) => ({
+          name: parameter.name, projectPath: action?.projectPath ?? '', range: action?.action.range ?? { start: 0, end: 0 },
+          label: `Route parameter · ${parameter.required ? 'required' : `optional, default ${parameter.default ?? ''}`}`,
+          kind: vscode.CompletionItemKind.Property,
+          documentation: `Fills {${parameter.name}} in ${route.path}`
+            + (parameter.requirement === undefined ? '.' : `, which must match ${parameter.requirement}.`),
+        }));
+    });
+    const stray = name.length > 0 && routes.length > 0 && !candidates.some((candidate) => candidate.name === name);
+    return { name, range, candidates,
+      ...(stray ? { documentation: `"${name}" is no placeholder of ${routeName}, so it is appended to the URL as a query string.` } : {}) };
   }
 
   private routeQuery(session: ProjectSession, routes: readonly SymfonyRoute[], name: string, range: OffsetRange, useLabel = false): Query {

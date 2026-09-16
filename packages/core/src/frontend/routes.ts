@@ -10,6 +10,18 @@ export interface SymfonyRoute {
   readonly methods: string;
   readonly controller: string;
   readonly format: string;
+  /** The placeholders of the path and host, in the order they appear. */
+  readonly parameters: readonly RouteParameter[];
+  /** The name a localized route also answers to: `app_home` for `app_home.en`. */
+  readonly canonical?: string;
+}
+/** A placeholder in a route's path or host, and what fills it. */
+export interface RouteParameter {
+  readonly name: string;
+  /** False when a default exists, in the route's defaults or inline, so a call can leave it out. */
+  readonly required: boolean;
+  readonly requirement?: string;
+  readonly default?: string;
 }
 export interface ResponseField { readonly name: string; readonly range: OffsetRange; readonly fields: readonly ResponseField[] }
 export interface EndpointAction {
@@ -29,12 +41,40 @@ export function routesFromDebug(raw: string): readonly SymfonyRoute[] | undefine
   for (const [name, value] of Object.entries(parsed)) {
     if (!isRecord(value) || typeof value['path'] !== 'string' || !value['path'].startsWith('/') ||
       typeof value['method'] !== 'string' || !isRecord(value['defaults'])) { continue; }
-    const controller = value['defaults']['_controller'];
+    const defaults = value['defaults'];
+    const controller = defaults['_controller'];
     if (typeof controller !== 'string' || !/^[\w\\]+(?:::\w+)?$/.test(controller)) { continue; }
+    const canonical = defaults['_canonical_route'];
     routes.push({ name, path: value['path'], methods: value['method'], controller,
-      format: typeof value['defaults']['_format'] === 'string' ? value['defaults']['_format'] : '' });
+      format: typeof defaults['_format'] === 'string' ? defaults['_format'] : '',
+      parameters: routeParameters(value['path'], typeof value['host'] === 'string' ? value['host'] : '', defaults,
+        isRecord(value['requirements']) ? value['requirements'] : {}),
+      ...(typeof canonical === 'string' ? { canonical } : {}) });
   }
   return routes.length || Object.keys(parsed).length === 0 ? routes : undefined;
+}
+
+/**
+ * The placeholders a route's host and path declare, in order.
+ *
+ * `{id}` must be passed. `{page}` with a default, given in the route's
+ * defaults or inline as `{page?1}`, can be left out, and `{!page}` only keeps
+ * its default in the generated URL. An inline `<\d+>` is the requirement;
+ * so is an entry in the route's requirements.
+ */
+export function routeParameters(path: string, host: string, defaults: Readonly<Record<string, unknown>>,
+  requirements: Readonly<Record<string, unknown>>): readonly RouteParameter[] {
+  const parameters: RouteParameter[] = [];
+  for (const match of `${host} ${path}`.matchAll(/\{!?(\w+)(?:<([^>]*)>)?(?:\?([^}]*))?\}/g)) {
+    const [, name, inlineRequirement, inlineDefault] = match;
+    if (name === undefined || parameters.some((parameter) => parameter.name === name)) { continue; }
+    const fallback = inlineDefault ?? (name in defaults ? defaults[name] : undefined);
+    const requirement = inlineRequirement ?? (typeof requirements[name] === 'string' ? requirements[name] : undefined);
+    parameters.push({ name, required: fallback === undefined,
+      ...(requirement === undefined ? {} : { requirement }),
+      ...(fallback === undefined ? {} : { default: typeof fallback === 'string' ? fallback : JSON.stringify(fallback) }) });
+  }
+  return parameters;
 }
 
 /** Literal URLs only: ambiguous routes, hosts and runtime path parameters must

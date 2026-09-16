@@ -98,14 +98,18 @@ editor-driven test exercises it; anything else is named rather than implied.
 | Events between controllers | Literal dispatch names, listener completion, navigation to the dispatch | Event detail, bubbling and global listeners, guidance on when an event fits |
 | JavaScript and TypeScript | Generated members alongside built-in completion, original-source navigation through source maps | Declaration snippets |
 | Symfony integration | Helper functions and filters, named and positional arguments, enabled UX controllers | Eager and lazy loading, fuller registration origins |
-| AssetMapper | Configured roots, the asset map, `importmap.php`, `asset()`, `importmap()`, import specifiers, unresolvable-import reporting, a page's stylesheets by every route, `@import` and `url()` navigation, fragments and queries | The loading chain as a browsable tree, the logical-path explanation, asset repair actions, the array form of `importmap()` |
+| AssetMapper | Configured roots, the asset map, `importmap.php`, `asset()`, `importmap()`, import specifiers, unresolvable-import reporting, a page's stylesheets by every route, `@import` and `url()` navigation, fragments and queries, the loading chain as a browsable tree, the missing-extension repair | The logical-path explanation, a repair for a missing importmap entry, the array form of `importmap()` |
 
 Ergonomics, step 4, is under way. Hover explains a binding in the project's
 own names, saying which method an event calls and in which file, which
 property reads an element, and which declaration a generated property came
 from; the same sentences appear on completion items. A quick fix writes a
 member a binding asks for and the controller does not have, adding a method
-inside the class body or a name to its static list.
+inside the class body, typed in TypeScript, or a name to its static list,
+outlets included. A controller nothing registers is created, in TypeScript
+when the project's controllers are. A relative import gains the extension it
+was written without. A `data-controller` attribute can be connected to
+another controller through an outlet, declaration and binding in one edit.
 
 The live tour now covers the whole list the outcome asks for. A controller
 owns a target, reads a typed value with a default, applies a logical CSS
@@ -115,8 +119,8 @@ alias rather than a relative path. A repairs page carries two deliberate
 mistakes, a method and a target that are bound but never declared, both
 chosen because they fail silently and neither can throw.
 
-Not built: the "Explain this connection" action as a command, and the create
-controller and connect outlet edits.
+Not built: the "Explain this connection" action as a command, and the connect
+edit for a controller written with the `stimulus_controller()` helper.
 
 Outstanding against the completion criteria as a whole: no beginner
 walkthrough exists, light and dark themes and keyboard navigation have not

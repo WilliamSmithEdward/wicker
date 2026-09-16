@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
-import { FrontendIndex, joinProjectPath, toProjectPath } from '@wicker/core';
-import { Deferred } from './debounce.js';
+import { FrontendIndex, toProjectPath } from '@wicker/core';
 import { readInBatches, type VsCodeFileSystem } from './fileSystem.js';
 import { enginePathOf, inIgnoredDirectory, IGNORED_GLOB } from './paths.js';
+import { SourceTracker } from './sourceTracker.js';
 
 /*
  * The file kinds this tracker reads. Named once: the glob and the path guard
@@ -23,71 +23,49 @@ const TRACKED = new RegExp(String.raw`\.(?:${EXTENSIONS.join('|')})$`);
 
 /** Independent of console discovery: dirty buffers immediately update links and
  * response fields without running PHP on every keystroke. */
-export class FrontendTracker implements vscode.Disposable {
+export class FrontendTracker extends SourceTracker {
   readonly index = new FrontendIndex();
   private readonly changed = new vscode.EventEmitter<void>();
   readonly onDidChange = this.changed.event;
-  private readonly subscriptions: vscode.Disposable[];
-  private readonly pending = new Map<string, object>();
-  private readonly rootUri: vscode.Uri;
-  private disposed = false;
-  /** Buffer edits, applied when typing pauses or a reader asks. */
-  private readonly deferred = new Deferred<vscode.TextDocument>(300);
-  constructor(private readonly root: string, private readonly fs: VsCodeFileSystem) {
-    this.rootUri = fs.toUri(root);
-    const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(this.rootUri, PATTERN));
-    const reload = (uri: vscode.Uri): void => { void this.load(uri); };
-    this.subscriptions = [watcher, watcher.onDidCreate(reload), watcher.onDidChange(reload),
-      watcher.onDidDelete((uri) => { const path = this.path(uri); if (path) { this.pending.delete(path); this.index.remove(path); this.changed.fire(); } }),
-      vscode.workspace.onDidOpenTextDocument((doc) => this.update(doc)),
-      vscode.workspace.onDidChangeTextDocument((event) =>
-        this.deferred.schedule(event.document.uri.toString(), event.document, (document) => this.update(document))),
-      vscode.workspace.onDidCloseTextDocument((doc) => reload(doc.uri))];
-  }
+
+  constructor(root: string, fs: VsCodeFileSystem) { super(root, fs, PATTERN); }
+
   /**
    * Reads every tracked file, and returns what the search found so the render
    * site tracker can read its PHP without searching the workspace again.
    */
   async refresh(): Promise<readonly vscode.Uri[]> {
-    const uris = new Map(this.index.sourcePaths().map((path) => { const uri = this.fs.toUri(joinProjectPath(this.root, path)); return [uri.toString(), uri]; }));
+    // Old paths too, so a rebuild also removes deleted sources, and open
+    // buffers, so an unsaved file is never replaced by its older disk text.
+    const paths = new Set(this.index.sourcePaths());
     const found = await vscode.workspace.findFiles(new vscode.RelativePattern(this.rootUri, PATTERN), IGNORED_GLOB, 20000);
-    for (const uri of found) { uris.set(uri.toString(), uri); }
-    for (const doc of vscode.workspace.textDocuments) { if (this.path(doc.uri) && !doc.isClosed) { uris.set(doc.uri.toString(), doc.uri); } }
-    await readInBatches([...uris.values()], (uri) => this.load(uri), () => this.disposed);
+    for (const uri of [...found, ...vscode.workspace.textDocuments.filter((doc) => !doc.isClosed).map((doc) => doc.uri)]) {
+      const path = this.pathOf(uri);
+      if (path !== undefined) { paths.add(path); }
+    }
+    await readInBatches([...paths], (path) => this.load(path), () => this.disposed);
     return found;
   }
-  private path(uri: vscode.Uri): string | undefined {
+
+  protected pathOf(uri: vscode.Uri): string | undefined {
     if (uri.scheme !== this.rootUri.scheme || uri.authority !== this.rootUri.authority) { return undefined; }
     const path = toProjectPath(this.root, enginePathOf(uri));
     return path && TRACKED.test(path) && !inIgnoredDirectory(path) ? path : undefined;
   }
-  private update(document: vscode.TextDocument): void {
-    const path = this.path(document.uri);
-    if (!path || document.isClosed || this.disposed) { return; }
-    this.pending.delete(path);
-    this.set(path, document.getText());
-  }
-  private set(path: string, source: string | undefined): void {
-    if (source === undefined || source.length > 1_000_000) { this.index.remove(path); }
-    else { this.index.update(path, source); }
+
+  protected set(path: string, source: string): void {
+    // A file that size is generated output, and parsing it would stall the host.
+    if (source.length > 1_000_000) { this.index.remove(path); } else { this.index.update(path, source); }
     this.changed.fire();
   }
-  private async load(uri: vscode.Uri): Promise<void> {
-    const path = this.path(uri);
-    if (!path || this.disposed) { return; }
-    const request = {};
-    this.pending.set(path, request);
-    const disk = await this.fs.readFile(joinProjectPath(this.root, path));
-    if (this.disposed || this.pending.get(path) !== request) { return; }
-    this.pending.delete(path);
-    const open = vscode.workspace.textDocuments.find((doc) => !doc.isClosed && doc.uri.toString() === uri.toString());
-    this.set(path, disk === undefined ? undefined : open?.getText() ?? disk);
-  }
-  /** Applies every buffer edit still waiting, so a reader sees current text. */
-  flush(): void { this.deferred.flush(); }
 
-  dispose(): void {
-    this.disposed = true; this.pending.clear(); this.deferred.dispose();
-    this.subscriptions.forEach((entry) => { entry.dispose(); }); this.changed.dispose();
+  protected remove(path: string): void {
+    this.index.remove(path);
+    this.changed.fire();
+  }
+
+  override dispose(): void {
+    super.dispose();
+    this.changed.dispose();
   }
 }

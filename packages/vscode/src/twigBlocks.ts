@@ -4,7 +4,7 @@ import { lexTwigRegions, scanTwigTemplateReferences, twigBlocks, twigEmbeds, typ
 
 import { frontendIndex } from './frontendProject.js';
 import { enginePathOf } from './paths.js';
-import { rangeOf } from './ranges.js';
+import { rangeInSource, rangeOf } from './ranges.js';
 import type { ProjectSession, SessionManager } from './session.js';
 import { severityFromSettings } from './severity.js';
 
@@ -48,7 +48,7 @@ export class TwigBlockProvider implements vscode.DefinitionProvider, vscode.Hove
     const target = at && this.above(at)[0];
     if (!at || !target) { return undefined; }
     return [{ originSelectionRange: at.origin, targetUri: at.session.uriFor(target.template),
-      targetRange: rangeIn(target.source, target.block.range), targetSelectionRange: rangeIn(target.source, target.block.nameRange) }];
+      targetRange: rangeInSource(target.source, target.block.range), targetSelectionRange: rangeInSource(target.source, target.block.nameRange) }];
   }
 
   provideHover(document: vscode.TextDocument, position: vscode.Position): vscode.Hover | undefined {
@@ -76,7 +76,7 @@ export class TwigBlockProvider implements vscode.DefinitionProvider, vscode.Hove
     if (!at) { return undefined; }
     return [new vscode.Location(document.uri, rangeOf(document, at.block.nameRange)),
       ...[...this.above(at), ...this.below(at)].map((entry) =>
-        new vscode.Location(at.session.uriFor(entry.template), rangeIn(entry.source, entry.block.nameRange)))];
+        new vscode.Location(at.session.uriFor(entry.template), rangeInSource(entry.source, entry.block.nameRange)))];
   }
 
   /** Inside `{% block`, the names the ancestors declare and this template has not overridden yet. */
@@ -244,15 +244,4 @@ function dynamicExtends(source: string): boolean {
 function usesOf(source: string): string[] {
   return scanTwigTemplateReferences(source).filter((reference) => reference.kind === 'use' && !reference.isCandidateList)
     .map((reference) => reference.templateName);
-}
-
-/** A range in a document this provider has only the text of. */
-function rangeIn(source: string, range: { readonly start: number; readonly end: number }): vscode.Range {
-  return new vscode.Range(positionIn(source, range.start), positionIn(source, range.end));
-}
-
-function positionIn(source: string, offset: number): vscode.Position {
-  const before = source.slice(0, offset);
-  const line = (before.match(/\n/g) ?? []).length;
-  return new vscode.Position(line, offset - (before.lastIndexOf('\n') + 1));
 }

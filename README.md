@@ -385,6 +385,18 @@ Inherited/trait props, dynamic component names, prop type checking, custom
 property hooks and Live Component behavior are not inferred. Classes outside
 the application's Composer PSR-4 mappings still link to their indexed template.
 
+### Live Components
+
+In the template of a component the console reports as live, `data-model`
+completes the props the class marks `#[LiveProp(writable: true)]`, past any
+modifiers such as `on(change)|`, and `live_action()` and
+`data-live-action-param` complete the methods marked `#[LiveAction]`. Hover
+says what a name is and which file declares it; Go to Definition opens the
+declaration. A `data-model` naming no prop, or a prop that is not writable,
+and an action the class does not declare, are reported, because each is
+refused when the request arrives and says nothing in the editor;
+`wicker.diagnostics.unknownLiveMember` turns that down or off.
+
 ### Stimulus and API connections
 
 In a StimulusBundle project, complete controller names in `data-controller`

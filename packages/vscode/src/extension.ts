@@ -19,6 +19,7 @@ import { counted } from './text.js';
 import { missingImportDiagnostics } from './importDiagnostics.js';
 import { ImportExtensionActionProvider } from './importActions.js';
 import { StimulusMemberActionProvider, connectOutlet } from './stimulusActions.js';
+import { LiveComponentProvider, liveComponentDiagnostics } from './liveComponents.js';
 import { LoaderPathMemory } from './loaderPathMemory.js';
 import { RenderedByProvider } from './renderedBy.js';
 import { routeDiagnostics } from './routeDiagnostics.js';
@@ -72,6 +73,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
   const twigCallables = new TwigCallableProvider(sessions);
   const twigComponents = new TwigComponentProvider(sessions);
   const twigBlocks = new TwigBlockProvider(sessions);
+  const liveComponents = new LiveComponentProvider(sessions);
   const frontend = new FrontendProvider(sessions);
   const sidebar = new WickerSidebar(sessions, context.workspaceState);
   const output = vscode.window.createOutputChannel('Wicker');
@@ -115,6 +117,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
     vscode.languages.registerDefinitionProvider(TWIG_SELECTOR, twigBlocks),
     vscode.languages.registerHoverProvider(TWIG_SELECTOR, twigBlocks),
     vscode.languages.registerReferenceProvider(TWIG_SELECTOR, twigBlocks),
+    vscode.languages.registerCompletionItemProvider(TWIG_SELECTOR, liveComponents, '"', "'", '|'),
+    vscode.languages.registerHoverProvider(TWIG_SELECTOR, liveComponents),
+    vscode.languages.registerDefinitionProvider(TWIG_SELECTOR, liveComponents),
     vscode.languages.registerDefinitionProvider(SELECTOR, {
       provideDefinition(document, position) {
         const found = locate(document, position);
@@ -279,7 +284,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
     diagnostics.set(document.uri, script
       ? missingImportDiagnostics(sessions, session, document)
       : [...buildDiagnostics(session, document), ...twigCallableDiagnostics(session, document),
-        ...routeDiagnostics(sessions, session, document), ...twigBlockDiagnostics(sessions, session, document)]);
+        ...routeDiagnostics(sessions, session, document), ...twigBlockDiagnostics(sessions, session, document),
+        ...liveComponentDiagnostics(sessions, session, document)]);
   };
 
   const refreshAllDiagnostics = (): void => {

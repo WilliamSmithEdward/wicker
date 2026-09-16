@@ -305,6 +305,17 @@
           "default": "warning",
           "markdownDescription": "How to report a top-level `{% block %}` in a template that extends another when no ancestor defines a block of that name, so Twig never renders it. Blocks inside `{% embed %}` are read against the embedded template; a layout named at runtime is not checked."
         },
+        "wicker.diagnostics.unknownLiveMember": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "off"
+          ],
+          "default": "warning",
+          "markdownDescription": "How to report, in a Live Component's template, a `data-model` naming no `#[LiveProp]` or one that is not writable, and a `live_action()` or `data-live-action-param` naming no `#[LiveAction]`. Each is refused at runtime without a word. Suspended while the component list is being rebuilt."
+        },
         "wicker.sidebar.colors": {
           "type": "boolean",
           "default": true,

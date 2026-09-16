@@ -669,7 +669,7 @@ class SidebarCreatedController {
 
     const broken = Object.entries(SIDEBAR_ICONS).flatMap(([role, { id }]) => {
       // A modifier such as ~spin is the workbench's animation, not a glyph.
-      const [name] = id.split('~');
+      const name = id.replace(/~\w+$/, '');
       if (!drawn.has(id)) { return codicons.has(name) ? [] : [`${role}: no codicon "${id}"`]; }
       const icon = sidebarIcon(role as SidebarRole);
       if (!('dark' in icon)) { return [`${role}: "${id}" should be drawn, not a ThemeIcon`]; }

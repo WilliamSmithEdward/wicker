@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.9.0
+
+Routes, blocks and live components read from the template side, and a
+binding that asks for something gets it written.
+
+### Added
+
+- **Route parameters.** A route now carries its placeholders, with the
+  router's requirements and defaults. Inside `path()` and `url()`, and
+  inside `redirectToRoute()` and `generateUrl()` in PHP, the keys complete;
+  hover on the route lists its placeholders and hover on a key says what it
+  fills. A call that names an unregistered route, or leaves out a placeholder
+  its route requires, is reported under
+  `wicker.diagnostics.missingRouteParameter`. A key the route does not
+  declare is explained, not refused: Symfony appends it as a query string.
+  In PHP the route name completes as well.
+- **Twig blocks.** Go to Definition on a block name, or on `parent()` inside
+  it, opens the block it overrides. Find All References lists every
+  definition up and down the inheritance chain, and hover names the ancestor
+  a block overrides and the templates overriding it. After `{% block`,
+  completion offers the ancestors' names this template has not overridden.
+  A top-level block no ancestor defines is reported under
+  `wicker.diagnostics.unknownBlock`, because Twig renders nothing for it and
+  says nothing. Blocks inside `{% embed %}` read against the embedded
+  template, and `{% use %}` counts.
+- **Live Components.** In the template of a component the console reports as
+  live, `data-model` completes the props marked writable, past modifiers
+  such as `on(change)|`, and `live_action()` completes the methods marked as
+  actions. Hover says what a name is and Go to Definition opens its
+  declaration. A missing prop or action, or a `data-model` on a prop that is
+  not writable, is reported under `wicker.diagnostics.unknownLiveMember`.
+- **Create and connect edits.** A missing outlet is declared like a missing
+  target. A stub written into a TypeScript controller takes a typed event,
+  and a controller created for an unregistered identifier is TypeScript when
+  the project's controllers are. A relative import written without its
+  extension is offered the one that exists. On a `data-controller`
+  attribute, a refactoring connects the controller to another through an
+  outlet, declaring it in the controller and binding it on the element in
+  one edit.
+
 ## 0.8.0
 
 A sidebar you can read at a glance and work from with the mouse, and a

@@ -28,7 +28,9 @@ export async function discoverFrontend(fs: WickerFileSystem, root: string, runne
   const routes = routeResult.ok ? routesFromDebug(routeResult.stdout) : undefined;
   return { controllers: stimulus.controllers, stimulusStatus: stimulus.status, routes: routes ?? [],
     ...(stimulus.directory === undefined ? {} : { controllerDirectory: stimulus.directory }),
-    routesStatus: routes ? `${routes.length} routes from Symfony console` : `unavailable; ${routeResult.error ?? 'route JSON was not readable'}` };
+    routesStatus: routes
+      ? `${routes.length} routes from ${routeResult.remembered === true ? 'an earlier Symfony console answer' : 'Symfony console'}`
+      : `unavailable; ${routeResult.error ?? 'route JSON was not readable'}` };
 }
 
 async function discoverStimulus(fs: WickerFileSystem, root: string, runner: ConsoleRunner): Promise<{ controllers: StimulusController[]; status: string; directory: string | undefined }> {

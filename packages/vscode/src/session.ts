@@ -7,12 +7,17 @@ import {
   parseTemplateName,
   parseTwigConfig,
   resolveLoaderPaths,
+  DEBUG_TWIG_COMMAND,
+  objectOf,
+  parseJsonLoosely,
+  TwigLoaderPaths,
   TwigTemplateIndex,
   TWIG_CONFIG_PATH,
   joinProjectPath,
   normalizeRootPath,
   toProjectPath,
   type IndexedTemplate,
+  type LoaderPathEntry,
   type LoaderPathsResolution,
   type RenderSite,
   type SymfonyProject,
@@ -24,7 +29,7 @@ import {
 import { ProcessConsoleRunner } from './console.js';
 import { discoverComponents, type ComponentDiscovery } from './componentDiscovery.js';
 import { VsCodeFileSystem, type KnownSources } from './fileSystem.js';
-import type { LoaderPathMemory } from './loaderPathMemory.js';
+import type { ConsoleMemory } from './consoleMemory.js';
 import { dirname, enginePathOf, inIgnoredDirectory } from './paths.js';
 import { RenderSiteTracker } from './renderSiteTracker.js';
 import { TemplateContextTracker } from './templateContextTracker.js';
@@ -105,8 +110,13 @@ export class ProjectSession implements vscode.Disposable {
   private pendingScope: RefreshScope = 'templates';
   /** The revision the last pass to finish cleanly had answered for. */
   private completedRevision = 0;
-  /** Configuration answers from the console, kept until configuration changes. */
-  private readonly consoleAnswers = new Map<string, ConsoleResult>();
+  /**
+   * Configuration answers from the console, kept until configuration changes.
+   *
+   * Seeded from what memory holds, so the first pass of a session boots the
+   * kernel only for what PHP can change; those are confirmed once it has.
+   */
+  private readonly consoleAnswers: Map<string, ConsoleResult>;
   private discoveryPending = false;
   /** Whether the console has answered once, so the tree is no longer provisional. */
   private consoleAnswered = false;
@@ -117,7 +127,7 @@ export class ProjectSession implements vscode.Disposable {
   /** Fires after the index has been rebuilt. */
   readonly onDidChange = this.changed.event;
 
-  private readonly memory: LoaderPathMemory;
+  private readonly memory: ConsoleMemory;
 
   private constructor(
     project: SymfonyProject,
@@ -128,7 +138,7 @@ export class ProjectSession implements vscode.Disposable {
     components: ComponentDiscovery,
     frontend: FrontendDiscovery,
     assets: AssetDiscovery,
-    memory: LoaderPathMemory,
+    memory: ConsoleMemory,
   ) {
     this.project = project;
     this.rootUri = rootUri;
@@ -142,6 +152,7 @@ export class ProjectSession implements vscode.Disposable {
     this.assets = assets;
     this.frontendSources = new FrontendTracker(project.root, fileSystem);
     this.memory = memory;
+    this.consoleAnswers = rememberedConfiguration(memory, project.root);
     this.installWatchers();
   }
 
@@ -172,9 +183,13 @@ export class ProjectSession implements vscode.Disposable {
   }
 
   /** Console data describes saved files; unsaved registration edits cannot disprove a name. */
-  /** Whether the console's last answers are current: no rebuild is under way. */
+  /**
+   * Whether the console's last answers are current: it has answered once and
+   * no rebuild is under way. A check that would report something as missing
+   * waits for this, since what memory answered in the meantime can be stale.
+   */
   get discoveryCurrent(): boolean {
-    return !this.discoveryPending;
+    return !this.discoveryPending && !this.consolePending;
   }
 
   /**
@@ -198,21 +213,21 @@ export class ProjectSession implements vscode.Disposable {
   /**
    * Detects a project at or above a workspace folder, and indexes its files.
    *
-   * The console is not asked here. It is asked by the first refresh, once
-   * the session is published: six kernel boots on a container or a remote
-   * machine took longer than reading the whole project, and the tree waited
-   * for them with nothing to show.
+   * The console is not asked here; what it said last time stands in, and it
+   * is asked by the first refresh, once the session is published: six kernel
+   * boots on a container or a remote machine took longer than reading the
+   * whole project, and the tree waited for them with nothing to show.
    */
   static async create(
     folder: vscode.WorkspaceFolder,
-    memory: LoaderPathMemory,
+    memory: ConsoleMemory,
   ): Promise<ProjectSession | undefined> {
     const fileSystem = new VsCodeFileSystem(folder.uri);
     const project = await discoverSymfonyProject(fileSystem, enginePathOf(folder.uri));
     if (project === undefined) {
       return undefined;
     }
-    const runner = ProcessConsoleRunner.create(project.root) === undefined ? undefined : CONSOLE_PENDING;
+    const runner = ProcessConsoleRunner.create(project.root) === undefined ? undefined : consoleFromMemory(memory, project.root);
     const environment = await discoverEnvironment(fileSystem, project, memory, runner);
     const index = await indexTemplates(fileSystem, project, environment.loaderPaths);
     const session = new ProjectSession(
@@ -388,7 +403,17 @@ export class ProjectSession implements vscode.Disposable {
           this.completedRevision = revision;
           this.discoveryPending = false;
           this.changed.fire();
-          return;
+          // Published; now what memory answered for is checked against the
+          // console, after the answers a person is waiting for rather than
+          // alongside them. A difference means the configuration moved while
+          // the editor was closed, and everything read through it is read
+          // again.
+          if (scope !== 'templates' && await this.confirmRememberedConfiguration()) {
+            this.refreshRevision++;
+            this.widenRefresh('php');
+          }
+          if (this.disposed || revision === this.refreshRevision) { return; }
+          this.discoveryPending = true;
         }
         this.changed.fire();
       }
@@ -433,7 +458,34 @@ export class ProjectSession implements vscode.Disposable {
   /** The console, answering configuration questions from the last time it was asked. */
   private rememberingRunner(): ConsoleRunner | undefined {
     const inner = ProcessConsoleRunner.create(this.project.root);
-    return inner === undefined ? undefined : new RememberingRunner(inner, this.consoleAnswers);
+    return inner === undefined ? undefined : new RememberingRunner(inner, this.consoleAnswers, this.memory, this.project.root);
+  }
+
+  /**
+   * Asks the console for the configuration answers that came from memory.
+   *
+   * True when any differed: the configuration changed while the editor was
+   * closed, and a pass has to follow. Nothing is asked while the console is
+   * not answering at all, so a console that is down does not add a minute of
+   * waiting to a pass that has already said so; an answer it does not confirm
+   * stays remembered and is asked for again after the next pass.
+   */
+  private async confirmRememberedConfiguration(): Promise<boolean> {
+    const unconfirmed = CONFIGURATION_COMMANDS.filter((command) =>
+      this.consoleAnswers.get(JSON.stringify(command))?.remembered === true);
+    const inner = ProcessConsoleRunner.create(this.project.root);
+    if (unconfirmed.length === 0 || inner === undefined || this.loaderPathInfo.source !== 'console') { return false; }
+    const answers = await Promise.all(unconfirmed.map(async (command) => ({ command, now: await inner.run(command) })));
+    if (this.disposed) { return false; }
+    let changed = false;
+    for (const { command, now } of answers) {
+      if (!now.ok) { continue; }
+      const key = JSON.stringify(command);
+      if (now.stdout !== this.consoleAnswers.get(key)?.stdout) { changed = true; }
+      this.consoleAnswers.set(key, now);
+      await this.memory.remember(this.project.root, command, now.stdout);
+    }
+    return changed;
   }
 
   /**
@@ -620,44 +672,98 @@ const SCOPE_WIDTH: Record<RefreshScope, number> = { templates: 0, php: 1, enviro
  * environment one. Matched on the exact argument list, so a command asked in
  * any other form is asked afresh.
  */
-const CONFIGURATION_COMMANDS: readonly string[] = [
-  JSON.stringify(['debug:config', 'stimulus', '--format=json', '--no-ansi', '--no-interaction']),
-  JSON.stringify(['debug:config', 'framework', 'asset_mapper', '--format=json', '--no-ansi', '--no-interaction']),
-  JSON.stringify(['debug:container', '--parameter=kernel.project_dir', '--format=json', '--no-ansi', '--no-interaction']),
+const CONFIGURATION_COMMANDS: readonly (readonly string[])[] = [
+  ['debug:config', 'stimulus', '--format=json', '--no-ansi', '--no-interaction'],
+  ['debug:config', 'framework', 'asset_mapper', '--format=json', '--no-ansi', '--no-interaction'],
+  ['debug:container', '--parameter=kernel.project_dir', '--format=json', '--no-ansi', '--no-interaction'],
 ];
+const CONFIGURATION_KEYS = new Set(CONFIGURATION_COMMANDS.map((command) => JSON.stringify(command)));
 
-/** A runner that answers the configuration commands from what it was told. */
+/**
+ * A runner that answers the configuration commands from what it was told, and
+ * tells memory what the console answers.
+ */
 class RememberingRunner implements ConsoleRunner {
-  constructor(private readonly inner: ConsoleRunner, private readonly answers: Map<string, ConsoleResult>) {}
+  constructor(private readonly inner: ConsoleRunner, private readonly answers: Map<string, ConsoleResult>,
+    private readonly memory: ConsoleMemory, private readonly root: string) {}
 
   async run(args: readonly string[]): Promise<ConsoleResult> {
     const key = JSON.stringify(args);
-    const remembered = CONFIGURATION_COMMANDS.includes(key) ? this.answers.get(key) : undefined;
-    if (remembered !== undefined) { return remembered; }
+    const kept = CONFIGURATION_KEYS.has(key) ? this.answers.get(key) : undefined;
+    if (kept !== undefined) { return kept; }
     const result = await this.inner.run(args);
     // Only a good answer is kept: a container that was down is asked again.
-    if (result.ok && CONFIGURATION_COMMANDS.includes(key)) { this.answers.set(key, result); }
+    if (result.ok) {
+      if (CONFIGURATION_KEYS.has(key)) { this.answers.set(key, result); }
+      await this.memory.remember(this.root, args, result.stdout);
+    }
     return result;
   }
 }
 
+/** Why the console has not answered yet, on an answer given in its place. */
+const CONSOLE_PENDING = 'waiting for the Symfony console';
+
 /**
- * The console before it has been asked.
+ * The console before it has been asked: what it said last time, marked as
+ * remembered, and not answered yet where memory holds nothing.
  *
- * Every question reads as not answered yet, which is what lets a project be
- * indexed and shown before its console has booted: the remembered bundle
- * namespaces stand in, as they do for a console that was tried and failed,
- * and the sections only the console can fill wait for it rather than
- * reporting a console that was never reached.
+ * This is what lets a project be indexed and drawn complete before its
+ * console has booted. The remembered namespaces stand in as they do for a
+ * console that was tried and failed. Routes and components stand in only
+ * until the console answers: their absence breaks nothing, while a stale list
+ * would say a route added since does not exist, so a console that then fails
+ * leaves them unavailable rather than remembered.
  */
-const CONSOLE_PENDING: ConsoleRunner = {
-  run: () => Promise.resolve({ ok: false, stdout: '', error: 'waiting for the Symfony console' }),
-};
+function consoleFromMemory(memory: ConsoleMemory, root: string): ConsoleRunner {
+  return {
+    run: (args) => {
+      const stdout = memory.recall(root, args);
+      return Promise.resolve(stdout === undefined
+        ? { ok: false, stdout: '', error: CONSOLE_PENDING }
+        : { ok: true, stdout, error: CONSOLE_PENDING, remembered: true });
+    },
+  };
+}
+
+/**
+ * The configuration answers memory holds, as the runner would have kept them.
+ *
+ * Seeding a session with them means its first pass boots the kernel only for
+ * what PHP can change, which on a small machine is the difference between
+ * three boots competing for it and six. Each is marked remembered and
+ * confirmed against the console once the pass has been published.
+ */
+function rememberedConfiguration(memory: ConsoleMemory, root: string): Map<string, ConsoleResult> {
+  const answers = new Map<string, ConsoleResult>();
+  for (const command of CONFIGURATION_COMMANDS) {
+    const stdout = memory.recall(root, command);
+    if (stdout !== undefined) {
+      answers.set(JSON.stringify(command), { ok: true, stdout, error: undefined, remembered: true });
+    }
+  }
+  return answers;
+}
+
+/**
+ * The namespaces the console reported last time, for when it fails now.
+ *
+ * Read back through the parser that reads the console, so a stored answer is
+ * trusted no further than a fresh one; nothing when there is no answer or it
+ * no longer reads.
+ */
+function rememberedLoaderPaths(memory: ConsoleMemory, root: string): readonly LoaderPathEntry[] | undefined {
+  const stdout = memory.recall(root, DEBUG_TWIG_COMMAND);
+  const payload = stdout === undefined ? undefined : objectOf(parseJsonLoosely(stdout));
+  if (payload?.['loader_paths'] === undefined) { return undefined; }
+  const entries = TwigLoaderPaths.fromDebugTwigJson(payload).all();
+  return entries.length === 0 ? undefined : entries;
+}
 
 async function discoverEnvironment(
   fileSystem: VsCodeFileSystem,
   project: SymfonyProject,
-  memory: LoaderPathMemory,
+  memory: ConsoleMemory,
   runner: ConsoleRunner | undefined,
 ): Promise<Environment> {
   const raw = await fileSystem.readFile(joinProjectPath(project.root, TWIG_CONFIG_PATH));
@@ -670,15 +776,9 @@ async function discoverEnvironment(
   const [loaderPaths, components, frontend, assets] = await Promise.all([resolveLoaderPaths(
     runner,
     loaderPathsFromTwigConfig(config),
-    memory.read(project.root),
+    rememberedLoaderPaths(memory, project.root),
   ), discoverComponents(fileSystem, project.root, runner), discoverFrontend(fileSystem, project.root, runner),
   discoverAssets(fileSystem, project.root, runner)]);
-
-  // Only a fresh console answer is recorded, so a run with the container down
-  // cannot overwrite a good answer with a worse one.
-  if (loaderPaths.consoleEntries !== undefined) {
-    await memory.write(project.root, loaderPaths.consoleEntries);
-  }
   return { loaderPaths, components, frontend, assets };
 }
 
@@ -724,31 +824,44 @@ export class SessionManager implements vscode.Disposable {
   readonly onDidChange = this.changed.event;
   readonly onDidChangeRenderSites = this.renderSitesChanged.event;
 
-  constructor(private readonly memory: LoaderPathMemory) {}
+  constructor(private readonly memory: ConsoleMemory) {}
 
   /**
    * Detects and indexes every workspace folder.
    *
-   * Each project is published as soon as its files are read, and the console
-   * is asked after that. The promise resolves once it has answered too, so a
-   * caller that goes on to read routes or components reads the real ones;
-   * `progress` is told which of the two is under way.
+   * Every project is published as soon as its files are read, and only then
+   * is any console asked: a second folder used to wait for the first folder's
+   * console, which on a remote machine is the whole wait. The promise
+   * resolves once every console has answered too, so a caller that goes on
+   * to read routes or components reads the real ones; `progress` is told
+   * which of the two is under way.
    */
   async initialize(progress?: (message: string) => void): Promise<void> {
+    const published: ProjectSession[] = [];
     for (const folder of vscode.workspace.workspaceFolders ?? []) {
-      await this.addFolder(folder, progress);
+      const session = await this.publish(folder, progress);
+      if (session !== undefined) { published.push(session); }
+    }
+    for (const session of published) {
+      await this.ask(session, progress);
     }
   }
 
   async addFolder(folder: vscode.WorkspaceFolder, progress?: (message: string) => void): Promise<void> {
+    const session = await this.publish(folder, progress);
+    if (session !== undefined) { await this.ask(session, progress); }
+  }
+
+  /** Detects a folder's project, indexes its files and puts it in the tree. */
+  private async publish(folder: vscode.WorkspaceFolder, progress?: (message: string) => void): Promise<ProjectSession | undefined> {
     const key = folder.uri.toString();
     if (this.sessions.has(key)) {
-      return;
+      return undefined;
     }
     progress?.('indexing templates');
     const session = await ProjectSession.create(folder, this.memory);
     if (session === undefined) {
-      return;
+      return undefined;
     }
     session.onDidChange(() => this.changed.fire());
     session.renderSites.onDidChange(() => this.renderSitesChanged.fire());
@@ -756,13 +869,22 @@ export class SessionManager implements vscode.Disposable {
     this.sessions.set(key, session);
     this.layout++;
     this.changed.fire();
-    // Published; now what only Symfony can say. Whether the workspace is
-    // trusted and the console enabled is read here, after the files, so a
-    // trust prompt answered while they were read is not missed.
-    if (session.consolePending) {
-      progress?.('asking the Symfony console');
-      await session.refresh('environment');
-    }
+    return session;
+  }
+
+  /**
+   * Asks a published project's console what only Symfony can say.
+   *
+   * Whether the workspace is trusted and the console enabled is read here,
+   * after the files, so a trust prompt answered while they were read is not
+   * missed. The pass is the PHP-scoped one: the configuration answers memory
+   * holds are kept for it and confirmed after, rather than asked for again
+   * alongside everything else.
+   */
+  private async ask(session: ProjectSession, progress?: (message: string) => void): Promise<void> {
+    if (!session.consolePending) { return; }
+    progress?.('asking the Symfony console');
+    await session.refresh('php');
   }
 
   removeFolder(folder: vscode.WorkspaceFolder): void {

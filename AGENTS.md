@@ -222,7 +222,13 @@ up as unavailable until a retry ran against the cache those boots had warmed.
 A session is now built from the files first and published, and the console
 is asked by the first refresh with a minute to answer; `consolePending` is
 what the sidebar reads to show a waiting row instead of warnings. Keep that
-order: publish, then ask.
+order: publish, then ask. What the console said last time is remembered per
+command in workspace state and stands in for that first pass. The three
+configuration answers are kept for the pass and confirmed against the console
+after it has been published, so a first open boots the kernel three times
+before anything visible and three times after. Routes and components are
+remembered only until the console answers, because their absence breaks
+nothing while a stale list would say a route added since does not exist.
 
 **A memo has to be keyed on everything its answer was read from.** The Stimulus
 wiring memo was keyed on the scanned-file index and the controller list, but the

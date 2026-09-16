@@ -20,7 +20,17 @@ export interface ConsoleResult {
   readonly stdout: string;
   /** Why the run failed, for surfacing to the user rather than silent fallback. */
   readonly error: string | undefined;
+  /**
+   * True for an answer kept from an earlier run and given in place of one
+   * the console has not given yet; `error` then says why. A reader says
+   * where its data came from and holds back any check that needs a current
+   * answer.
+   */
+  readonly remembered?: boolean;
 }
+
+/** The question that names the namespaces, asked the same way everywhere it is asked. */
+export const DEBUG_TWIG_COMMAND: readonly string[] = ['debug:twig', '--format=json'];
 
 export interface ConsoleRunner {
   /** Runs `bin/console` with the given arguments. Never throws. */
@@ -84,7 +94,7 @@ export async function resolveLoaderPaths(
     };
   }
 
-  const result = await runner.run(['debug:twig', '--format=json']);
+  const result = await runner.run(DEBUG_TWIG_COMMAND);
   if (!result.ok) {
     return withoutConsole(configuredPaths, remembered, result.error ?? 'unknown');
   }
@@ -100,6 +110,18 @@ export async function resolveLoaderPaths(
 
   const fromConsole = TwigLoaderPaths.fromDebugTwigJson(payload);
   const merged: LoaderPathEntry[] = [...fromConsole.all(), ...configuredPaths.all()];
+  if (result.remembered === true) {
+    // An earlier run's answer, standing in until the console gives one: the
+    // namespaces, which resolve files that are there to be checked, but not
+    // the callables, since a check against a stale catalogue would report a
+    // filter added since as unknown.
+    return {
+      paths: TwigLoaderPaths.fromEntries(merged),
+      source: 'remembered',
+      consoleError: result.error,
+      consoleEntries: undefined,
+    };
+  }
   return {
     callables: twigCallablesFromDebug(payload),
     paths: TwigLoaderPaths.fromEntries(merged),

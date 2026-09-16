@@ -171,6 +171,18 @@ describe('resolveLoaderPaths with a remembered answer', () => {
     expect(resolved.paths.hasNamespace('Twig')).toBe(false);
   });
 
+  it('takes an answer the runner itself remembered as remembered, without its callables', async () => {
+    const resolved = await resolveLoaderPaths({
+      run: () => Promise.resolve({ ok: true, stdout: CONSOLE_JSON, error: 'waiting for the Symfony console', remembered: true }),
+    }, CONFIG_PATHS);
+    expect(resolved.source).toBe('remembered');
+    expect(resolved.paths.hasNamespace('Twig')).toBe(true);
+    expect(resolved.consoleError).toBe('waiting for the Symfony console');
+    // A stale catalogue would report a filter added since as unknown.
+    expect(resolved.callables).toBeUndefined();
+    expect(resolved.consoleEntries).toBeUndefined();
+  });
+
   it('falls back to config when there is nothing remembered', async () => {
     const resolved = await resolveLoaderPaths(runner({ ok: false, error: 'down' }), CONFIG_PATHS, []);
     expect(resolved.source).toBe('config');

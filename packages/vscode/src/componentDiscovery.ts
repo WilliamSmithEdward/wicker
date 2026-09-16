@@ -20,5 +20,6 @@ export async function discoverComponents(fileSystem: WickerFileSystem, root: str
   if (!result.ok) { return unavailable(`unavailable; ${result.error ?? 'component discovery failed'}`); }
   const components = componentsFromDebug(result.stdout);
   return components === undefined ? unavailable('unavailable; component table was not readable')
-    : { components, manifest, status: `${components.length} components from Symfony console` };
+    : { components, manifest, status: `${components.length} components from ${
+      result.remembered === true ? 'an earlier Symfony console answer' : 'Symfony console'}` };
 }

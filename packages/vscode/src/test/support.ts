@@ -3,7 +3,7 @@ import * as path from 'node:path';
 
 import * as vscode from 'vscode';
 
-import { LoaderPathMemory } from '../loaderPathMemory.js';
+import { ConsoleMemory } from '../consoleMemory.js';
 import { SessionManager } from '../session.js';
 
 const FIXTURE_ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
@@ -60,7 +60,7 @@ export function tooltipOf(item: vscode.TreeItem): string {
  */
 export function memorySessions(): SessionManager {
   const memory = new Map<string, unknown>();
-  return new SessionManager(new LoaderPathMemory({
+  return new SessionManager(new ConsoleMemory({
     keys: () => [...memory.keys()],
     get: <T>(key: string, fallback?: T): T | undefined => (memory.get(key) as T | undefined) ?? fallback,
     update: (key, value) => { memory.set(key, value); return Promise.resolve(); },

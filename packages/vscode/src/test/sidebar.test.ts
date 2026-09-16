@@ -7,7 +7,7 @@ import * as vscode from 'vscode';
 import { TwigLoaderPaths } from '@wicker/core';
 
 import type { WickerApi } from '../extension.js';
-import { LoaderPathMemory } from '../loaderPathMemory.js';
+import { ConsoleMemory } from '../consoleMemory.js';
 import { templatePicks } from '../pickers.js';
 import { SessionManager, type ProjectSession } from '../session.js';
 import { SIDEBAR_ICONS, sidebarIcon, type SidebarRole } from '../sidebarIcons.js';
@@ -45,7 +45,7 @@ suite('Wicker sidebar', () => {
     await vscode.commands.executeCommand('wicker.hideBundleTemplates');
     // Exercise tree rows with real project sessions and the editor filesystem.
     // The registered view itself is tested through reveal/open commands below.
-    sessions = new SessionManager(new LoaderPathMemory({
+    sessions = new SessionManager(new ConsoleMemory({
       keys: () => [...remembered.keys()],
       get: <T>(key: string, fallback?: T): T | undefined => (remembered.get(key) as T | undefined) ?? fallback,
       update: (key: string, value: unknown) => { remembered.set(key, value); return Promise.resolve(); },
@@ -808,6 +808,10 @@ class SidebarCreatedController {
       assert.equal(item.label, 'Asking the Symfony console...');
       assert.match(tooltipOf(item), /has not answered yet/);
       assert.match(tooltipOf(await tree.getTreeItem(project)), /waiting for the Symfony console/);
+      // Every folder is drawn before any console is asked: a second project
+      // used to wait for the first project's console.
+      await until(() => own.all().length === 2, 'every folder should be published before the console answers');
+      assert.ok(own.all().every((candidate) => candidate.consolePending));
 
       await initialized;
       assert.equal(session.consolePending, false);
@@ -823,7 +827,7 @@ class SidebarCreatedController {
   });
 
   test('has an empty tree when no Symfony project is detected', async () => {
-    const empty = new SessionManager(new LoaderPathMemory({
+    const empty = new SessionManager(new ConsoleMemory({
       keys: () => [], get: <T>(_key: string, fallback?: T): T | undefined => fallback,
       update: () => Promise.resolve(),
     }));

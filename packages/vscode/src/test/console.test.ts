@@ -5,10 +5,117 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 import { ProcessConsoleRunner } from '../console.js';
+import { ConsoleMemory } from '../consoleMemory.js';
+import { SessionManager, type ProjectSession } from '../session.js';
+import { until } from './support.js';
 
 const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
 
 suite('console', () => {
+  /*
+   * The last answers stand in until the console answers, so a project opened
+   * for the second time is drawn complete at once, and the configuration
+   * answers memory holds are asked for only after the ones a person waits
+   * for. A configuration that changed while the editor was closed is read
+   * again from the console's answer.
+   */
+  test('draws a second opening from the last answers and confirms configuration after the content', async () => {
+    const settings = vscode.workspace.getConfiguration('wicker');
+    const previousCommand = settings.inspect<string[]>('console.command')?.workspaceValue;
+    const previousEnabled = settings.inspect<boolean>('console.enabled')?.workspaceValue;
+    const marker = path.join(ROOT, 'wicker-console-order.txt');
+    const asked = (): string[] => { try { return fs.readFileSync(marker, 'utf8').split('\n').filter(Boolean); } catch { return []; } };
+    const remembered = new Map<string, unknown>();
+    const owned: SessionManager[] = [];
+    let initialized: Promise<void> | undefined;
+    const sessionsWithMemory = (): SessionManager => {
+      const sessions = new SessionManager(new ConsoleMemory({
+        keys: () => [...remembered.keys()],
+        get: <T>(key: string, fallback?: T): T | undefined => (remembered.get(key) as T | undefined) ?? fallback,
+        update: (key: string, value: unknown) => { remembered.set(key, value); return Promise.resolve(); },
+      }));
+      owned.push(sessions);
+      return sessions;
+    };
+    const rootSession = (sessions: SessionManager): ProjectSession | undefined => sessions.all()
+      .find((session) => session.fileSystem.toUri(session.project.root).toString() === vscode.Uri.file(ROOT).toString());
+    // A console whose route and Stimulus directory are its own, so both can be
+    // told from the fixture's. Only the root project's asks are recorded: the
+    // nested project runs the same command.
+    const fakeConsole = (delayMs: number, controllers: string): string[] => [process.env['npm_node_execpath'] ?? 'node', '-e', `
+      const args = process.argv; const root = process.cwd();
+      const which = args.find((arg) => arg.startsWith('debug:')) + (args.includes('asset_mapper') ? ' asset_mapper' : args.includes('stimulus') ? ' stimulus' : '');
+      if (/symfony-app$/.test(root)) { require('node:fs').appendFileSync(${JSON.stringify(marker)}, which + '\\n'); }
+      const answer = args.includes('debug:router') ? { wicker_remembered: { path: '/remembered', method: 'GET', defaults: { _controller: 'App\\\\Controller\\\\TaskController::index' } } }
+        : args.includes('asset_mapper') ? { paths: { 'assets/': '' }, excluded_patterns: [], exclude_dotfiles: true, public_prefix: '/assets/' }
+        : args.includes('debug:config') ? { stimulus: { controller_paths: [root + '/${controllers}'], controllers_json: root + '/assets/controllers.json' } }
+        : args.includes('debug:container') ? { 'kernel.project_dir': root }
+        : { loader_paths: { '(None)': ['templates'] }, functions: {}, filters: {} };
+      setTimeout(() => process.stdout.write(JSON.stringify(answer)), ${delayMs});`, '--'];
+    const CONTENT = ['debug:router', 'debug:twig', 'debug:twig-component'];
+    const CONFIGURATION = ['debug:config asset_mapper', 'debug:config stimulus', 'debug:container'];
+    const sorted = (entries: readonly string[]): string[] => [...entries].sort();
+    try {
+      await settings.update('console.enabled', true, vscode.ConfigurationTarget.Workspace);
+      await settings.update('console.command', fakeConsole(0, 'assets/controllers'), vscode.ConfigurationTarget.Workspace);
+      await vscode.commands.executeCommand('wicker.reindex');
+      const first = sessionsWithMemory();
+      await first.initialize();
+      const opened = rootSession(first);
+      assert.ok(opened);
+      assert.ok(opened.frontend.routes.some((route) => route.name === 'wicker_remembered'), 'the first opening asks the console');
+      assert.equal(opened.consolePending, false);
+      first.dispose();
+
+      // Slow now, so the second opening is seen before the console answers.
+      await settings.update('console.command', fakeConsole(1500, 'assets/controllers'), vscode.ConfigurationTarget.Workspace);
+      await vscode.commands.executeCommand('wicker.reindex');
+      fs.rmSync(marker, { force: true });
+      const second = sessionsWithMemory();
+      initialized = second.initialize();
+      await until(() => rootSession(second) !== undefined, 'the project should be published before the console answers');
+      const reopened = rootSession(second)!;
+      assert.equal(reopened.consolePending, true);
+      assert.ok(reopened.frontend.routes.some((route) => route.name === 'wicker_remembered'), 'routes stand in from the last answer');
+      assert.match(reopened.frontend.routesStatus, /earlier Symfony console answer/);
+      assert.equal(reopened.loaderPaths.source, 'remembered');
+      assert.equal(reopened.frontend.controllerDirectory, 'assets/controllers');
+      assert.equal(reopened.discoveryCurrent, false, 'checks wait for the console');
+      await initialized;
+      assert.equal(reopened.consolePending, false);
+      assert.match(reopened.frontend.routesStatus, /from Symfony console$/);
+      assert.equal(reopened.loaderPaths.source, 'console');
+      // What a person waits for first, then what memory answered, confirmed.
+      const order = asked();
+      assert.deepEqual(sorted(order.slice(0, 3)), CONTENT, order.join(', '));
+      assert.deepEqual(sorted(order.slice(3)), CONFIGURATION, order.join(', '));
+      second.dispose();
+
+      // The Stimulus directory moved while the editor was closed: the
+      // confirmation notices, and the pass is repeated with the console's answer.
+      await settings.update('console.command', fakeConsole(0, 'assets/moved'), vscode.ConfigurationTarget.Workspace);
+      await vscode.commands.executeCommand('wicker.reindex');
+      fs.rmSync(marker, { force: true });
+      const third = sessionsWithMemory();
+      await third.initialize();
+      assert.equal(rootSession(third)?.frontend.controllerDirectory, 'assets/moved');
+      const again = asked();
+      assert.deepEqual(sorted(again.slice(0, 3)), CONTENT, again.join(', '));
+      assert.deepEqual(sorted(again.slice(3, 6)), CONFIGURATION, again.join(', '));
+      assert.deepEqual(sorted(again.slice(6)), CONTENT, again.join(', '));
+      third.dispose();
+    } finally {
+      // A failed assertion above leaves an opening in flight, and its
+      // sessions would keep answering the next test's console.
+      await initialized?.catch(() => undefined);
+      for (const sessions of owned) { sessions.dispose(); }
+      fs.rmSync(marker, { force: true });
+      await settings.update('console.command', previousCommand, vscode.ConfigurationTarget.Workspace);
+      await settings.update('console.enabled', previousEnabled, vscode.ConfigurationTarget.Workspace);
+      await vscode.commands.executeCommand('wicker.reindex');
+    }
+  });
+
   /*
    * A template created or deleted changes which names resolve and nothing the
    * console reports. Asking it again for every new partial cost six kernel

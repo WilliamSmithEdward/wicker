@@ -774,7 +774,7 @@ Extends ${node.name}.`;
       const item = new vscode.TreeItem('Asking the Symfony console...');
       item.iconPath = sidebarIcon('pending');
       item.tooltip = 'Bundle namespaces, routes, Stimulus controllers and components are read from Symfony, and its console has not answered yet. ' +
-        `The tree shows what the files say meanwhile and fills in when it does.\n\nWicker runs ${
+        `The tree shows what the files and the last answer say meanwhile, and fills in when it does.\n\nWicker runs ${
           session.consoleCommand ?? 'php bin/console'} in the project root.`;
       return item;
     }

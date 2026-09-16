@@ -31,6 +31,7 @@ export { FrontendIndex, fetchValueReferences, type FrontendFile, type EndpointUs
 export { responseAccessAt, type ResponseAccess } from './frontend/responseAccess.js';
 
 export {
+  DEBUG_TWIG_COMMAND,
   parseJsonLoosely,
   resolveLoaderPaths,
   type ConsoleResult,

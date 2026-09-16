@@ -20,7 +20,7 @@ import { missingImportDiagnostics } from './importDiagnostics.js';
 import { ImportExtensionActionProvider } from './importActions.js';
 import { StimulusMemberActionProvider, connectOutlet } from './stimulusActions.js';
 import { LiveComponentProvider, liveComponentDiagnostics } from './liveComponents.js';
-import { LoaderPathMemory } from './loaderPathMemory.js';
+import { ConsoleMemory } from './consoleMemory.js';
 import { RenderedByProvider } from './renderedBy.js';
 import { routeDiagnostics } from './routeDiagnostics.js';
 import {
@@ -66,7 +66,7 @@ export interface WickerApi { readonly sidebar: { readonly selection: readonly Si
 export async function activate(context: vscode.ExtensionContext): Promise<WickerApi> {
   // Workspace-scoped, because the remembered namespaces describe this project
   // and mean nothing anywhere else.
-  const sessions = new SessionManager(new LoaderPathMemory(context.workspaceState));
+  const sessions = new SessionManager(new ConsoleMemory(context.workspaceState));
   const semanticTokens = new TemplateSemanticTokensProvider(sessions);
   const stimulusMembers = new StimulusMemberDecorator(sessions);
   const renderedBy = new RenderedByProvider(sessions);

@@ -34,7 +34,7 @@ import { TwigVariableProvider } from './twigVariables.js';
 import { TwigCallableProvider, twigCallableDiagnostics } from './twigCallables.js';
 import { TwigComponentProvider } from './twigComponents.js';
 import { FrontendProvider } from './frontendProvider.js';
-import { goToRoute } from './routePicker.js';
+import { goToRoute, goToTemplate } from './pickers.js';
 
 const TWIG_SELECTOR: vscode.DocumentFilter[] = [
   { language: 'twig', scheme: 'file' },
@@ -189,6 +189,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
     }),
 
     vscode.commands.registerCommand('wicker.goToRoute', () => goToRoute(sessions)),
+    vscode.commands.registerCommand('wicker.goToTemplate', () => goToTemplate(sessions)),
 
     vscode.commands.registerCommand('wicker.showProjectInfo', (node?: SidebarNode) => {
       let all = sessions.all();

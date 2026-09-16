@@ -917,6 +917,7 @@ export class WickerSidebar implements vscode.Disposable {
       vscode.commands.registerCommand('wicker.copyTemplateName', (node: SidebarNode) => this.copyTemplateName(node)),
       vscode.commands.registerCommand('wicker.copyRouteName', (node: SidebarNode) => this.copyRoute(node, 'name')),
       vscode.commands.registerCommand('wicker.copyRoutePath', (node: SidebarNode) => this.copyRoute(node, 'path')),
+      vscode.commands.registerCommand('wicker.copyControllerName', (node: SidebarNode) => this.copyControllerName(node)),
       vscode.commands.registerCommand('wicker.showBundleTemplates', () => this.setShowBundleTemplates(true)),
       vscode.commands.registerCommand('wicker.hideBundleTemplates', () => this.setShowBundleTemplates(false)),
       vscode.window.onDidChangeActiveTextEditor(() => { this.updateRevealContext(); void this.followActiveEditor(); }),
@@ -1046,6 +1047,11 @@ export class WickerSidebar implements vscode.Disposable {
     const name = node?.kind === 'template' || node?.kind === 'controllerTemplate' ? node.name
       : node?.kind === 'routeTemplate' || node?.kind === 'extending' ? node.templateName : undefined;
     if (name !== undefined) { await copied(name); }
+  }
+
+  /** The identifier, as data-controller writes it. */
+  private async copyControllerName(node: SidebarNode): Promise<void> {
+    if (node?.kind === 'stimulusController' || node?.kind === 'boundController') { await copied(node.name); }
   }
 
   /** The route a row stands for; an action carrying several routes asks which. */

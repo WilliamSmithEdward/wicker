@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { ProjectTreeProvider, type SidebarNode } from '../sidebar.js';
 import { completionItems, definitionsAt, fixture, memorySessions, replace, tooltipOf, until } from './support.js';
 import { sidebarIcon } from '../sidebarIcons.js';
-import { routePicks } from '../routePicker.js';
+import { routePicks } from '../pickers.js';
 
 const JS = 'assets/controllers/wicker_test_controller.js';
 const PEER = 'assets/controllers/wicker_peer_controller.ts';

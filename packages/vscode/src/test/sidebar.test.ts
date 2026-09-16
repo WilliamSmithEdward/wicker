@@ -8,6 +8,7 @@ import { TwigLoaderPaths } from '@wicker/core';
 
 import type { WickerApi } from '../extension.js';
 import { LoaderPathMemory } from '../loaderPathMemory.js';
+import { templatePicks } from '../pickers.js';
 import { SessionManager } from '../session.js';
 import { SIDEBAR_ICONS, sidebarIcon, type SidebarRole } from '../sidebarIcons.js';
 import { isBundleNamespace, ProjectTreeProvider, type SidebarNode } from '../sidebar.js';
@@ -750,6 +751,18 @@ class SidebarCreatedController {
 
     await vscode.commands.executeCommand('wicker.copyTemplateName', template);
     assert.equal(await vscode.env.clipboard.readText(), 'task/index.html.twig');
+    await vscode.commands.executeCommand('wicker.copyControllerName', { kind: 'stimulusController', root: rootUri, name: 'wicker-test' });
+    assert.equal(await vscode.env.clipboard.readText(), 'wicker-test');
+
+    // The template picker answers to logical names, the application's own
+    // before any namespace, and says where each one lives.
+    const picks = templatePicks(sessions);
+    const index = picks.find((pick) => pick.label === 'task/index.html.twig');
+    assert.ok(index);
+    assert.ok(index.description?.startsWith('templates/task/index.html.twig'), index.description);
+    assert.ok(picks.some((pick) => pick.label === '@Design/badge.html.twig'));
+    const firstNamespaced = picks.findIndex((pick) => pick.label.startsWith('@'));
+    assert.ok(firstNamespaced > 0 && picks.slice(0, firstNamespaced).every((pick) => !pick.label.startsWith('@')));
 
     // The menu reads the context value: a row that opens a file says so, and
     // a section, which opens nothing, does not.

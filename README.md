@@ -249,7 +249,11 @@ shows bundle templates when it is one of those.
 
 Right-click a row to open its file to the side, reveal it in the Explorer, or
 copy what it names: a template's logical name, ready for `render()` or an
-include tag, and a route's name or path.
+include tag, a Stimulus controller's identifier, or a route's name or path.
+
+**Wicker: Go to Template** in the Command Palette opens a template by its
+logical name, which Quick Open cannot match when the name and the path differ,
+as they do for a namespace or a bundle override.
 
 Rows are coloured by what they are: green for templates, purple for PHP,
 yellow for JavaScript, blue for TypeScript, cyan for API routes, orange for

@@ -291,12 +291,12 @@ suite('Stimulus and API connections', () => {
       assert.ok(typeof actionItem.tooltip === 'string');
       assert.ok(actionItem.tooltip.includes('wicker_test_fragment'));
       assert.ok(actionItem.tooltip.includes('wicker_frontend_test.html.twig'));
-      // The same action under the template it renders wears the same icon it
-      // wears here: one entity, one icon.
+      // Under the template it renders, the row names the controller and wears
+      // the controller's icon, as the class rows under Controllers do.
       const renders = (await tree.getChildren({ kind: 'template', root: root.root, name: TWIG.slice(10) }))
         .find((node) => node.kind === 'renderedBy' && node.label === 'WickerFrontendTestController::fragment()');
       assert.ok(renders, 'the template should list the action that renders it');
-      assert.equal(((await tree.getTreeItem(renders)).iconPath as vscode.ThemeIcon).id, 'symbol-method');
+      assert.equal(((await tree.getTreeItem(renders)).iconPath as vscode.ThemeIcon).id, 'symbol-class');
       assert.match(tooltipOf(await tree.getTreeItem(renders)), /Routes:\nGET \/_wicker-test\/fragment/);
       const owningSession = sessions.sessionFor({ uri: uri('') })!;
       const discovered = owningSession.frontend;

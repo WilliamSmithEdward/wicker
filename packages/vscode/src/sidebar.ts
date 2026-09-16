@@ -521,14 +521,14 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     if (node.kind === 'renderedBy') {
       const item = new vscode.TreeItem(node.label);
       item.description = 'Renders this';
-      // A render site is a PHP method and wears the method icon, as the same
-      // action does under its controller. Its routes go in the tooltip.
+      // The row names the controller, so it wears the controller's icon, the
+      // same PHP class glyph as under Controllers. Its routes go in the tooltip.
       const site = renderedBy(this.sessions, session, node.name)
         .find((entry) => entry.projectPath === node.projectPath && entry.offset === node.offset);
       const routes = site?.className !== undefined && site.methodName !== undefined
         ? controllerRoutes(this.sessions, session, { root: node.root, projectPath: node.projectPath,
           className: site.className, methodName: site.methodName }) : [];
-      item.iconPath = sidebarIcon('method');
+      item.iconPath = sidebarIcon('controller');
       item.tooltip = `${node.projectPath}${routes.length ? `\n\nRoutes:\n${
         routes.map((route) => `${route.methods} ${route.path} (${route.name})`).join('\n')}` : ''}
 

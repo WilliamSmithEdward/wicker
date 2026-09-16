@@ -78,14 +78,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
 
   context.subscriptions.push(sessions, output, diagnostics, renderedBy, sidebar);
 
-  // Indexing reads the whole template tree, which on a large project or a
-  // remote filesystem is past the point where silence reads as a hang.
-  await vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Window, title: 'Wicker: indexing templates' },
-    () => sessions.initialize(),
-  );
-  sidebar.finishLoading();
-
   /** The template name under the cursor, and the project it is read in. */
   const locate = (
     document: vscode.TextDocument,
@@ -363,6 +355,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
     ),
   );
 
+  // The first index is built only now, with everything above registered:
+  // on a large or remote project the read takes long enough that a command
+  // or a hover asked for meanwhile should answer with nothing rather than not
+  // exist. Reading the whole template tree is also past the point where
+  // silence reads as a hang, so it shows progress.
+  await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Window, title: 'Wicker: indexing templates' },
+    () => sessions.initialize(),
+  );
+  sidebar.finishLoading();
   refreshAllDiagnostics();
   // Editors already open when the extension activated get their colour too.
   stimulusMembers.refresh();

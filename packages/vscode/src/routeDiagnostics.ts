@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 
+import { phpRouteCalls } from '@wicker/core';
+
 import { scanOf } from './frontendProject.js';
 import { enginePathOf } from './paths.js';
 import { rangeOf } from './ranges.js';
@@ -7,7 +9,8 @@ import type { ProjectSession, SessionManager } from './session.js';
 import { severityFromSettings } from './severity.js';
 
 /**
- * Reports a `path()` or `url()` call the router would refuse.
+ * Reports a route call the router would refuse: `path()` and `url()` in a
+ * template, `redirectToRoute()` and `generateUrl()` in PHP.
  *
  * A route that is not registered throws when the page renders, and so does a
  * call that leaves out a placeholder with no default. A key the route does
@@ -19,12 +22,14 @@ import { severityFromSettings } from './severity.js';
 export function routeDiagnostics(sessions: SessionManager, session: ProjectSession, document: vscode.TextDocument): vscode.Diagnostic[] {
   const severity = severityFromSettings('missingRouteParameter', 'warning');
   const path = session.relativePathOf(enginePathOf(document.uri));
-  if (severity === undefined || path === undefined || !path.endsWith('.twig')) { return []; }
+  const twig = path?.endsWith('.twig') === true;
+  if (severity === undefined || path === undefined || (!twig && !path.endsWith('.php'))) { return []; }
   const routes = session.frontend.routes;
   if (routes.length === 0 || !session.discoveryCurrent) { return []; }
 
   const result: vscode.Diagnostic[] = [];
-  for (const call of scanOf(session, path, document.getText(), true).routeCalls) {
+  const calls = twig ? scanOf(session, path, document.getText(), true).routeCalls : phpRouteCalls(document.getText());
+  for (const call of calls) {
     const route = routes.find((entry) => entry.name === call.name || entry.canonical === call.name);
     const keys = call.keys;
     let problem: { message: string; code: string } | undefined;

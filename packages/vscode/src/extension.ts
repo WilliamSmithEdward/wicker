@@ -58,6 +58,7 @@ const FRONTEND_SELECTOR: vscode.DocumentFilter[] = [
   // when it serves the file, so one that resolves to nothing fails silently.
   { language: 'css', scheme: 'file' },
 ];
+const FRONTEND_AND_PHP: vscode.DocumentFilter[] = [...FRONTEND_SELECTOR, { language: 'php', scheme: 'file' }];
 
 /** What the running extension exposes. Tests read the sidebar through it. */
 export interface WickerApi { readonly sidebar: { readonly selection: readonly SidebarNode[] } }
@@ -98,10 +99,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
   };
 
   context.subscriptions.push(
-    vscode.languages.registerCompletionItemProvider(FRONTEND_SELECTOR, frontend, '"', "'", '#', ' ', '.', '-'),
-    vscode.languages.registerDefinitionProvider(FRONTEND_SELECTOR, frontend),
-    vscode.languages.registerHoverProvider([...FRONTEND_SELECTOR, { language: 'php', scheme: 'file' }], frontend),
-    vscode.languages.registerReferenceProvider([...FRONTEND_SELECTOR, { language: 'php', scheme: 'file' }], frontend),
+    // PHP too: a controller names routes in redirectToRoute() and generateUrl().
+    vscode.languages.registerCompletionItemProvider(FRONTEND_AND_PHP, frontend, '"', "'", '#', ' ', '.', '-'),
+    vscode.languages.registerDefinitionProvider(FRONTEND_AND_PHP, frontend),
+    vscode.languages.registerHoverProvider(FRONTEND_AND_PHP, frontend),
+    vscode.languages.registerReferenceProvider(FRONTEND_AND_PHP, frontend),
     vscode.languages.registerCodeLensProvider(
       TWIG_SELECTOR,
       renderedBy,

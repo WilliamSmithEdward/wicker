@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { ACTION_OPTIONS, COMMON_EVENTS, EVENT_TARGETS, KEY_FILTERS,
-  cssImports, cssUrls, importSpecifiers, resolveRelativeImport, responseAccessAt,
+  cssImports, cssUrls, importSpecifiers, phpRouteCalls, resolveRelativeImport, responseAccessAt,
   stimulusCallbackOwners, stimulusGeneratedMembers, stimulusHtmlName, stimulusSource,
   type FrontendReference, type OffsetRange, type ResponseField, type StimulusMember, type StimulusValue,
   type SymfonyRoute } from '@wicker/core';
@@ -124,11 +124,7 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       !(source.slice(entry.arguments.start, offset).split(',').at(-1) ?? '').includes(':')) : undefined;
     let query: Query | undefined;
     if (path.endsWith('.php')) {
-      const routes = session.frontend.routes.filter((route) => {
-        const found = routeAction(this.sessions, session, route);
-        return found?.projectPath === path && offset >= found.action.range.start && offset <= found.action.range.end;
-      });
-      if (routes.length) { query = this.routeQuery(session, routes, routes[0]!.name, { start: offset, end: offset }); }
+      query = this.phpRouteQuery(session, source, offset) ?? this.actionQuery(session, path, offset);
     } else if (ref?.kind === 'route') {
       const routes = session.frontend.routes.filter((route) => route.name === ref.name);
       query = this.routeQuery(session, session.frontend.routes, ref.name, ref.range);
@@ -387,6 +383,43 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       return asset ? [{ name: logicalPath, projectPath: asset.projectPath, range: { start: 0, end: 0 },
         label: `Mapped asset · ${asset.projectPath}`, kind: vscode.CompletionItemKind.File }] : [];
     }) };
+  }
+
+  /** The route a PHP action answers, when the cursor is inside the action. */
+  private actionQuery(session: ProjectSession, path: string, offset: number): Query | undefined {
+    const routes = session.frontend.routes.filter((route) => {
+      const found = routeAction(this.sessions, session, route);
+      return found?.projectPath === path && offset >= found.action.range.start && offset <= found.action.range.end;
+    });
+    return routes.length ? this.routeQuery(session, routes, routes[0]!.name, { start: offset, end: offset }) : undefined;
+  }
+
+  /**
+   * A route named in PHP, or a parameter passed to it.
+   *
+   * `redirectToRoute()` and `generateUrl()` take the two arguments a
+   * template's `path()` takes, so they get the same answers: the name
+   * completes, navigates and explains itself, and the array's keys complete
+   * from the route's placeholders.
+   */
+  private phpRouteQuery(session: ProjectSession, source: string, offset: number): Query | undefined {
+    for (const call of phpRouteCalls(source)) {
+      if (offset >= call.nameRange.start && offset <= call.nameRange.end) {
+        const query = this.routeQuery(session, session.frontend.routes, call.name, call.nameRange);
+        query.routes = session.frontend.routes.filter((route) => route.name === call.name || route.canonical === call.name);
+        return query;
+      }
+      const key = call.parameters.find((parameter) => offset >= parameter.range.start && offset <= parameter.range.end);
+      if (key) { return this.routeParameterQuery(session, call.name, key.name, key.range, call.keys ?? []); }
+      if (call.arguments !== undefined && offset >= call.arguments.start && offset <= call.arguments.end) {
+        // A key position: nothing since the last comma has reached its arrow.
+        const since = source.slice(call.arguments.start, offset).split(',').at(-1) ?? '';
+        if (since.includes('=>')) { return undefined; }
+        const typed = /['"]?(\w*)$/.exec(since)?.[1] ?? '';
+        return this.routeParameterQuery(session, call.name, typed, { start: offset - typed.length, end: offset }, call.keys ?? []);
+      }
+    }
+    return undefined;
   }
 
   /**

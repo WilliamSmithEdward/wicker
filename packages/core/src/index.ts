@@ -47,6 +47,7 @@ export {
   type TemplateReferenceScan,
 } from './php/templateReferences.js';
 export { RenderSiteIndex, type RenderSite, type RenderingController } from './php/renderSiteIndex.js';
+export { phpRouteCalls, type PhpRouteCall } from './php/routeCalls.js';
 export {
   templateContextVariables,
   twigVariableContextAt,

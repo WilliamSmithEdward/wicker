@@ -427,7 +427,8 @@ with its requirement and default, and hover on a key says what it fills. A
 call that names an unregistered route, or leaves out a placeholder its route
 requires, is reported; `wicker.diagnostics.missingRouteParameter` turns that
 down or off. A key the route does not declare is not an error, since Symfony
-appends it as a query string.
+appends it as a query string. `redirectToRoute()` and `generateUrl()` in PHP
+get the same completion, hover and checks, the route name included.
 In JavaScript, Ctrl-click an unambiguous root-relative `fetch()` URL, or a
 Stimulus URL value supplied by a Twig helper/data attribute, to follow the
 request. When the action renders Twig, Go to Definition also offers its

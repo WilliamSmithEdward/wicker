@@ -1035,6 +1035,38 @@ class WickerFrontendTestController {
     await until(() => codes().length === 0, 'a passed, dynamic or filtered argument is not reported');
   });
 
+  test('answers redirectToRoute() and generateUrl() in PHP the way it answers path()', async () => {
+    const inClass = (body: string): string => phpSource.replace('  public function aaa()', `  ${body}\n  public function aaa()`);
+    const detailsAt = async (body: string, prefix: string): Promise<Map<string, string | undefined>> => {
+      const position = await at(php, inClass(body));
+      return new Map((await items(php, position)).filter((item) => item.detail?.startsWith(prefix))
+        .map((item) => [typeof item.label === 'string' ? item.label : item.label.label, item.detail]));
+    };
+    try {
+      // The route name completes, with the route itself as the detail; only
+      // routes with an action in the project are offered, as in Twig.
+      assert.equal((await detailsAt(`public function go() { return $this->redirectToRoute('wicker_test_§'); }`, 'GET ')).get('wicker_test_fragment'),
+        'GET /_wicker-test/fragment');
+      const keys = await detailsAt(`public function go() { return $this->generateUrl('wicker_test_show', ['§']); }`, 'Route parameter');
+      assert.equal(keys.get('id'), 'Route parameter · required');
+      assert.equal(keys.get('page'), 'Route parameter · optional, default 1');
+      assert.deepEqual([...(await detailsAt(`public function go() { return $this->generateUrl('wicker_test_show', ['id' => 1, '§']); }`, 'Route parameter')).keys()], ['page']);
+      assert.deepEqual([...(await detailsAt(`public function go() { return $this->generateUrl('wicker_test_show', ['id' => §]); }`, 'Route parameter')).keys()], []);
+      assert.match(await hoverTextOf(php, inClass(`public function go() { return $this->redirectToRoute('wicker_test_s§how'); }`)),
+        /Parameters: \{id\} \(d\+\), \{page\} = 1/);
+      assert.match(await hoverTextOf(php, inClass(`public function go() { return $this->redirectToRoute('wicker_test_show', ['i§d' => 1]); }`)), /Fills \{id\}/);
+
+      const codes = (): unknown[] => vscode.languages.getDiagnostics(php.uri).map((entry) => entry.code)
+        .filter((code) => code === 'missing-route-parameter' || code === 'unknown-route');
+      await replace(php, inClass(`public function go() { $this->generateUrl('nope'); return $this->redirectToRoute('wicker_test_show'); }`));
+      await until(() => codes().length === 2, 'a missing parameter and an unknown route should be reported in PHP');
+      await replace(php, inClass(`public function go() { return $this->redirectToRoute('wicker_test_show', $params); }`));
+      await until(() => codes().length === 0, 'a variable array cannot be checked');
+    } finally {
+      await replace(php, phpSource);
+    }
+  });
+
   test('offers to write the member a binding is already asking for', async () => {
     const original = js.getText();
     const fixes = async (marked: string): Promise<vscode.CodeAction[]> => {

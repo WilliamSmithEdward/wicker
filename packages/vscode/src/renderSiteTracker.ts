@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
 
-import { RenderSiteIndex, toProjectPath } from '@wicker/core';
+import { RenderSiteIndex } from '@wicker/core';
 
 import { readInBatches, type KnownSources, type VsCodeFileSystem } from './fileSystem.js';
-import { enginePathOf, inIgnoredDirectory, IGNORED_GLOB } from './paths.js';
+import { inIgnoredDirectory, IGNORED_GLOB } from './paths.js';
 import { SourceTracker } from './sourceTracker.js';
 
 /** Maintains disk records with open PHP buffers taking precedence, even before saving. */
@@ -33,8 +33,7 @@ export class RenderSiteTracker extends SourceTracker {
   }
 
   protected pathOf(uri: vscode.Uri): string | undefined {
-    if (uri.scheme !== this.rootUri.scheme || uri.authority !== this.rootUri.authority) { return undefined; }
-    const path = toProjectPath(this.root, enginePathOf(uri));
+    const path = this.inRoot(uri);
     return path?.endsWith('.php') && !inIgnoredDirectory(path) ? path : undefined;
   }
 

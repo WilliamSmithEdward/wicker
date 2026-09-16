@@ -1,6 +1,6 @@
 import { cssImports, importSpecifiers, type FrontendIndex } from '@wicker/core';
 
-import { frontendIndex, isStylesheet, resolveSpecifier } from './frontendProject.js';
+import { frontendIndex, isStylesheet, referencedAssetPath, resolveSpecifier } from './frontendProject.js';
 import { templateScripts, walkTemplates } from './relatedScripts.js';
 import type { ProjectSession, SessionManager } from './session.js';
 
@@ -33,15 +33,9 @@ export async function templateStyles(sessions: SessionManager, session: ProjectS
 
   walkTemplates(session, index, names, (file, name) => {
     for (const ref of file.scan.references) {
-      if (ref.kind === 'asset') {
-        const asset = session.assets.map.lookup(ref.name);
-        if (asset) { seeds.set(asset.projectPath, `Linked by ${name}`); }
-      }
-      if (ref.kind === 'entrypoint') {
-        const entry = session.assets.importMap.find((candidate) => candidate.specifier === ref.name);
-        if (entry?.projectPath !== undefined) {
-          seeds.set(entry.projectPath, `Loaded by ${name} through the ${ref.name} entrypoint`);
-        }
+      const path = referencedAssetPath(session, ref);
+      if (path !== undefined) {
+        seeds.set(path, ref.kind === 'asset' ? `Linked by ${name}` : `Loaded by ${name} through the ${ref.name} entrypoint`);
       }
     }
   });

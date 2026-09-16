@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import { FrontendIndex, toProjectPath } from '@wicker/core';
+import { FrontendIndex } from '@wicker/core';
 import { readInBatches, type VsCodeFileSystem } from './fileSystem.js';
-import { enginePathOf, inIgnoredDirectory, IGNORED_GLOB } from './paths.js';
+import { inIgnoredDirectory, IGNORED_GLOB } from './paths.js';
 import { SourceTracker } from './sourceTracker.js';
 
 /*
@@ -48,8 +48,7 @@ export class FrontendTracker extends SourceTracker {
   }
 
   protected pathOf(uri: vscode.Uri): string | undefined {
-    if (uri.scheme !== this.rootUri.scheme || uri.authority !== this.rootUri.authority) { return undefined; }
-    const path = toProjectPath(this.root, enginePathOf(uri));
+    const path = this.inRoot(uri);
     return path && TRACKED.test(path) && !inIgnoredDirectory(path) ? path : undefined;
   }
 

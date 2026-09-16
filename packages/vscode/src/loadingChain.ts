@@ -1,6 +1,6 @@
 import { cssImports, cssUrls, importSpecifiers } from '@wicker/core';
 
-import { frontendIndex, isStylesheet, resolveSpecifier } from './frontendProject.js';
+import { frontendIndex, isStylesheet, referencedAssetPath, resolveSpecifier } from './frontendProject.js';
 import { walkTemplates } from './relatedScripts.js';
 import type { ProjectSession, SessionManager } from './session.js';
 import { basename } from './paths.js';
@@ -31,16 +31,8 @@ export function templateEntrypoints(sessions: SessionManager, session: ProjectSe
 
   walkTemplates(session, index, names, (file, name) => {
     for (const ref of file.scan.references) {
-      if (ref.kind === 'entrypoint') {
-        const entry = session.assets.importMap.find((candidate) => candidate.specifier === ref.name);
-        if (entry?.projectPath !== undefined) {
-          found.set(entry.projectPath, `importmap('${ref.name}') in ${name}`);
-        }
-      }
-      if (ref.kind === 'asset') {
-        const asset = session.assets.map.lookup(ref.name);
-        if (asset) { found.set(asset.projectPath, `asset('${ref.name}') in ${name}`); }
-      }
+      const path = referencedAssetPath(session, ref);
+      if (path !== undefined) { found.set(path, `${ref.kind === 'asset' ? 'asset' : 'importmap'}('${ref.name}') in ${name}`); }
     }
   });
 

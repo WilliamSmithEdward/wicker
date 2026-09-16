@@ -179,6 +179,13 @@ export function compareRoutePaths(left: SymfonyRoute, right: SymfonyRoute): numb
   return left.path.localeCompare(right.path);
 }
 
+/** The file an asset() or importmap() reference loads, or nothing when it names none. */
+export function referencedAssetPath(session: ProjectSession, ref: { readonly kind: string; readonly name: string }): string | undefined {
+  if (ref.kind === 'asset') { return session.assets.map.lookup(ref.name)?.projectPath; }
+  if (ref.kind === 'entrypoint') { return session.assets.importMap.find((entry) => entry.specifier === ref.name)?.projectPath; }
+  return undefined;
+}
+
 export interface ControllerDependency {
   readonly projectPath: string;
   readonly declaration: PhpTypeDeclaration;

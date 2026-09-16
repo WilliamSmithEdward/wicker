@@ -132,7 +132,7 @@ export class ProjectSession implements vscode.Disposable {
     this.rootUri = rootUri;
     this.fileSystem = fileSystem;
     this.renderSites = new RenderSiteTracker(project.root, fileSystem);
-    this.templateContexts = new TemplateContextTracker(project.root, fileSystem, (path) => this.relativePathOf(path));
+    this.templateContexts = new TemplateContextTracker(project.root, fileSystem);
     this.templateIndex = index;
     this.loaderPathInfo = loaderPaths;
     this.componentInfo = components;
@@ -740,20 +740,21 @@ export class SessionManager implements vscode.Disposable {
     if (!isEnabled()) {
       return undefined;
     }
-    const path = enginePathOf(document.uri);
-    let best: ProjectSession | undefined;
-    for (const session of this.sessions.values()) {
-      if (!session.contains(path)) {
-        continue;
-      }
-      // Deepest root wins, so a nested project beats the repository around it.
-      if (best === undefined || session.project.root.length > best.project.root.length) {
-        best = session;
-      }
-    }
+    const best = this.deepestAt(enginePathOf(document.uri));
     // Whoever asked is about to read the session, and typing may still be
     // waiting to be applied.
     best?.settle();
+    return best;
+  }
+
+  /** The project holding a path; the deepest root wins, so a nested project beats the repository around it. */
+  private deepestAt(path: string): ProjectSession | undefined {
+    let best: ProjectSession | undefined;
+    for (const session of this.sessions.values()) {
+      if (session.contains(path) && (best === undefined || session.project.root.length > best.project.root.length)) {
+        best = session;
+      }
+    }
     return best;
   }
 
@@ -787,16 +788,7 @@ export class SessionManager implements vscode.Disposable {
    * question asked once per controller, render site and binding.
    */
   owns(session: ProjectSession, projectPath: string): boolean {
-    if (!isEnabled()) { return false; }
-    const path = joinProjectPath(session.project.root, projectPath);
-    let best: ProjectSession | undefined;
-    for (const other of this.sessions.values()) {
-      // Deepest root wins, so a nested project beats the repository around it.
-      if (other.contains(path) && (best === undefined || other.project.root.length > best.project.root.length)) {
-        best = other;
-      }
-    }
-    return best === session;
+    return isEnabled() && this.deepestAt(joinProjectPath(session.project.root, projectPath)) === session;
   }
 
   /** Direct render sites owned by the same project as this template. */

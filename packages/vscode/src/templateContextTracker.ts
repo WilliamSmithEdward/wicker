@@ -3,7 +3,6 @@ import type * as vscode from 'vscode';
 import { TemplateContextIndex, type TwigTemplateIndex } from '@wicker/core';
 
 import { readInBatches, type KnownSources, type VsCodeFileSystem } from './fileSystem.js';
-import { enginePathOf } from './paths.js';
 import { SourceTracker } from './sourceTracker.js';
 
 /** Twig text stays current independently of console discovery and template-name indexing. */
@@ -11,10 +10,7 @@ export class TemplateContextTracker extends SourceTracker {
   readonly index = new TemplateContextIndex();
   private known = new Set<string>();
 
-  constructor(root: string, fileSystem: VsCodeFileSystem,
-    private readonly relativePath: (absolute: string) => string | undefined) {
-    super(root, fileSystem, '**/*.twig');
-  }
+  constructor(root: string, fileSystem: VsCodeFileSystem) { super(root, fileSystem, '**/*.twig'); }
 
   /** Read new loader files; watcher events maintain files already loaded. */
   async refresh(templates: TwigTemplateIndex, force = false, known?: KnownSources): Promise<void> {
@@ -30,8 +26,7 @@ export class TemplateContextTracker extends SourceTracker {
   }
 
   protected pathOf(uri: vscode.Uri): string | undefined {
-    if (uri.scheme !== this.rootUri.scheme || uri.authority !== this.rootUri.authority) { return undefined; }
-    const path = this.relativePath(enginePathOf(uri));
+    const path = this.inRoot(uri);
     return path?.endsWith('.twig') ? path : undefined;
   }
 

@@ -25,27 +25,25 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       return item;
     });
   }
-  async provideDefinition(document: vscode.TextDocument, position: vscode.Position): Promise<vscode.LocationLink[] | undefined> {
-    const session = this.sessions.sessionFor(document), version = document.version;
-    if (!session) { return undefined; }
-    const query = await this.query(document, position);
-    if (!query) { return undefined; }
-    // An empty path marks a candidate that exists only to be completed: an
-    // event name or an action option is Stimulus vocabulary, not a project
-    // symbol, so there is nowhere to go.
-    const matches = [...query.candidates.filter((candidate) => candidate.name === query.name && candidate.projectPath !== ''),
-      ...query.targets ?? []];
-    const links: vscode.LocationLink[] = [];
-    for (const target of matches) {
-      const uri = session.uriOf(target.projectPath);
-      if (!this.sessions.owns(session, target.projectPath)) { continue; }
-      try {
-        const targetDoc = await vscode.workspace.openTextDocument(uri);
-        links.push({ originSelectionRange: rangeOf(document, query.range), targetUri: uri,
-          targetRange: rangeOf(targetDoc, target.range), targetSelectionRange: rangeOf(targetDoc, target.range) });
-      } catch { /* A source deleted during navigation is no longer a target. */ }
-    }
-    return this.sessions.sessionFor(document) === session && document.version === version ? links : undefined;
+  provideDefinition(document: vscode.TextDocument, position: vscode.Position): Promise<vscode.LocationLink[] | undefined> {
+    return this.answer(document, position, async (session, query) => {
+      // An empty path marks a candidate that exists only to be completed: an
+      // event name or an action option is Stimulus vocabulary, not a project
+      // symbol, so there is nowhere to go.
+      const matches = [...query.candidates.filter((candidate) => candidate.name === query.name && candidate.projectPath !== ''),
+        ...query.targets ?? []];
+      const links: vscode.LocationLink[] = [];
+      for (const target of matches) {
+        const uri = session.uriOf(target.projectPath);
+        if (!this.sessions.owns(session, target.projectPath)) { continue; }
+        try {
+          const targetDoc = await vscode.workspace.openTextDocument(uri);
+          links.push({ originSelectionRange: rangeOf(document, query.range), targetUri: uri,
+            targetRange: rangeOf(targetDoc, target.range), targetSelectionRange: rangeOf(targetDoc, target.range) });
+        } catch { /* A source deleted during navigation is no longer a target. */ }
+      }
+      return links;
+    });
   }
   async provideHover(document: vscode.TextDocument, position: vscode.Position): Promise<vscode.Hover | undefined> {
     const query = await this.query(document, position);
@@ -69,24 +67,39 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
     }
     return new vscode.Hover(content, rangeOf(document, query.range));
   }
-  async provideReferences(document: vscode.TextDocument, position: vscode.Position, context: vscode.ReferenceContext): Promise<vscode.Location[] | undefined> {
+  provideReferences(document: vscode.TextDocument, position: vscode.Position, context: vscode.ReferenceContext): Promise<vscode.Location[] | undefined> {
+    return this.answer(document, position, async (session, query) => {
+      if (!query.routes?.length && !query.outlet) { return undefined; }
+      const targets: Target[] = query.outlet ? this.outlets.references(session, query.outlet)
+        : query.routes!.flatMap((route) => routeConsumers(this.sessions, session, route).map((use) => ({ ...use, label: '' })));
+      if (context.includeDeclaration) { targets.push(...query.declarations ?? query.candidates.filter((candidate) => candidate.name === query.name)); }
+      const locations = new Map<string, vscode.Location>();
+      for (const target of targets) {
+        try {
+          const doc = await vscode.workspace.openTextDocument(session.uriOf(target.projectPath));
+          if (!this.sessions.owns(session, target.projectPath)) { continue; }
+          const location = new vscode.Location(doc.uri, rangeOf(doc, target.range));
+          locations.set(`${doc.uri.toString()}:${target.range.start}`, location);
+        } catch { /* Ignore a consumer removed while reading. */ }
+      }
+      return [...locations.values()];
+    });
+  }
+
+  /**
+   * An answer read against the document and project as they are now, and
+   * dropped if either moved on while the files it names were being opened:
+   * opening a file can reindex, and a stale answer would point into text that
+   * is no longer there.
+   */
+  private async answer<T>(document: vscode.TextDocument, position: vscode.Position,
+    read: (session: ProjectSession, query: Query) => Promise<T | undefined>): Promise<T | undefined> {
     const session = this.sessions.sessionFor(document), version = document.version;
     if (!session) { return undefined; }
     const query = await this.query(document, position);
-    if (!query || !query.routes?.length && !query.outlet) { return undefined; }
-    const targets: Target[] = query.outlet ? this.outlets.references(session, query.outlet)
-      : query.routes!.flatMap((route) => routeConsumers(this.sessions, session, route).map((use) => ({ ...use, label: '' })));
-    if (context.includeDeclaration) { targets.push(...query.declarations ?? query.candidates.filter((candidate) => candidate.name === query.name)); }
-    const locations = new Map<string, vscode.Location>();
-    for (const target of targets) {
-      try {
-        const doc = await vscode.workspace.openTextDocument(session.uriOf(target.projectPath));
-        if (!this.sessions.owns(session, target.projectPath)) { continue; }
-        const location = new vscode.Location(doc.uri, rangeOf(doc, target.range));
-        locations.set(`${doc.uri.toString()}:${target.range.start}`, location);
-      } catch { /* Ignore a consumer removed while reading. */ }
-    }
-    return this.sessions.sessionFor(document) === session && document.version === version ? [...locations.values()] : undefined;
+    if (!query) { return undefined; }
+    const result = await read(session, query);
+    return this.sessions.sessionFor(document) === session && document.version === version ? result : undefined;
   }
 
   private async query(document: vscode.TextDocument, position: vscode.Position): Promise<Query | undefined> {

@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
 
-import { joinProjectPath } from '@wicker/core';
+import { joinProjectPath, toProjectPath } from '@wicker/core';
 
 import { Deferred } from './debounce.js';
 import type { KnownSources, VsCodeFileSystem } from './fileSystem.js';
+import { enginePathOf } from './paths.js';
 
 /**
  * What the source trackers share.
@@ -66,6 +67,16 @@ export abstract class SourceTracker implements vscode.Disposable {
     this.pending.clear();
     this.deferred.dispose();
     for (const subscription of this.subscriptions) { subscription.dispose(); }
+  }
+
+  /** Whether a URI is on this root's scheme and authority; a path alone says nothing about the machine. */
+  protected sameHost(uri: vscode.Uri): boolean {
+    return uri.scheme === this.rootUri.scheme && uri.authority === this.rootUri.authority;
+  }
+
+  /** The project path of a file under the root, or nothing for a file elsewhere or on another host. */
+  protected inRoot(uri: vscode.Uri): string | undefined {
+    return this.sameHost(uri) ? toProjectPath(this.root, enginePathOf(uri)) : undefined;
   }
 
   /** Forgets a file, and any read of it still in flight. */

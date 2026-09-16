@@ -30,8 +30,7 @@ export type KnownSources = (projectPath: string) => string | undefined;
  * trip. Each tracker hand-rolled the same index arithmetic and the same
  * disposal check, which is a loop that is easy to write slightly differently
  * three times and hard to notice when one of them stops checking.
- */
-/**
+ *
  * A read through the editor's file service is mostly waiting, so what matters
  * is how many are in flight at once. Measured in the extension host: 433us a
  * read one at a time, 174us at eight, 114us at thirty-two, 86us at a hundred

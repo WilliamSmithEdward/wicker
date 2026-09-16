@@ -1030,6 +1030,67 @@ class WickerFrontendTestController {
     }
   });
 
+  test('declares an outlet, types a stub for TypeScript, and connects two controllers', async () => {
+    const originals = { js: js.getText(), peer: peer.getText() };
+    const fixes = async (marked: string): Promise<vscode.CodeAction[]> => {
+      const position = await at(page, marked);
+      return (await vscode.commands.executeCommand<vscode.CodeAction[]>(
+        'vscode.executeCodeActionProvider', page.uri, new vscode.Range(position, position))) ?? [];
+    };
+    try {
+      // An outlet attribute names its controller as a prefix of its own name,
+      // and the declaration it needs goes in that controller.
+      const outlet = await fixes('<div data-controller="wicker-test" data-wicker-test-wicker-p§eer-outlet="#peer"></div>');
+      const declare = outlet.find((action) => action.title === 'Declare static outlets with wicker-peer');
+      assert.ok(declare, `expected an outlet declaration, got ${outlet.map((a) => a.title).join(', ') || 'none'}`);
+      assert.ok(await vscode.workspace.applyEdit(declare.edit!));
+      assert.match(js.getText(), /static outlets = \['wicker-peer'\];/);
+
+      // A TypeScript controller gets a typed parameter.
+      const typed = await fixes('<button data-action="click->wicker-peer#bu§mp"></button>');
+      const stub = typed.find((action) => action.title === 'Add bump() to this controller');
+      assert.ok(stub, `expected a stub, got ${typed.map((a) => a.title).join(', ') || 'none'}`);
+      assert.ok(await vscode.workspace.applyEdit(stub.edit!));
+      assert.match(peer.getText(), /bump\(event: Event\) \{/);
+
+      // Connecting writes both halves: the binding on the element and the
+      // declaration in the controller.
+      await replace(js, originals.js);
+      const offered = await fixes('<div data-controller="wicker-te§st"></div>');
+      const connect = offered.find((action) => action.title.startsWith('Connect wicker-test to another controller'));
+      assert.ok(connect?.command, `expected a connect action, got ${offered.map((a) => a.title).join(', ') || 'none'}`);
+      assert.equal(await vscode.commands.executeCommand(connect.command.command, ...connect.command.arguments!, 'wicker-peer'), true);
+      assert.match(page.getText(), /data-controller="wicker-test" data-wicker-test-wicker-peer-outlet="\[data-controller~='wicker-peer'\]"/);
+      assert.match(js.getText(), /static outlets = \['wicker-peer'\];/);
+      // The declaration opened beside the template; put the layout back.
+      await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+      // The helper form takes its outlets as an argument, which is not rewritten.
+      const helper = await fixes(`<div {{ stimulus_controller('wicker-te§st') }}></div>`);
+      assert.ok(!helper.some((action) => action.title.startsWith('Connect')));
+    } finally {
+      await replace(js, originals.js);
+      await replace(peer, originals.peer);
+    }
+  });
+
+  test('adds the extension a relative import is missing', async () => {
+    const original = js.getText();
+    try {
+      await replace(js, `${jsSource}\nimport './wicker_peer_controller';\n`);
+      const reported = (): vscode.Diagnostic | undefined =>
+        vscode.languages.getDiagnostics(js.uri).find((entry) => entry.code === 'unmapped-import');
+      await until(() => reported() !== undefined, 'the missing extension should be reported');
+      const offered = (await vscode.commands.executeCommand<vscode.CodeAction[]>(
+        'vscode.executeCodeActionProvider', js.uri, reported()!.range)) ?? [];
+      const add = offered.find((action) => action.title === 'Add .ts to the import');
+      assert.ok(add, `expected the extension fix, got ${offered.map((a) => a.title).join(', ') || 'none'}`);
+      assert.ok(await vscode.workspace.applyEdit(add.edit!));
+      assert.match(js.getText(), /import '\.\/wicker_peer_controller\.ts';/);
+    } finally {
+      await replace(js, original);
+    }
+  });
+
   test('explains a binding that connects to nothing', async () => {
     const hoverText = async (marked: string): Promise<string> => {
       const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(

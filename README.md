@@ -387,6 +387,14 @@ controllers come from `controllers.json` and their installed package metadata.
 Member suggestions cover direct declarations on a default exported class;
 inherited/computed members and runtime registrations are not inferred.
 
+Quick fixes write what a binding is already asking for. A controller nothing
+registers is created in the configured directory, in TypeScript when the
+project's controllers are. A method, target, value, class or outlet the
+controller lacks is added to it. A relative import written without its
+extension gains the one that exists. On a `data-controller` attribute, a
+refactoring connects the controller to another through an outlet, declaring
+it in the controller and binding it on the element in one edit.
+
 Routes come from `debug:router --format=json`. In Twig, complete literal route
 names in `path()` and `url()`, then navigate to the application's PHP action.
 In JavaScript, Ctrl-click an unambiguous root-relative `fetch()` URL, or a
@@ -462,9 +470,11 @@ Next, in order:
 1. **Stimulus and AssetMapper: the rest of the coverage.** Shipped in 0.5.0:
    outlets, CSS classes, action descriptors, events between controllers,
    generated members, value types, mapped assets, importmaps and import
-   navigation, explanations and a first repair. Still open: action parameters,
+   navigation, explanations and a first repair. Since then: action parameters,
    value change callbacks, the loading chain as a browsable tree, CSS `url()`
-   references, and the create and connect edits. The
+   references, and the create and connect edits. Still open: a repair for a
+   missing importmap entry, and connecting controllers written with the
+   `stimulus_controller()` helper. The
    [sprint scope](docs/sprint-stimulus-assetmapper.md) records the status of
    every row.
 2. **Symfony UX and Live Components.** Deepen component workflows through real

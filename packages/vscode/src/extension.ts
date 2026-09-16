@@ -17,7 +17,8 @@ import { Deferred } from './debounce.js';
 import { severityFromSettings } from './severity.js';
 import { counted } from './text.js';
 import { missingImportDiagnostics } from './importDiagnostics.js';
-import { StimulusMemberActionProvider } from './stimulusActions.js';
+import { ImportExtensionActionProvider } from './importActions.js';
+import { StimulusMemberActionProvider, connectOutlet } from './stimulusActions.js';
 import { LoaderPathMemory } from './loaderPathMemory.js';
 import { RenderedByProvider } from './renderedBy.js';
 import {
@@ -43,10 +44,13 @@ const SELECTOR: vscode.DocumentSelector = [
   { language: 'twig', scheme: 'file' },
   { pattern: '**/*.twig', scheme: 'file' },
 ];
-const FRONTEND_SELECTOR: vscode.DocumentFilter[] = [
-  ...TWIG_SELECTOR,
+const SCRIPT_SELECTOR: vscode.DocumentFilter[] = [
   { language: 'javascript', scheme: 'file' },
   { language: 'typescript', scheme: 'file' },
+];
+const FRONTEND_SELECTOR: vscode.DocumentFilter[] = [
+  ...TWIG_SELECTOR,
+  ...SCRIPT_SELECTOR,
   // Stylesheets reference other assets, and AssetMapper rewrites those paths
   // when it serves the file, so one that resolves to nothing fails silently.
   { language: 'css', scheme: 'file' },
@@ -353,6 +357,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
       new StimulusMemberActionProvider(sessions),
       StimulusMemberActionProvider.metadata,
     ),
+    vscode.languages.registerCodeActionsProvider(
+      SCRIPT_SELECTOR,
+      new ImportExtensionActionProvider(sessions),
+      ImportExtensionActionProvider.metadata,
+    ),
+    vscode.commands.registerCommand('wicker.connectOutlet', (uri: vscode.Uri, offset: number, name: string, peer?: string) =>
+      connectOutlet(sessions, uri, offset, name, peer)),
   );
 
   // The first index is built only now, with everything above registered:

@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.8.0
+
+A sidebar you can read at a glance and work from with the mouse, and a
+faster extension underneath.
+
+### Added
+
+- **Rows are coloured by what they are.** Green for templates, purple for
+  PHP, yellow for JavaScript, blue for TypeScript, cyan for API routes, orange
+  for Stimulus, magenta for stylesheets, red for components.
+  `wicker.sidebar.colors` turns it off; warnings keep their colour.
+- **Right-click a row** to open its file to the side, reveal it in the
+  Explorer, or copy what it names: a template's logical name, a route's name
+  or path, a Stimulus controller's identifier.
+- **The sidebar follows the active editor**, as the Explorer follows a file.
+  `wicker.sidebar.autoReveal` turns that off.
+- **Wicker: Go to Route** and **Wicker: Go to Template** in the Command
+  Palette list every route with an action in the workspace, and every
+  template by its logical name.
+- **Git state on every row.** Folders, namespaces, routes and the project
+  itself now carry their file or directory, so the editor's badges reach them
+  as they already reached a controller.
+- **A warning when the console cannot answer.** Routes, components and
+  Stimulus controllers used to be silently absent; the tree now says what
+  went unanswered, with the retry and settings actions the namespace warning
+  has.
+- **Show diagnostics** in the view's overflow menu.
+
+### Changed
+
+- **API routes lists JSON endpoints only.** A route that renders a template
+  is a template route, whatever its path.
+- **PHP rows wear PHP icons.** An action under its controller, and the row
+  naming the controller under a template, keep the class and method glyphs;
+  the leaf and the JSON object mark routes.
+- **Less work on every keystroke, save and rebuild.** A document is re-parsed
+  when typing pauses or a query asks, not at each key; a rebuild searches the
+  workspace once; a template change asks the console nothing and a PHP change
+  half of what it used to; reads over a remote connection are kept in flight.
+- **Commands and providers exist before the first index is built**, so a
+  hover or a palette command during the read of a large project answers with
+  nothing instead of not existing.
+
+### Fixed
+
+- **A template name with a leading slash, or a `.` or `..` segment, is
+  found**, not only accepted. 0.7.0 stopped the diagnostic refusing the name;
+  the lookup still failed on it.
+- **An `importmap.php` that could not be read** no longer marks every bare
+  import in the project as missing.
+- **Restricted Mode.** The extension runs in an untrusted workspace, without
+  the console. Nothing had told VS Code so, and it disabled the extension
+  outright.
+
 ## 0.7.0
 
 What points at a file, and what a page actually runs.

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.11.0
+
+A controller is read by what it produces.
+
+### Changed
+
+- **The Controllers section leads with what a controller renders.** Each
+  template is a row of its own with the action that renders it beneath, then
+  the JSON endpoints, then any other action, in that order. What a page is
+  called is the thing worth reading, and it used to sit a level down behind a
+  chevron.
+- **An action's icon says what it produces**, now read from the PHP rather
+  than from its route: the leaf for Twig, the object for JSON, the plain
+  method icon for neither. It no longer starts as a method and turns into a
+  leaf once the console answers.
+
 ## 0.10.1
 
 ### Changed

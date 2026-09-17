@@ -257,6 +257,10 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     }
     if (isScriptOwner(node)) {
       return [
+        // Under a controller, the template is the action's row, so the route
+        // the action answers belongs directly beneath it.
+        ...(node.kind === 'controllerTemplate' ? [{ root: node.root, projectPath: node.projectPath,
+          className: node.className, kind: 'controllerMethod' as const, methodName: node.methodName }] : []),
         ...incomingTemplateRows(this.sessions, session, node),
         // What the page runs, named the way the markup names it, before the
         // files that carry it.
@@ -282,26 +286,33 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
         kind: 'controller', root: node.root, projectPath, className,
       }));
     }
-    if (node.kind === 'controller' || node.kind === 'controllerMethod') {
-      const sites = controllerSites(this.sessions, session, node);
-      if (node.kind === 'controller') {
-        const actions = controllerActionMethods(this.sessions, session, node).map((methodName) => ({
-          methodName, route: controllerRoutes(this.sessions, session, { ...node, methodName })[0],
-        }));
-        actions.sort((left, right) => left.route && right.route ? compareRoutePaths(left.route, right.route) :
-          left.route ? -1 : right.route ? 1 : 0);
-        return [
-          ...actions.map(({ methodName }) => ({ ...node, kind: 'controllerMethod' as const, methodName })),
-          ...(controllerDependencies(this.sessions, session, node).length
-            ? [{ ...node, kind: 'controllerDependencies' as const }] : []),
-          ...((await controllerScripts(this.sessions, session, node)).length
-            ? [{ ...node, kind: 'controllerScripts' as const }] : []),
-        ];
-      }
-      return [...new Set(sites.map((site) => site.templateName))].map((name) => ({
-        ...node, kind: 'controllerTemplate', name,
-      }));
+    if (node.kind === 'controller') {
+      const actions = controllerActionMethods(this.sessions, session, node).map((methodName) => {
+        const method = { ...node, kind: 'controllerMethod' as const, methodName };
+        const sites = controllerSites(this.sessions, session, method);
+        const routes = controllerRoutes(this.sessions, session, method);
+        return { method, route: routes[0], templates: [...new Set(sites.map((site) => site.templateName))],
+          rank: ACTION_ORDER[actionIcon(this.sessions, session, method, sites, routes)] };
+      });
+      // What the controller renders first, then what it answers, then the
+      // rest: a page and an endpoint are different kinds of thing, and a
+      // list that interleaves them has to be read row by row.
+      actions.sort((left, right) => left.rank - right.rank ||
+        (left.route && right.route ? compareRoutePaths(left.route, right.route) : left.route ? -1 : right.route ? 1 : 0) ||
+        left.method.methodName.localeCompare(right.method.methodName));
+      return [
+        // An action is read by what it produces. One that renders is its
+        // template, with the route it answers beneath; one that does not is
+        // the method itself, which for a JSON endpoint is its route.
+        ...actions.flatMap<SidebarNode>(({ method, templates }) => templates.length === 0 ? [method]
+          : templates.map((name) => ({ ...node, kind: 'controllerTemplate' as const, methodName: method.methodName, name }))),
+        ...(controllerDependencies(this.sessions, session, node).length
+          ? [{ ...node, kind: 'controllerDependencies' as const }] : []),
+        ...((await controllerScripts(this.sessions, session, node)).length
+          ? [{ ...node, kind: 'controllerScripts' as const }] : []),
+      ];
     }
+    if (node.kind === 'controllerMethod') { return []; }
     if (node.kind === 'controllerDependencies') {
       return controllerDependencies(this.sessions, session, node).map((dependency) => ({
         ...node, kind: 'controllerDependency', typeName: dependency.declaration.name,
@@ -390,14 +401,19 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     if (node.kind === 'controllerDependency') {
       return { kind: 'controllerDependencies', root: node.root, projectPath: node.projectPath, className: node.className };
     }
-    if (node.kind === 'controllerMethod' || node.kind === 'controllerDependencies' || node.kind === 'controllerScripts') {
+    if (node.kind === 'controllerTemplate' || node.kind === 'controllerDependencies' || node.kind === 'controllerScripts') {
       return { kind: 'controller', root: node.root, projectPath: node.projectPath, className: node.className };
     }
-    if (node.kind === 'controllerTemplate') {
-      return {
-        kind: 'controllerMethod', root: node.root, projectPath: node.projectPath,
-        className: node.className, methodName: node.methodName,
-      };
+    if (node.kind === 'controllerMethod') {
+      // An action that renders sits under the template it renders, and under
+      // the first of them when it renders several.
+      const session = this.sessionForRoot(node.root);
+      const [name] = session === undefined ? []
+        : [...new Set(controllerSites(this.sessions, session, node).map((site) => site.templateName))];
+      return name === undefined
+        ? { kind: 'controller', root: node.root, projectPath: node.projectPath, className: node.className }
+        : { kind: 'controllerTemplate', root: node.root, projectPath: node.projectPath, className: node.className,
+          methodName: node.methodName, name };
     }
     if (node.kind === 'template' || node.kind === 'folder') {
       const namespace = node.kind === 'template' ? namespaceOf(node.name) : node.namespace;
@@ -753,18 +769,20 @@ Extends ${node.name}.`;
         routeLabels.length ? routeLabels.join(' · ') : `${node.methodName}()`,
         // A controller holds its actions whether or not any renders; an
         // action holds only what it renders.
-        (template || controller ? (await this.getChildren(node)).length === 0 : sites.length === 0)
+        (await this.getChildren(node)).length === 0
           ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Collapsed);
-      // An action wears what its route does: the leaf for one that renders
-      // Twig, the object for one that answers JSON. A method no route reaches
-      // is a plain method, which is what tells the two apart at a glance.
+      // An action wears what it produces: the object for JSON, the leaf for
+      // Twig, and the plain method icon for one that does neither. Read from
+      // the action itself rather than from its route, so a row does not
+      // change icon when the console finally answers.
       item.iconPath = sidebarIcon(template ? 'template' : controller ? 'controller'
-        : routes[0] === undefined ? 'method' : routeIcon(this.sessions, session, routes[0]));
+        : actionIcon(this.sessions, session, node, sites, routes));
       item.tooltip = `${node.className}${controller ? '' : `::${node.methodName}()`}\n${node.projectPath}`;
       if (!template) {
-        // The number of actions listed beneath it, rendering or not.
-        item.description = controller ? String(controllerActionMethods(this.sessions, session, node).length) :
-          routes.length ? `${node.methodName}()` : templateNames.join(', ');
+        // The number of actions listed beneath it, rendering or not. An
+        // action names its method; what it renders is the row above it.
+        item.description = controller ? String(controllerActionMethods(this.sessions, session, node).length)
+          : routes.length ? `${node.methodName}()` : '';
         if (routes.length) {
           item.tooltip += `\n\nRoutes:\n${routes.map((route) => `${route.methods} ${route.path} (${route.name})`).join('\n')}`;
           // A word for the menu: the row has a route to copy.
@@ -776,6 +794,9 @@ Extends ${node.name}.`;
         item.resourceUri = session.uriOf(node.projectPath);
       } else {
         const resolved = session.lookup(node.name);
+        // Which of the controller's actions renders it, since the row is now
+        // the action's own place in the tree.
+        item.description = `${node.methodName}()`;
         item.tooltip = `${node.name}\n${resolved?.projectPath ?? 'This template name could not be resolved with the current index.'}`;
         if (resolved === undefined) {
           item.description = 'Unresolved';
@@ -1510,11 +1531,36 @@ function controllerActionMethods(sessions: SessionManager, session: ProjectSessi
 }
 
 /**
- * The icon for a route, decided by what the route actually does.
+ * The icon for a controller's action: what it produces, not what reaches it.
  *
- * Worn by a row in the route sections and by a controller's action, which is
- * a route seen from the other side. The leaf icon claims a template is
- * rendered, so it must never land on an endpoint that renders nothing.
+ * A route says the same thing, but only once the console has answered, and a
+ * row that starts as a plain method and turns into a leaf a few seconds later
+ * reads as the tree correcting itself. The PHP is there from the start, so
+ * the render call and the JSON response decide, and the route is consulted
+ * only for a format the PHP does not state.
+ */
+/** What an action can be, which is both its icon and its place in the list. */
+type ActionRole = Extract<SidebarRole, 'templateRoute' | 'jsonRoute' | 'method'>;
+
+/** Templates first, then JSON endpoints, then everything else, matching the icons. */
+const ACTION_ORDER: Record<ActionRole, number> = { templateRoute: 0, jsonRoute: 1, method: 2 };
+
+function actionIcon(sessions: SessionManager, session: ProjectSession,
+  node: ControllerIdentity & { readonly methodName: string },
+  sites: readonly RenderSite[], routes: readonly SymfonyRoute[]): ActionRole {
+  const declared = frontendIndex(sessions, session).actionsFor(node.className, node.methodName)
+    .filter((entry) => entry.projectPath === node.projectPath);
+  const action = declared.length === 1 ? declared[0]!.action : undefined;
+  if (action?.json === true || routes.some((route) => route.format === 'json')) { return 'jsonRoute'; }
+  if (sites.length > 0 || action !== undefined && action.templates.length > 0) { return 'templateRoute'; }
+  return 'method';
+}
+
+/**
+ * The icon for a route row, decided by what the route actually does.
+ *
+ * The leaf icon claims a template is rendered, so it must never land on an
+ * endpoint that renders nothing.
  */
 let hierarchy: boolean | undefined;
 

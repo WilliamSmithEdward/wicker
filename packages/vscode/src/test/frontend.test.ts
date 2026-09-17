@@ -281,18 +281,29 @@ suite('Stimulus and API connections', () => {
       assert.ok(controllers);
       const controller = (await tree.getChildren(controllers)).find((node) => node.kind === 'controller' && node.className === 'App\\Controller\\WickerFrontendTestController');
       assert.ok(controller);
-      const controllerActions = (await tree.getChildren(controller)).filter((node) => node.kind === 'controllerMethod');
-      // The JSON endpoint renders nothing, so it has no render site. It is
-      // still an action of this controller, and listing its route under API
-      // routes while omitting the action itself leaves the tree disagreeing
-      // with itself about what the controller contains.
-      assert.deepEqual(await Promise.all(controllerActions.map(async (node) => (await tree.getTreeItem(node)).label)),
-        ['GET /_wicker-test/alpha', 'GET /_wicker-test/api', 'GET /_wicker-test/fragment', 'GET /_wicker-test/zebra']);
-      // An action wears what its route does, so JSON and HTML are told apart
-      // where the controller is read rather than only in the route sections.
-      const jsonAction = controllerActions.find((node) => node.kind === 'controllerMethod' && node.methodName === 'data')!;
+      // A controller is read by what it produces: what it renders first, each
+      // template naming the action beneath it, then what it answers as JSON.
+      // The JSON endpoint renders nothing, so it is its own row; listing its
+      // route under API routes while omitting it here would leave the tree
+      // disagreeing with itself about what the controller contains.
+      const controllerRows = (await tree.getChildren(controller))
+        .filter((node) => node.kind === 'controllerTemplate' || node.kind === 'controllerMethod');
+      // Ordered by route path, which the fixture deliberately crosses with
+      // the method names: aaa answers /zebra and zzz answers /alpha.
+      assert.deepEqual(await Promise.all(controllerRows.map(async (node) => {
+        const row = await tree.getTreeItem(node);
+        return `${typeof row.label === 'string' ? row.label : ''} ${String(row.description)}`;
+      })), [
+        'wicker_frontend_test.html.twig zzz()',
+        'wicker_frontend_test.html.twig fragment()',
+        'wicker_frontend_test.html.twig aaa()',
+        'GET /_wicker-test/api data()',
+      ]);
+      const jsonAction = controllerRows.find((node) => node.kind === 'controllerMethod' && node.methodName === 'data')!;
       assert.equal(((await tree.getTreeItem(jsonAction)).iconPath as vscode.ThemeIcon).id, 'symbol-object');
-      const action = controllerActions.find((node) => node.kind === 'controllerMethod' && node.methodName === 'fragment')!;
+      const rendered = controllerRows.find((node) => node.kind === 'controllerTemplate' && node.methodName === 'fragment')!;
+      assert.equal(leafIconName(await tree.getTreeItem(rendered)), 'template-leaf');
+      const action = (await tree.getChildren(rendered))[0]!;
       const actionItem = await tree.getTreeItem(action);
       assert.equal(actionItem.label, 'GET /_wicker-test/fragment');
       assert.equal(actionItem.description, 'fragment()');
@@ -318,9 +329,10 @@ suite('Stimulus and API connections', () => {
         const fallback = await tree.getTreeItem(action);
         assert.equal(fallback.id, actionItem.id);
         assert.equal(fallback.label, 'fragment()');
-        assert.equal(fallback.description, 'wicker_frontend_test.html.twig');
-        // With no route to describe it, the row is a plain PHP method again.
-        assert.equal((fallback.iconPath as vscode.ThemeIcon).id, 'symbol-method');
+        assert.equal(fallback.description, '');
+        // The icon is read from the PHP, so it does not change while the
+        // console is still answering: this row renders Twig either way.
+        assert.equal(leafIconName(fallback), 'route-leaf');
       } finally { owningSession.frontend = discovered; }
       await vscode.commands.executeCommand(actionItem.command!.command, ...actionItem.command!.arguments!);
       assert.equal(vscode.window.activeTextEditor?.document.uri.toString(), php.uri.toString());

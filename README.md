@@ -174,16 +174,18 @@ register.
 
 Click the leaf in the Activity Bar to open Wicker. Each Symfony project shows
 **Controllers** and **Templates** sections.
-Under **Controllers**, expand a controller and an action to see its template
-targets. Clicking the controller opens its PHP file; clicking an action selects
-its first render call or `#[Template]` attribute; clicking a resolved target opens
-the Twig file. Unresolved names stay visible with a warning. A controller is
-listed when it renders a template or a route names it, so one that only answers
-JSON has a row too, and its actions open where they are declared.
+Under **Controllers**, a controller lists what it produces: each template it
+renders, then its JSON endpoints, then any other action. A template carries the
+action that renders it beneath, so a page reads as Twig, then the route that
+serves it. An endpoint that renders nothing is its own row. Clicking the
+controller opens its PHP file; clicking a template opens the Twig file; clicking
+the action selects its render call or `#[Template]` attribute. Unresolved names
+stay visible with a warning. A controller is listed when it renders a template
+or a route names it, so one that only answers JSON has a row too.
 
 Action rows lead with their registered HTTP method and URL, such as
 `GET /dashboard`, with `index()` as secondary detail. When route discovery is
-unavailable, the method name stays visible beside its template targets.
+unavailable, the method name stays visible.
 Hover shows all registered routes and rendered templates for the action. Route
 rows sort by URL path in every section, including under controllers.
 
@@ -480,9 +482,9 @@ row is named by its last segment with the whole path in its tooltip. Set
 `wicker.sidebar.routeHierarchy` to `false` for one level with full paths.
 JSON routes use the `{}` object icon and routes rendering Twig a leaf with a
 route arrow. Twig template files use a plain leaf. A row under a controller is
-an action of that controller and wears what its route does, so a JSON endpoint
-and a page are told apart there too; a method no route reaches keeps the plain
-method icon. The icons
+an action of that controller and wears what it produces, read from the PHP
+rather than from its route: the object for JSON, the leaf for Twig, and the
+plain method icon for one that does neither. The icons
 include light and dark theme variants.
 
 JSON field completion and navigation follow local awaited assignments:

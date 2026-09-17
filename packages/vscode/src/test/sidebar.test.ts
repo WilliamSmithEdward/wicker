@@ -206,13 +206,17 @@ suite('Wicker sidebar', () => {
     await vscode.commands.executeCommand(controllerItem.command.command, ...controllerItem.command.arguments!);
     assert.equal(vscode.window.activeTextEditor?.document.uri.toString(),
       vscode.Uri.joinPath(rootUri, 'src/Controller/TaskController.php').toString());
-    const actions = await provider.getChildren(controller);
-    assert.deepEqual(await Promise.all(actions.map(async (node) => (await provider.getTreeItem(node)).label)), ['index()', 'missing()', 'badNamespace()']);
-    for (const action of actions) {
-      const leaf = (await provider.getChildren(action))[0]!;
+    // An action that renders is read by what it renders: the template is the
+    // row under the controller, and the action sits beneath it.
+    const rendered = await provider.getChildren(controller);
+    assert.deepEqual(await Promise.all(rendered.map(async (node) => (await provider.getTreeItem(node)).label)),
+      ['@Nope/thing.html.twig', 'task/index.html.twig', 'task/does_not_exist.html.twig']);
+    for (const leaf of rendered) {
       assert.ok(leaf.kind === 'controllerTemplate');
-      assert.equal((await provider.getTreeItem(provider.getParent(action)!)).id, controllerItem.id);
-      assert.equal((await provider.getTreeItem(provider.getParent(leaf)!)).id, (await provider.getTreeItem(action)).id);
+      assert.equal((await provider.getTreeItem(provider.getParent(leaf)!)).id, controllerItem.id);
+      const action = (await provider.getChildren(leaf))[0]!;
+      assert.ok(action.kind === 'controllerMethod');
+      assert.equal((await provider.getTreeItem(provider.getParent(action)!)).id, (await provider.getTreeItem(leaf)).id);
       const command = (await provider.getTreeItem(action)).command!;
       await vscode.commands.executeCommand(command.command, ...command.arguments!);
       const editor: vscode.TextEditor | undefined = vscode.window.activeTextEditor;
@@ -220,6 +224,7 @@ suite('Wicker sidebar', () => {
       assert.equal(editor.document.getText(editor.selection), leaf.name);
       const item = await provider.getTreeItem(leaf);
       if (leaf.name === 'task/index.html.twig') {
+        assert.equal(item.description, 'index()', 'the action it belongs to');
         assert.ok(item.command);
         await vscode.commands.executeCommand(item.command.command, ...item.command.arguments!);
         assert.equal(vscode.window.activeTextEditor?.document.uri.toString(),
@@ -280,24 +285,26 @@ suite('Wicker sidebar', () => {
       assert.equal(rows.length, 2);
       assert.notEqual((await provider.getTreeItem(rows[0]!)).id, (await provider.getTreeItem(rows[1]!)).id);
       const controller = rows.find((node) => node.kind === 'controller' && node.className === 'App\\Controller\\PageController')!;
-      const actions = await provider.getChildren(controller);
-      assert.deepEqual(await Promise.all(actions.map(async (node) => (await provider.getTreeItem(node)).label)), ['index()', 'attribute()']);
-      const action = actions[0]!;
-      const leaves = await provider.getChildren(action);
+      // One row per template rendered, the actions beneath them, ordered by
+      // the method that renders each.
+      const leaves = await provider.getChildren(controller);
       assert.deepEqual(await Promise.all(leaves.map(async (node) => (await provider.getTreeItem(node)).label)),
-        ['task/index.html.twig', '@Infrastructure/status.html.twig']);
+        ['task/_row.html.twig', 'task/index.html.twig', '@Infrastructure/status.html.twig']);
+      const action = (await provider.getChildren(leaves[1]))[0]!;
       const item = await provider.getTreeItem(action);
+      assert.equal(item.label, 'index()');
       // Old nodes/commands should resolve fresh offsets after unrelated edits.
       await replace(source.replace('<?php', '<?php\n// shifted 💚\n'));
       assert.equal((await provider.getTreeItem(action)).id, item.id);
       await vscode.commands.executeCommand(item.command!.command, ...item.command!.arguments!);
       assert.equal(php.getText(vscode.window.activeTextEditor!.selection), 'task/index.html.twig');
-      const attribute = await provider.getTreeItem(actions[1]!);
+      const attribute = await provider.getTreeItem((await provider.getChildren(leaves[0]))[0]!);
+      assert.equal(attribute.label, 'attribute()');
       await vscode.commands.executeCommand(attribute.command!.command, ...attribute.command!.arguments!);
       const editor = vscode.window.activeTextEditor!;
       assert.match(php.lineAt(editor.selection.start.line).text, /#\[Template/);
       assert.equal(php.getText(editor.selection), 'task/_row.html.twig');
-      const bundle = await provider.getTreeItem(leaves[1]!);
+      const bundle = await provider.getTreeItem(leaves[2]!);
       assert.ok(bundle.command, 'explicit render targets stay available when bundle browsing is hidden');
       await vscode.commands.executeCommand(bundle.command.command, ...bundle.command.arguments!);
       assert.equal(vscode.window.activeTextEditor?.document.uri.toString(),
@@ -835,19 +842,25 @@ class SidebarCreatedController {
    * controller that also rendered a page, and a row that was there opened
    * nothing because there was no render call to open.
    */
-  test('lists a controller whose actions only answer JSON, and opens them', async () => {
+  test('lists a controller that renders nothing, and gives each action the icon it earns', async () => {
     const settings = vscode.workspace.getConfiguration('wicker');
     const previousCommand = settings.inspect<string[]>('console.command')?.workspaceValue;
     const previousEnabled = settings.inspect<boolean>('console.enabled')?.workspaceValue;
     const php = vscode.Uri.joinPath(rootUri, 'src/Controller/WickerJsonOnlyController.php');
-    const routes = { wicker_json_only: { path: '/api/v1/wicker/only', method: 'GET',
-      defaults: { _controller: 'App\\Controller\\WickerJsonOnlyController::list' } } };
+    const routes = {
+      wicker_json_only: { path: '/api/v1/wicker/only', method: 'GET',
+        defaults: { _controller: 'App\\Controller\\WickerJsonOnlyController::list' } },
+      wicker_json_away: { path: '/api/v1/wicker/away', method: 'GET',
+        defaults: { _controller: 'App\\Controller\\WickerJsonOnlyController::away' } },
+    };
     const fake = `process.stdout.write(JSON.stringify(process.argv.includes('debug:router') ? ${JSON.stringify(routes)} : { loader_paths: { '(None)': ['templates'] } }));`;
     const own = memorySessions();
     const tree = new ProjectTreeProvider(own);
     try {
-      await vscode.workspace.fs.writeFile(php, Buffer.from(
-        "<?php namespace App\\Controller;\nclass WickerJsonOnlyController {\n  public function list() { return $this->json(['items' => []]); }\n}\n"));
+      await vscode.workspace.fs.writeFile(php, Buffer.from([
+        '<?php namespace App\\Controller;', 'class WickerJsonOnlyController {',
+        "  public function list() { return $this->json(['items' => []]); }",
+        "  public function away() { return $this->redirectToRoute('wicker_json_only'); }", '}', ''].join('\n')));
       await settings.update('console.enabled', true, vscode.ConfigurationTarget.Workspace);
       await settings.update('console.command', [process.env['npm_node_execpath'] ?? 'node', '-e', fake, '--'], vscode.ConfigurationTarget.Workspace);
       await vscode.commands.executeCommand('wicker.reindex');
@@ -859,11 +872,14 @@ class SidebarCreatedController {
       assert.ok(only, 'a controller that renders nothing still has a row');
       const row = await tree.getTreeItem(only);
       assert.equal(row.collapsibleState, vscode.TreeItemCollapsibleState.Collapsed);
-      assert.equal(row.description, '1');
+      assert.equal(row.description, '2');
       assert.equal(row.command?.command, 'wicker.openController');
 
+      // The JSON endpoint wears the object; the action that only redirects
+      // is neither Twig nor JSON, so it keeps the plain method icon.
       const actions = await tree.getChildren(only);
-      assert.equal(actions.length, 1);
+      assert.deepEqual(await Promise.all(actions.map(async (node) => ((await tree.getTreeItem(node)).iconPath as vscode.ThemeIcon).id)),
+        ['symbol-object', 'symbol-method']);
       const action = await tree.getTreeItem(actions[0]!);
       assert.match(typeof action.label === 'string' ? action.label : action.label?.label ?? '', /\/api\/v1\/wicker\/only/);
       assert.equal(action.collapsibleState, vscode.TreeItemCollapsibleState.None);

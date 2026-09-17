@@ -392,14 +392,16 @@ colour claims an understanding the extension does not have.
 
 The Wicker sidebar's project tooltip reports Symfony console when it is reachable.
 Healthy projects contain Controllers and Templates sections. Under Controllers,
-expand TaskController, then its index action (labelled by its route when known): clicking the action selects its PHP template
-name and clicking the template opens Twig. WickerTourController includes both
-render calls and a Template attribute. Unresolved names remain visible with a
-warning. A controller is listed when it renders a template or a route names
-it, and an action that renders nothing opens where it is declared. An action
-wears what its route does, the leaf for Twig and the object for JSON, and a
-method no route reaches keeps the plain method icon. Both route sections open
-a path segment at a time unless `wicker.sidebar.routeHierarchy` is off. The tree follows
+expand TaskController: it lists the templates it renders, then its JSON
+endpoints, then anything else. Clicking a template opens Twig, and the action
+beneath it (labelled by its route when known) selects the PHP template name.
+WickerTourController includes both render calls and a Template attribute.
+Unresolved names remain visible with a warning. A controller is listed when it
+renders a template or a route names it, and an action that renders nothing
+opens where it is declared. An action wears what it produces, read from the
+PHP so the icon does not change when the console answers: the leaf for Twig,
+the object for JSON, the plain method icon for neither. Both route sections
+open a path segment at a time unless `wicker.sidebar.routeHierarchy` is off. The tree follows
 unsaved PHP edits; undo temporary edits after checking this.
 Limited namespace discovery or a truncated index shows an expandable warning
 with Retry and Settings actions.

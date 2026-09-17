@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.1
+
+### Changed
+
+- **Template routes group by path as well**, under the same setting, which is
+  now `wicker.sidebar.routeHierarchy` because it governs both sections.
+  `wicker.sidebar.apiRouteHierarchy`, from 0.10.0, is gone; set the new name
+  to `false` for the flat list.
+- **An action wears what its route does.** Under a controller, an action that
+  renders Twig takes the leaf and one that answers JSON the object, so a page
+  and an endpoint are told apart where the controller is read. A method no
+  route reaches keeps the plain method icon.
+
 ## 0.10.0
 
 The API routes open by path, and a controller that renders nothing has a row.

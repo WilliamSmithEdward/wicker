@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.3
+
+### Fixed
+
+- **A project that generates its import map.** `importmap.php` is the whole
+  import map only while Symfony's own reader reads it. Where a project's
+  configuration or PHP names `asset_mapper.importmap.config_reader`, it can
+  add entries the file never holds. Bare imports are no longer reported there,
+  and a generated `#` alias such as `#app/analytics/modal.js` is followed to
+  the mapped asset whose logical path it names. Such a project's files import
+  each other that way, so the chain from an entrypoint stopped at the first
+  one, and the scripts and stylesheets under its templates and controllers
+  were missing. Show diagnostics says what the import map is read from and
+  which file names the service.
+
 ## 0.9.2
 
 ### Changed

@@ -89,9 +89,23 @@ export function scanFrontend(source: string, twig: boolean): FrontendScan {
         }
         const args = helperArguments(splitTwigTokens(tokens.slice(i + 2, end), ','), helper);
         const first = args[0]?.[0];
+        const inside = (token: TwigExpressionToken): OffsetRange =>
+          ({ start: token.start + 1, end: token.end - (source[token.end - 1] === source[token.start] ? 1 : 0) });
+        // importmap() takes one entrypoint or a list of them, and a page that
+        // adds its own to the layout's writes the list. Each literal in it is
+        // an entrypoint; an element that is computed names nothing here.
+        if (helper === 'importmap' && first?.value === '[' && args[0]?.at(-1)?.value === ']') {
+          for (const element of splitTwigTokens(args[0].slice(1, -1), ',')) {
+            const only = element.length === 1 ? element[0] : undefined;
+            const entry = literalTwigString(only);
+            if (only !== undefined && entry !== undefined) { references.push({ kind: 'entrypoint', name: entry, range: inside(only) }); }
+          }
+          i = end;
+          continue;
+        }
         const name = literalTwigString(first);
         if (first === undefined || name === undefined || args[0]?.length !== 1) { continue; }
-        const firstRange = { start: first.start + 1, end: first.end - (source[first.end - 1] === source[first.start] ? 1 : 0) };
+        const firstRange = inside(first);
         const helperKind = helper === 'path' || helper === 'url' ? 'route'
           : helper === 'asset' ? 'asset' : helper === 'importmap' ? 'entrypoint' : 'controller';
         references.push({ kind: helperKind, name, range: firstRange });

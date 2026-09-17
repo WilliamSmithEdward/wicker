@@ -866,6 +866,37 @@ class WickerFrontendTestController {
       const links = await peerLinks();
       assert.equal(links.length, 1);
       assert.ok(links[0]!.targetUri.path.endsWith(PEER), `expected ${PEER}, got ${links[0]!.targetUri.path}`);
+
+      // Giving every authored file an entry is what lets a page name its own
+      // script as an entrypoint, beside the layout's, in the list importmap()
+      // takes. The alias is followed from there too, or nothing the page
+      // loads is ever reached.
+      const listed = `{{ importmap(['app', '#app/controllers/wicker_peer_controller.ts']) }}`;
+      await replace(page, listed);
+      const entryLinks = await definitions(page, page.positionAt(listed.indexOf('#app/') + 2));
+      assert.equal(entryLinks.length, 1);
+      assert.ok(entryLinks[0]!.targetUri.path.endsWith(PEER), `expected ${PEER}, got ${entryLinks[0]!.targetUri.path}`);
+      const opened = memorySessions();
+      await opened.initialize();
+      const tree = new ProjectTreeProvider(opened);
+      try {
+        const find = async (node: SidebarNode | undefined, depth = 0): Promise<SidebarNode | undefined> => {
+          for (const child of await tree.getChildren(node)) {
+            if (child.kind === 'template' && child.name === 'wicker_frontend_test.html.twig') { return child; }
+            const found = depth < 6 ? await find(child, depth + 1) : undefined;
+            if (found) { return found; }
+          }
+          return undefined;
+        };
+        const template = await find(undefined);
+        assert.ok(template);
+        const loaded = (await tree.getChildren(template)).flatMap((child) => child.kind === 'loaded' ? [child.projectPath] : []);
+        assert.ok(loaded.includes('assets/app.js'), `the layout's entrypoint, among ${loaded.join(', ')}`);
+        assert.ok(loaded.includes(PEER), `the page's own entrypoint, among ${loaded.join(', ')}`);
+      } finally {
+        tree.dispose();
+        opened.dispose();
+      }
       await vscode.workspace.fs.delete(services);
       await vscode.commands.executeCommand('wicker.reindex');
       await eventually(() => reported());

@@ -441,8 +441,10 @@ while Symfony's own reader reads it. Where a project's configuration or PHP
 names `asset_mapper.importmap.config_reader`, it can generate entries the file
 never holds, so bare imports are not checked, and a generated `#` alias such
 as `#app/analytics/modal.js` is followed to the mapped asset whose logical
-path it names. The chain from an entrypoint then still reaches the scripts and
-stylesheets it loads. Show diagnostics says which file names the service.
+path it names, in an import and as an entrypoint passed to `importmap()`, which
+is read whether it takes one name or a list. The chain from an entrypoint then
+still reaches the scripts and stylesheets it loads. Show diagnostics says which
+file names the service.
 
 Routes come from `debug:router --format=json`. In Twig, complete literal route
 names in `path()` and `url()`, then navigate to the application's PHP action.

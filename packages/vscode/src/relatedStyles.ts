@@ -33,7 +33,7 @@ export async function templateStyles(sessions: SessionManager, session: ProjectS
 
   walkTemplates(session, index, names, (file, name) => {
     for (const ref of file.scan.references) {
-      const path = referencedAssetPath(session, ref);
+      const path = referencedAssetPath(sessions, session, ref);
       if (path !== undefined) {
         seeds.set(path, ref.kind === 'asset' ? `Linked by ${name}` : `Loaded by ${name} through the ${ref.name} entrypoint`);
       }

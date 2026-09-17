@@ -229,10 +229,20 @@ export function compareRoutePaths(left: SymfonyRoute, right: SymfonyRoute): numb
   return left.path.localeCompare(right.path);
 }
 
-/** The file an asset() or importmap() reference loads, or nothing when it names none. */
-export function referencedAssetPath(session: ProjectSession, ref: { readonly kind: string; readonly name: string }): string | undefined {
+/**
+ * The file an asset() or importmap() reference loads, or nothing when it names none.
+ *
+ * An entrypoint is an importmap entry, and in a project that generates its
+ * import map it can be one of the generated aliases: giving every authored
+ * file an entry is what lets a page name its own script as an entrypoint.
+ */
+export function referencedAssetPath(sessions: SessionManager, session: ProjectSession,
+  ref: { readonly kind: string; readonly name: string }): string | undefined {
   if (ref.kind === 'asset') { return session.assets.map.lookup(ref.name)?.projectPath; }
-  if (ref.kind === 'entrypoint') { return session.assets.importMap.find((entry) => entry.specifier === ref.name)?.projectPath; }
+  if (ref.kind === 'entrypoint') {
+    return session.assets.importMap.find((entry) => entry.specifier === ref.name)?.projectPath
+      ?? generatedAliasPath(sessions, session, ref.name);
+  }
   return undefined;
 }
 

@@ -381,11 +381,18 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
   private assetQuery(session: ProjectSession, ref: FrontendReference): Query {
     const { map, importMap } = session.assets;
     if (ref.kind === 'entrypoint') {
-      return { name: ref.name, range: ref.range, candidates: importMap
+      const declared: Candidate[] = importMap
         .filter((entry) => entry.entrypoint && entry.projectPath !== undefined)
         .map((entry) => ({ name: entry.specifier, projectPath: entry.projectPath!,
           range: { start: 0, end: 0 }, label: 'Importmap entrypoint',
-          kind: vscode.CompletionItemKind.Module })) };
+          kind: vscode.CompletionItemKind.Module }));
+      // A generated alias is in no file to be offered from, but the one
+      // written here can still be followed to the asset it names.
+      const generated = declared.some((entry) => entry.name === ref.name)
+        ? undefined : generatedAliasPath(this.sessions, session, ref.name);
+      return { name: ref.name, range: ref.range, candidates: generated === undefined ? declared : [...declared, {
+        name: ref.name, projectPath: generated, range: { start: 0, end: 0 },
+        label: `Generated importmap entrypoint · ${generated}`, kind: vscode.CompletionItemKind.Module }] };
     }
     return { name: ref.name, range: ref.range, candidates: map.logicalPaths().flatMap((logicalPath) => {
       const asset = map.lookup(logicalPath);

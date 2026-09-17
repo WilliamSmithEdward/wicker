@@ -343,7 +343,16 @@ describe('Twig/JavaScript frontend references', () => {
 
   it('leaves a computed asset path alone rather than guessing at it', () => {
     expect(scanFrontend(`{{ asset('images/' ~ name ~ '.png') }}`, true).references).toEqual([]);
-    expect(scanFrontend(`{{ importmap(['app', 'admin']) }}`, true).references).toEqual([]);
+    expect(scanFrontend(`{{ importmap(entrypoints) }}`, true).references).toEqual([]);
+  });
+
+  it('reads every literal in the list importmap() takes, which is how a page adds its own entrypoint', () => {
+    const source = `{{ importmap(['app', "#app/pages/dashboard.js", 'pages/' ~ name, other]) }}`;
+    const parsed = scanFrontend(source, true);
+    // The computed element and the variable name nothing; the literals stand.
+    expect(parsed.references.map((ref) => [ref.kind, ref.name]))
+      .toEqual([['entrypoint', 'app'], ['entrypoint', '#app/pages/dashboard.js']]);
+    for (const entry of parsed.references) { expect(source.slice(entry.range.start, entry.range.end)).toBe(entry.name); }
   });
 
   it('handles multiple controllers, action options and target lists', () => {

@@ -396,7 +396,10 @@ expand TaskController, then its index action (labelled by its route when known):
 name and clicking the template opens Twig. WickerTourController includes both
 render calls and a Template attribute. Unresolved names remain visible with a
 warning. A controller is listed when it renders a template or a route names
-it, and an action that renders nothing opens where it is declared. The tree follows
+it, and an action that renders nothing opens where it is declared. An action
+wears what its route does, the leaf for Twig and the object for JSON, and a
+method no route reaches keeps the plain method icon. Both route sections open
+a path segment at a time unless `wicker.sidebar.routeHierarchy` is off. The tree follows
 unsaved PHP edits; undo temporary edits after checking this.
 Limited namespace discovery or a truncated index shows an expandable warning
 with Retry and Settings actions.

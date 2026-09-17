@@ -40,7 +40,7 @@ export type SidebarNode =
   | { readonly kind: 'project'; readonly root: vscode.Uri }
   | { readonly kind: 'section'; readonly root: vscode.Uri; readonly section: SectionName }
   | { readonly kind: 'route'; readonly root: vscode.Uri; readonly name: string; readonly section: 'api' | 'templateRoutes' }
-  | { readonly kind: 'routeFolder'; readonly root: vscode.Uri; readonly section: 'api'; readonly path: string }
+  | { readonly kind: 'routeFolder'; readonly root: vscode.Uri; readonly section: 'api' | 'templateRoutes'; readonly path: string }
   | { readonly kind: 'routeConsumer'; readonly root: vscode.Uri; readonly name: string; readonly section: 'api' | 'templateRoutes'; readonly projectPath: string; readonly offset: number }
   | { readonly kind: 'routeTemplate'; readonly root: vscode.Uri; readonly name: string; readonly section: 'api' | 'templateRoutes'; readonly templateName: string }
   | ControllerNode
@@ -121,7 +121,7 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration('wicker.enable') || event.affectsConfiguration('wicker.sidebar.colors') ||
-          event.affectsConfiguration('wicker.sidebar.apiRouteHierarchy')) {
+          event.affectsConfiguration('wicker.sidebar.routeHierarchy')) {
           this.refresh();
         }
       }),
@@ -218,12 +218,12 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     }
     if (node.kind === 'section' && (node.section === 'api' || node.section === 'templateRoutes')) {
       const section = node.section;
-      const routes = section === 'api' ? apiRoutes(this.sessions, session) : templateRoutes(this.sessions, session);
-      if (section === 'api' && routeHierarchyOn()) { return routeLevelNodes(node.root, routes, ''); }
+      const routes = this.routesIn(session, section);
+      if (routeHierarchyOn()) { return routeLevelNodes(node.root, routes, '', section); }
       return routes.map((route) => ({ kind: 'route', root: node.root, name: route.name, section }));
     }
     if (node.kind === 'routeFolder') {
-      return routeLevelNodes(node.root, apiRoutes(this.sessions, session), node.path);
+      return routeLevelNodes(node.root, this.routesIn(session, node.section), node.path, node.section);
     }
     if (node.kind === 'route') {
       const route = session.frontend.routes.find((route) => route.name === node.name);
@@ -371,11 +371,11 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     if (node.kind === 'route' || node.kind === 'routeFolder') {
       // A route is a leaf of the folder its path ends in, and a folder of the
       // one above it; both reach the section where the path runs out.
-      const path = node.kind === 'routeFolder' ? node.path : node.section === 'api' && routeHierarchyOn()
+      const path = node.kind === 'routeFolder' ? node.path : routeHierarchyOn()
         ? this.sessionForRoot(node.root)?.frontend.routes.find((route) => route.name === node.name)?.path : undefined;
       const folder = path === undefined ? '' : routeFolderOf(path);
       return folder === '' ? { kind: 'section', root: node.root, section: node.section }
-        : { kind: 'routeFolder', root: node.root, section: 'api', path: folder };
+        : { kind: 'routeFolder', root: node.root, section: node.section, path: folder };
     }
     if (node.kind === 'routeConsumer' || node.kind === 'routeTemplate') { return { kind: 'route', root: node.root, name: node.name, section: node.section }; }
     if (node.kind === 'project') {
@@ -407,6 +407,11 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
         : { kind: 'folder', root: node.root, namespace, path: folder };
     }
     return { kind: 'project', root: node.root };
+  }
+
+  /** The routes a section lists, so its folders count and hold the same set its rows come from. */
+  private routesIn(session: ProjectSession, section: 'api' | 'templateRoutes'): readonly SymfonyRoute[] {
+    return section === 'api' ? apiRoutes(this.sessions, session) : templateRoutes(this.sessions, session);
   }
 
   private sessionForRoot(root: vscode.Uri): ProjectSession | undefined {
@@ -669,12 +674,14 @@ Extends ${node.name}.`;
     }
     if (node.kind === 'routeFolder') {
       const folder = routeSegments(node.path);
-      const count = apiRoutes(this.sessions, session).filter((route) => {
+      const count = this.routesIn(session, node.section).filter((route) => {
         const segments = routeSegments(route.path);
         return segments.length > folder.length && folder.every((segment, at) => segments[at] === segment);
       }).length;
       const item = new vscode.TreeItem(folder.at(-1) ?? node.path, vscode.TreeItemCollapsibleState.Collapsed);
-      item.iconPath = sidebarIcon('routeFolder');
+      // A folder wears its section's hue: a branch whose rows change colour
+      // halfway down reads as a mistake.
+      item.iconPath = sidebarIcon(node.section === 'api' ? 'routeFolder' : 'templateRouteFolder');
       item.description = String(count);
       item.tooltip = `/${node.path}\n${counted(count, 'endpoint')} beneath this path.`;
       return item;
@@ -684,7 +691,7 @@ Extends ${node.name}.`;
       const rowIcon = route ? routeIcon(this.sessions, session, route) : 'route';
       // Inside the hierarchy the folders above already spell the path, so the
       // row is named by where it ends; the tooltip still gives the whole of it.
-      const nested = node.kind === 'route' && node.section === 'api' && route !== undefined && routeHierarchyOn();
+      const nested = node.kind === 'route' && route !== undefined && routeHierarchyOn();
       const label = node.kind === 'route' ? `${route?.methods ?? ''} ${route === undefined ? node.name : nested ? routeLeafName(route.path) : route.path}` :
         node.kind === 'routeTemplate' ? node.templateName : node.projectPath;
       const item = new vscode.TreeItem(label, (node.kind === 'route' || node.kind === 'routeTemplate') && (await this.getChildren(node)).length
@@ -748,9 +755,11 @@ Extends ${node.name}.`;
         // action holds only what it renders.
         (template || controller ? (await this.getChildren(node)).length === 0 : sites.length === 0)
           ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Collapsed);
-      // An action is a PHP method whatever its route returns. The leaf and the
-      // object belong to the route sections; what it renders sits below it.
-      item.iconPath = sidebarIcon(template ? 'template' : controller ? 'controller' : 'method');
+      // An action wears what its route does: the leaf for one that renders
+      // Twig, the object for one that answers JSON. A method no route reaches
+      // is a plain method, which is what tells the two apart at a glance.
+      item.iconPath = sidebarIcon(template ? 'template' : controller ? 'controller'
+        : routes[0] === undefined ? 'method' : routeIcon(this.sessions, session, routes[0]));
       item.tooltip = `${node.className}${controller ? '' : `::${node.methodName}()`}\n${node.projectPath}`;
       if (!template) {
         // The number of actions listed beneath it, rendering or not.
@@ -1501,33 +1510,34 @@ function controllerActionMethods(sessions: SessionManager, session: ProjectSessi
 }
 
 /**
- * The icon for a route row, decided by what the route actually does.
+ * The icon for a route, decided by what the route actually does.
  *
- * Only the route sections draw routes; a row under a controller is a PHP
- * method and keeps the method icon. The leaf icon claims a template is
+ * Worn by a row in the route sections and by a controller's action, which is
+ * a route seen from the other side. The leaf icon claims a template is
  * rendered, so it must never land on an endpoint that renders nothing.
  */
 let hierarchy: boolean | undefined;
 
 /**
- * Whether the API routes are grouped by path, read once per turn of the event
- * loop: every route row asks while a tree is drawn, and building a
+ * Whether the route sections are grouped by path, read once per turn of the
+ * event loop: every route row asks while a tree is drawn, and building a
  * configuration snapshot per row is the cost the colours already avoid.
  */
 function routeHierarchyOn(): boolean {
   if (hierarchy === undefined) {
-    hierarchy = vscode.workspace.getConfiguration('wicker').get<boolean>('sidebar.apiRouteHierarchy', true);
+    hierarchy = vscode.workspace.getConfiguration('wicker').get<boolean>('sidebar.routeHierarchy', true);
     queueMicrotask(() => { hierarchy = undefined; });
   }
   return hierarchy;
 }
 
-/** One level of the API route hierarchy as rows: the folders beneath a path, then the routes that end there. */
-function routeLevelNodes(root: vscode.Uri, routes: readonly SymfonyRoute[], folder: string): SidebarNode[] {
+/** One level of a route hierarchy as rows: the folders beneath a path, then the routes that end there. */
+function routeLevelNodes(root: vscode.Uri, routes: readonly SymfonyRoute[], folder: string,
+  section: 'api' | 'templateRoutes'): SidebarNode[] {
   const level = routeLevel(routes, folder);
   return [
-    ...level.folders.map((entry) => ({ kind: 'routeFolder' as const, root, section: 'api' as const, path: entry.path })),
-    ...level.routes.map((route) => ({ kind: 'route' as const, root, name: route.name, section: 'api' as const })),
+    ...level.folders.map((entry) => ({ kind: 'routeFolder' as const, root, section, path: entry.path })),
+    ...level.routes.map((route) => ({ kind: 'route' as const, root, name: route.name, section })),
   ];
 }
 

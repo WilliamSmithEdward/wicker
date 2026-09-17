@@ -288,16 +288,15 @@ suite('Stimulus and API connections', () => {
       // with itself about what the controller contains.
       assert.deepEqual(await Promise.all(controllerActions.map(async (node) => (await tree.getTreeItem(node)).label)),
         ['GET /_wicker-test/alpha', 'GET /_wicker-test/api', 'GET /_wicker-test/fragment', 'GET /_wicker-test/zebra']);
-      // Every action is a PHP method and wears the method icon, whether it
-      // answers JSON or renders a template. The object and the leaf belong to
-      // the route sections; a leaf on a PHP row reads as a Twig file.
+      // An action wears what its route does, so JSON and HTML are told apart
+      // where the controller is read rather than only in the route sections.
       const jsonAction = controllerActions.find((node) => node.kind === 'controllerMethod' && node.methodName === 'data')!;
-      assert.equal(((await tree.getTreeItem(jsonAction)).iconPath as vscode.ThemeIcon).id, 'symbol-method');
+      assert.equal(((await tree.getTreeItem(jsonAction)).iconPath as vscode.ThemeIcon).id, 'symbol-object');
       const action = controllerActions.find((node) => node.kind === 'controllerMethod' && node.methodName === 'fragment')!;
       const actionItem = await tree.getTreeItem(action);
       assert.equal(actionItem.label, 'GET /_wicker-test/fragment');
       assert.equal(actionItem.description, 'fragment()');
-      assert.equal((actionItem.iconPath as vscode.ThemeIcon).id, 'symbol-method');
+      assert.equal(leafIconName(actionItem), 'route-leaf');
       // A routed action offers its route to copy, as redirectToRoute() wants it.
       assert.match(actionItem.contextValue ?? '', /\brouted\b/);
       await vscode.commands.executeCommand('wicker.copyRoutePath', action);
@@ -320,6 +319,8 @@ suite('Stimulus and API connections', () => {
         assert.equal(fallback.id, actionItem.id);
         assert.equal(fallback.label, 'fragment()');
         assert.equal(fallback.description, 'wicker_frontend_test.html.twig');
+        // With no route to describe it, the row is a plain PHP method again.
+        assert.equal((fallback.iconPath as vscode.ThemeIcon).id, 'symbol-method');
       } finally { owningSession.frontend = discovered; }
       await vscode.commands.executeCommand(actionItem.command!.command, ...actionItem.command!.arguments!);
       assert.equal(vscode.window.activeTextEditor?.document.uri.toString(), php.uri.toString());
@@ -344,9 +345,13 @@ suite('Stimulus and API connections', () => {
       const templateSection = (await tree.getChildren(root)).find((node) => node.kind === 'section' && node.section === 'templateRoutes');
       assert.ok(templateSection);
       assert.equal((await tree.getTreeItem(templateSection)).label, 'Template routes');
-      const templateEntries = await tree.getChildren(templateSection);
+      // Template routes group by path too: one folder for the shared prefix,
+      // and each row named by where its path ends.
+      const templateFolders = await tree.getChildren(templateSection);
+      assert.deepEqual(await Promise.all(templateFolders.map(async (node) => (await tree.getTreeItem(node)).label)), ['_wicker-test']);
+      const templateEntries = await tree.getChildren(templateFolders[0]);
       assert.deepEqual(await Promise.all(templateEntries.map(async (node) => (await tree.getTreeItem(node)).label)),
-        ['GET /_wicker-test/alpha', 'GET /_wicker-test/fragment', 'GET /_wicker-test/zebra']);
+        ['GET alpha', 'GET fragment', 'GET zebra']);
       const templateRoute = templateEntries.find((node) => node.kind === 'route' && node.name === 'wicker_test_fragment')!;
       assert.equal(leafIconName(await tree.getTreeItem(templateRoute)), 'route-leaf');
       // It is a fragment: the page's own inline script fetches it, and the row
@@ -368,7 +373,8 @@ suite('Stimulus and API connections', () => {
       assert.equal(fragmentPick.projectPath, PHP);
       assert.ok(picks.every((pick) => pick.projectPath.endsWith('.php')));
       assert.deepEqual(picks.map((pick) => pick.label), [...picks.map((pick) => pick.label)].sort(), 'sorted by path');
-      assert.deepEqual(tree.getParent(templateRoute), templateSection);
+      assert.deepEqual(tree.getParent(templateRoute), templateFolders[0]);
+      assert.deepEqual(tree.getParent(templateFolders[0]!), templateSection);
       const renderedTemplate = (await tree.getChildren(templateRoute)).find((node) => node.kind === 'routeTemplate');
       assert.ok(renderedTemplate);
       assert.equal(leafIconName(await tree.getTreeItem(renderedTemplate)), 'template-leaf');

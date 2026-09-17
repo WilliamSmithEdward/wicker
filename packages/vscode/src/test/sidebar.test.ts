@@ -888,17 +888,18 @@ class SidebarCreatedController {
    * only at the end. Grouped by path, the prefix is read once and each row is
    * named by where it ends; the setting gives the flat list back.
    */
-  test('groups the API routes by path, and lists them flat when asked', async () => {
+  test('groups the route sections by path, and lists them flat when asked', async () => {
     const settings = vscode.workspace.getConfiguration('wicker');
     const previousCommand = settings.inspect<string[]>('console.command')?.workspaceValue;
     const previousEnabled = settings.inspect<boolean>('console.enabled')?.workspaceValue;
-    const previousHierarchy = settings.inspect<boolean>('sidebar.apiRouteHierarchy')?.workspaceValue;
+    const previousHierarchy = settings.inspect<boolean>('sidebar.routeHierarchy')?.workspaceValue;
     const php = vscode.Uri.joinPath(rootUri, 'src/Controller/WickerApiTreeController.php');
     const controller = 'App\\Controller\\WickerApiTreeController';
     const routes = {
       wicker_tree_health: { path: '/api/health', method: 'GET', defaults: { _controller: `${controller}::health` } },
       wicker_tree_items: { path: '/api/v1/items', method: 'GET', defaults: { _controller: `${controller}::items` } },
       wicker_tree_item: { path: '/api/v1/items/{id}', method: 'GET', defaults: { _controller: `${controller}::item` } },
+      wicker_tree_page: { path: '/admin/reports/monthly', method: 'GET', defaults: { _controller: `${controller}::page` } },
     };
     const fake = `process.stdout.write(JSON.stringify(process.argv.includes('debug:router') ? ${JSON.stringify(routes)} : { loader_paths: { '(None)': ['templates'] } }));`;
     const own = memorySessions();
@@ -918,7 +919,8 @@ class SidebarCreatedController {
         '<?php namespace App\\Controller;', 'class WickerApiTreeController {',
         "  public function health() { return $this->json(['ok' => true]); }",
         "  public function items() { return $this->json(['items' => []]); }",
-        "  public function item() { return $this->json(['item' => null]); }", '}', ''].join('\n')));
+        "  public function item() { return $this->json(['item' => null]); }",
+        "  public function page() { return $this->render('task/index.html.twig'); }", '}', ''].join('\n')));
       await settings.update('console.enabled', true, vscode.ConfigurationTarget.Workspace);
       await settings.update('console.command', [process.env['npm_node_execpath'] ?? 'node', '-e', fake, '--'], vscode.ConfigurationTarget.Workspace);
       await own.initialize();
@@ -944,8 +946,26 @@ class SidebarCreatedController {
       assert.deepEqual(tree.getParent(items), v1);
       assert.deepEqual(tree.getParent(top), api);
 
-      await settings.update('sidebar.apiRouteHierarchy', false, vscode.ConfigurationTarget.Workspace);
+      // Template routes group the same way, under the same setting, and their
+      // folders keep the section's own colour rather than the API hue.
+      const templates = (await tree.getChildren(project)).find((child) => child.kind === 'section' && child.section === 'templateRoutes');
+      assert.ok(templates, 'the template routes section');
+      assert.deepEqual(await rows(templates), ['admin/ 1']);
+      const admin = await folder(templates, 'admin');
+      assert.deepEqual(await rows(admin), ['reports/ 1']);
+      const reports = await folder(admin, 'reports');
+      assert.deepEqual(await rows(reports), ['GET monthly']);
+      assert.equal(((await tree.getTreeItem(admin)).iconPath as vscode.ThemeIcon).color?.id, 'terminal.ansiBrightGreen');
+      assert.equal(((await tree.getTreeItem(top)).iconPath as vscode.ThemeIcon).color?.id, 'terminal.ansiCyan');
+      const [page] = await tree.getChildren(reports);
+      assert.ok(page);
+      assert.deepEqual(tree.getParent(page), reports);
+      assert.deepEqual(tree.getParent(reports), admin);
+      assert.deepEqual(tree.getParent(admin), templates);
+
+      await settings.update('sidebar.routeHierarchy', false, vscode.ConfigurationTarget.Workspace);
       assert.deepEqual(await rows(api), ['GET /api/health', 'GET /api/v1/items', 'GET /api/v1/items/{id}']);
+      assert.deepEqual(await rows(templates), ['GET /admin/reports/monthly']);
       const [flat] = await tree.getChildren(api);
       assert.ok(flat);
       assert.deepEqual(tree.getParent(flat), api);
@@ -953,7 +973,7 @@ class SidebarCreatedController {
       tree.dispose();
       own.dispose();
       try { await vscode.workspace.fs.delete(php); } catch { /* never written */ }
-      await settings.update('sidebar.apiRouteHierarchy', previousHierarchy, vscode.ConfigurationTarget.Workspace);
+      await settings.update('sidebar.routeHierarchy', previousHierarchy, vscode.ConfigurationTarget.Workspace);
       await settings.update('console.command', previousCommand, vscode.ConfigurationTarget.Workspace);
       await settings.update('console.enabled', previousEnabled, vscode.ConfigurationTarget.Workspace);
       await vscode.commands.executeCommand('wicker.reindex');

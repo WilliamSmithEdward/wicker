@@ -54,6 +54,7 @@ export const SIDEBAR_ICONS = {
   class: { id: 'symbol-misc', hue: 'php' },
   templateRoutes: { id: 'list-selection', hue: 'templateRoute' },
   templateRoute: { id: 'route-leaf', hue: 'templateRoute' },
+  templateRouteFolder: { id: 'folder', hue: 'templateRoute' },
   apiRoutes: { id: 'radio-tower', hue: 'apiRoute' },
   jsonRoute: { id: 'symbol-object', hue: 'apiRoute' },
   route: { id: 'globe', hue: 'apiRoute' },

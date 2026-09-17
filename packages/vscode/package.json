@@ -329,10 +329,10 @@
           "default": true,
           "markdownDescription": "Select the active editor's template in the sidebar as editors change, the way the Explorer follows the active file. A bundle template is selected only while bundle templates are shown; the Reveal button in the view title shows them regardless."
         },
-        "wicker.sidebar.apiRouteHierarchy": {
+        "wicker.sidebar.routeHierarchy": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Group the **API routes** section by URL path, so `/api/v1/tasks/{id}` sits under api › v1 › tasks and each row is named by its last segment. Off lists every endpoint on one level with its full path."
+          "markdownDescription": "Group the **API routes** and **Template routes** sections by URL path, so `/api/v1/tasks/{id}` sits under api › v1 › tasks and each row is named by its last segment. Off lists every route on one level with its full path."
         },
         "wicker.codeLens.enabled": {
           "type": "boolean",

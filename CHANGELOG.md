@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.2
+
+### Changed
+
+- **The status bar stops once the tree is drawn.** It read "asking the
+  Symfony console" until the console had answered and what was remembered
+  had been confirmed, and nothing waits for either. The row in the tree says
+  what is still being asked.
+- **Show diagnostics says how long each console command took**, slowest
+  first, and the project tooltip names the slowest, so a slow open can be
+  read off rather than described.
+
 ## 0.9.1
 
 The first open of a project no longer waits for Symfony.

@@ -1,4 +1,4 @@
-import { controllerForReference, fetchValueReferences, resolveRelativeImport, scanFrontend, type FrontendIndex, type FrontendScan, type EndpointAction, type EndpointUse, type OffsetRange, type StimulusController, type SymfonyRoute, type PhpTypeDeclaration, type PhpDependency } from '@wicker/core';
+import { controllerForReference, fetchValueReferences, resolveRelativeImport, scanFrontend, type FrontendIndex, type FrontendReference, type FrontendScan, type EndpointAction, type EndpointUse, type OffsetRange, type StimulusController, type SymfonyRoute, type PhpTypeDeclaration, type PhpDependency } from '@wicker/core';
 import { IMPORTMAP_READER } from './assetDiscovery.js';
 import { isEnabled, type ProjectSession, type SessionManager } from './session.js';
 
@@ -161,6 +161,24 @@ export function templatesBinding(sessions: SessionManager, session: ProjectSessi
   for (const paths of byController.values()) { paths.sort((left, right) => left.localeCompare(right)); }
   bindings.set(index, { controllers: session.frontend.controllers, byController });
   return byController.get(name) ?? [];
+}
+
+/**
+ * The controller and member a binding names.
+ *
+ * A value or class attribute names its controller only as a prefix of its own
+ * name, `data-user-card-url-value`, so the member is what is left after the
+ * prefix and is written in HTML's dashed form. Everything else carries its
+ * controller separately and its member verbatim.
+ */
+export function stimulusMemberName(reference: FrontendReference, controllers: readonly StimulusController[]):
+{ controllerName: string | undefined; name: string; range: OffsetRange; html: boolean } {
+  const plain = { controllerName: reference.controller, name: reference.name, range: reference.range, html: false };
+  if (reference.kind !== 'value' && reference.kind !== 'class' || reference.controller !== undefined) { return plain; }
+  const host = controllers.filter((controller) => reference.name.startsWith(`${controller.name}-`))
+    .sort((left, right) => right.name.length - left.name.length)[0];
+  return host === undefined ? plain : { controllerName: host.name, name: reference.name.slice(host.name.length + 1),
+    range: { start: reference.range.start + host.name.length + 1, end: reference.range.end }, html: true };
 }
 
 /** The controllers this session owns, in the order their names read. */

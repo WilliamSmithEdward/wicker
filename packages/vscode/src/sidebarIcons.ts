@@ -44,6 +44,7 @@ export const SIDEBAR_ICONS = {
   project: { id: 'project' },
   controllers: { id: 'list-tree', hue: 'php' },
   controller: { id: 'symbol-class', hue: 'php' },
+  controllerFolder: { id: 'folder', hue: 'php' },
   method: { id: 'symbol-method', hue: 'php' },
   dependencies: { id: 'type-hierarchy-sub', hue: 'php' },
   service: { id: 'server', hue: 'php' },

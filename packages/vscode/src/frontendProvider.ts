@@ -7,7 +7,7 @@ import { ACTION_OPTIONS, COMMON_EVENTS, EVENT_TARGETS, KEY_FILTERS,
 import { basename, enginePathOf } from './paths.js';
 import { rangeOf } from './ranges.js';
 import type { ProjectSession, SessionManager } from './session.js';
-import { fetchValuesOf, frontendIndex, generatedAliasPath, resolveSpecifier, routeAction, routeConsumers, scanOf } from './frontendProject.js';
+import { fetchValuesOf, frontendIndex, generatedAliasPath, resolveSpecifier, routeAction, routeConsumers, scanOf, stimulusMemberName } from './frontendProject.js';
 import { OutletQueries } from './outletQueries.js';
 import type { FrontendTarget as Target, FrontendCandidate as Candidate, FrontendQuery as Query } from './frontendQueries.js';
 
@@ -491,16 +491,12 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
         ? undefined : unresolvedReason('controller', undefined, undefined, ref.name);
       return ref.name.length > 0 && reason ? { ...query, documentation: reason } : query;
     }
-    let controllerName = ref.controller, name = ref.name, range = ref.range, html = false;
-    if ((ref.kind === 'value' || ref.kind === 'class') && controllerName === undefined) {
-      controllerName = controllers.filter((controller) => name.startsWith(`${controller.name}-`)).sort((a, b) => b.name.length - a.name.length)[0]?.name;
-      if (controllerName) {
-        if (offset <= range.start + controllerName.length) {
-          return this.stimulusQuery(session, { kind: 'controller', name: controllerName,
-            range: { start: range.start, end: range.start + controllerName.length } }, offset);
-        }
-        name = name.slice(controllerName.length + 1); range = { start: range.start + controllerName.length + 1, end: range.end }; html = true;
-      }
+    const split = stimulusMemberName(ref, controllers);
+    const { controllerName, name, range, html } = split;
+    // The controller's own half of the attribute answers as the controller.
+    if (html && controllerName !== undefined && offset <= ref.range.start + controllerName.length) {
+      return this.stimulusQuery(session, { kind: 'controller', name: controllerName,
+        range: { start: ref.range.start, end: ref.range.start + controllerName.length } }, offset);
     }
     const controller = controllers.find((entry) => entry.name === controllerName);
     const candidates: Candidate[] = [];
@@ -618,7 +614,7 @@ function typeNote(member: StimulusMember): string[] {
  * logged, and the element simply does not respond. Saying which of the three
  * it is turns a silent page into a fixable one.
  */
-function unresolvedReason(kind: FrontendReference['kind'], controller: string | undefined,
+export function unresolvedReason(kind: FrontendReference['kind'], controller: string | undefined,
   projectPath: string | undefined, name: string): string | undefined {
   if (controller === undefined) {
     return kind === 'controller'

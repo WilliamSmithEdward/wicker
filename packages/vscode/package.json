@@ -319,6 +319,29 @@
           "default": "warning",
           "markdownDescription": "How to report, in a Live Component's template, a `data-model` naming no `#[LiveProp]` or one that is not writable, and a `live_action()` or `data-live-action-param` naming no `#[LiveAction]`. Each is refused at runtime without a word. Suspended while the component list is being rebuilt."
         },
+        "wicker.diagnostics.unknownStimulusMember": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "off"
+          ],
+          "default": "warning",
+          "markdownDescription": "How to report a Stimulus binding naming a member its controller does not declare: an action naming no method, or a target, value, class or outlet in none of the controller's `static` lists. Stimulus attaches nothing and reports nothing. Suspended for a controller built on a base class of the project's own, whose inherited members are not read."
+        },
+        "wicker.diagnostics.unusedStimulusMember": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "hint",
+            "off"
+          ],
+          "default": "hint",
+          "markdownDescription": "How to report a `static targets`, `classes` or `outlets` entry no page binds, which throws when the controller reads it. Values are not reported, since a value declares its own default. Only for a controller some page does bind, and not for one built on a base class of the project's own."
+        },
         "wicker.sidebar.colors": {
           "type": "boolean",
           "default": true,
@@ -328,6 +351,11 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Select the active editor's template in the sidebar as editors change, the way the Explorer follows the active file. A bundle template is selected only while bundle templates are shown; the Reveal button in the view title shows them regardless."
+        },
+        "wicker.sidebar.controllerNamespaces": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Group the **Controllers** section by PHP namespace, so `App\\Controller\\Admin\\UserController` sits under an **Admin** row. The namespace every controller shares is folded away, so a project that keeps them all in one namespace is unchanged. Off lists every controller on one level."
         },
         "wicker.sidebar.routeHierarchy": {
           "type": "boolean",

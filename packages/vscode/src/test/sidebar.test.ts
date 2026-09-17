@@ -282,9 +282,20 @@ suite('Wicker sidebar', () => {
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
       const rows = await provider.getChildren(controllers);
+      // Two classes of the same name in namespaces that share nothing, so the
+      // namespace is what tells them apart and each heads its own branch.
       assert.equal(rows.length, 2);
       assert.notEqual((await provider.getTreeItem(rows[0]!)).id, (await provider.getTreeItem(rows[1]!)).id);
-      const controller = rows.find((node) => node.kind === 'controller' && node.className === 'App\\Controller\\PageController')!;
+      const find = async (node: SidebarNode, className: string): Promise<SidebarNode | undefined> => {
+        for (const child of await provider.getChildren(node)) {
+          if (child.kind === 'controller' && child.className === className) { return child; }
+          const found = child.kind === 'controllerFolder' ? await find(child, className) : undefined;
+          if (found) { return found; }
+        }
+        return undefined;
+      };
+      const controller = (await find(controllers, 'App\\Controller\\PageController'))!;
+      assert.ok(controller);
       // One row per template rendered, the actions beneath them, ordered by
       // the method that renders each.
       const leaves = await provider.getChildren(controller);
@@ -992,6 +1003,59 @@ class SidebarCreatedController {
       await settings.update('sidebar.routeHierarchy', previousHierarchy, vscode.ConfigurationTarget.Workspace);
       await settings.update('console.command', previousCommand, vscode.ConfigurationTarget.Workspace);
       await settings.update('console.enabled', previousEnabled, vscode.ConfigurationTarget.Workspace);
+      await vscode.commands.executeCommand('wicker.reindex');
+    }
+  });
+
+  /*
+   * A namespace every controller shares separates none of them, so it is
+   * folded away and only what comes after becomes a row. A project that keeps
+   * them all in one namespace looks exactly as it did.
+   */
+  test('groups controllers by the namespace that tells them apart', async () => {
+    const settings = vscode.workspace.getConfiguration('wicker');
+    const previous = settings.inspect<boolean>('sidebar.controllerNamespaces')?.workspaceValue;
+    const files = {
+      'src/Controller/Admin/WickerUserController.php':
+        "<?php namespace App\\Controller\\Admin;\nclass WickerUserController { public function index() { return $this->render('task/index.html.twig'); } }\n",
+      'src/Controller/Admin/Reports/WickerSalesController.php':
+        "<?php namespace App\\Controller\\Admin\\Reports;\nclass WickerSalesController { public function index() { return $this->render('task/index.html.twig'); } }\n",
+    };
+    const labels = async (node: SidebarNode): Promise<string[]> => Promise.all((await provider.getChildren(node))
+      .map(async (child) => {
+        const item = await provider.getTreeItem(child);
+        return `${typeof item.label === 'string' ? item.label : ''}${child.kind === 'controllerFolder' ? `/ ${String(item.description)}` : ''}`;
+      }));
+    try {
+      for (const [file, source] of Object.entries(files)) {
+        await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(rootUri, file), Buffer.from(source));
+      }
+      const project = (await provider.getChildren()).find((node) => node.root.toString() === rootUri.toString());
+      const controllers = await section(provider, project, 'controllers');
+      await until(async () => (await labels(controllers)).length === 2, 'the new controllers should reach the tree');
+
+      // App\Controller is common to all three, so it is not a row; Admin and
+      // the namespace below it are what separate them.
+      assert.deepEqual(await labels(controllers), ['Admin/ 2', 'TaskController']);
+      const admin = (await provider.getChildren(controllers)).find((node) => node.kind === 'controllerFolder')!;
+      assert.match(tooltipOf(await provider.getTreeItem(admin)), /App\\Controller\\Admin\n2 controllers/);
+      assert.deepEqual(await labels(admin), ['Reports/ 1', 'WickerUserController']);
+      const reports = (await provider.getChildren(admin)).find((node) => node.kind === 'controllerFolder')!;
+      assert.deepEqual(await labels(reports), ['WickerSalesController']);
+      // The way back up, which is what a reveal walks.
+      const leaf = (await provider.getChildren(reports))[0]!;
+      assert.equal((await provider.getTreeItem(provider.getParent(leaf)!)).id, (await provider.getTreeItem(reports)).id);
+      assert.equal((await provider.getTreeItem(provider.getParent(reports)!)).id, (await provider.getTreeItem(admin)).id);
+      assert.equal((await provider.getTreeItem(provider.getParent(admin)!)).id, (await provider.getTreeItem(controllers)).id);
+
+      await settings.update('sidebar.controllerNamespaces', false, vscode.ConfigurationTarget.Workspace);
+      assert.deepEqual(await labels(controllers), ['WickerSalesController', 'WickerUserController', 'TaskController']);
+    } finally {
+      await settings.update('sidebar.controllerNamespaces', previous, vscode.ConfigurationTarget.Workspace);
+      for (const file of Object.keys(files)) {
+        try { await vscode.workspace.fs.delete(vscode.Uri.joinPath(rootUri, file)); } catch { /* never written */ }
+      }
+      try { await vscode.workspace.fs.delete(vscode.Uri.joinPath(rootUri, 'src/Controller/Admin'), { recursive: true }); } catch { /* gone */ }
       await vscode.commands.executeCommand('wicker.reindex');
     }
   });

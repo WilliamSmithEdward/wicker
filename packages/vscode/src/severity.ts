@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 
 /** The diagnostics a setting can turn down or off. */
 export type SeveritySetting = 'missingTemplate' | 'missingImport' | 'unknownCallable' | 'missingRouteParameter' | 'unknownBlock'
-  | 'unknownLiveMember';
+  | 'unknownLiveMember' | 'unknownStimulusMember' | 'unusedStimulusMember';
 
 /**
  * How a diagnostic setting maps to a severity, or to none at all.
@@ -18,6 +18,9 @@ export function severityFromSettings(setting: SeveritySetting, fallback: string,
     case 'error': return vscode.DiagnosticSeverity.Error;
     case 'warning': return vscode.DiagnosticSeverity.Warning;
     case 'information': return vscode.DiagnosticSeverity.Information;
+    // A hint draws no squiggle of its own; it greys what it marks and shows
+    // in the problems list, which is what an unused declaration deserves.
+    case 'hint': return vscode.DiagnosticSeverity.Hint;
     default: return undefined;
   }
 }

@@ -174,7 +174,11 @@ register.
 
 Click the leaf in the Activity Bar to open Wicker. Each Symfony project shows
 **Controllers** and **Templates** sections.
-Under **Controllers**, a controller lists what it produces: each template it
+Under **Controllers**, controllers are grouped by the part of their PHP
+namespace that tells them apart, so `App\Controller\Admin\UserController` sits
+under an **Admin** row while a project with one namespace is left as a flat
+list. Set `wicker.sidebar.controllerNamespaces` to `false` to group none of
+them. A controller lists what it produces: each template it
 renders, then its JSON endpoints, then any other action. A template carries the
 action that renders it beneath, so a page reads as Twig, then the route that
 serves it. An endpoint that renders nothing is its own row. Clicking the
@@ -429,6 +433,17 @@ StimulusBundle's configured directories and filename conventions. Enabled UX
 controllers come from `controllers.json` and their installed package metadata.
 Member suggestions cover direct declarations on a default exported class;
 inherited/computed members and runtime registrations are not inferred.
+
+Both directions of a binding are checked, because a template asks for a member
+by name and the controller declares it by name with nothing between them. A
+binding naming a member its controller does not declare is reported where it is
+written, under `wicker.diagnostics.unknownStimulusMember`: Stimulus attaches
+nothing and reports nothing, in the browser or anywhere else. A `static targets`,
+`classes` or `outlets` entry no page binds is greyed where it is declared, under
+`wicker.diagnostics.unusedStimulusMember`, since reading it throws where nothing
+provides it. Values are not reported that way, because a value declares its own
+default. Both are suspended for a controller built on a base class of your own,
+whose inherited members are not read.
 
 Quick fixes write what a binding is already asking for. A controller nothing
 registers is created in the configured directory, in TypeScript when the

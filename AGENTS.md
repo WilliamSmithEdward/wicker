@@ -244,6 +244,15 @@ service, bare imports are not checked and a `#` alias is followed to the
 mapped asset its remainder names. Without that evidence the same alias is one
 the browser cannot resolve, and following it would invent a resolution.
 
+**A Stimulus binding is checked against a file that is not the one being
+edited.** A template's bindings are checked against the controller and a
+controller's declarations against every page, so both diagnostics go stale
+when the *other* file changes. `sessions.onDidChangeRenderSites` re-checks
+what is open for that reason; without it a hint about an unbound target
+outlived the page that bound it. Both checks stand down for a controller whose
+`superClass` is not Stimulus' own `Controller`, since only direct members are
+read and calling an inherited one missing is a confident wrong answer.
+
 **A memo has to be keyed on everything its answer was read from.** The Stimulus
 wiring memo was keyed on the scanned-file index and the controller list, but the
 walk resolves names through the template index, which the scoped refresh above

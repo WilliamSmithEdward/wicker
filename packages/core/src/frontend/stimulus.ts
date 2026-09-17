@@ -34,6 +34,14 @@ export interface StimulusSource {
    * there is nowhere to put one.
    */
   readonly bodyRange?: OffsetRange;
+  /**
+   * The class this one extends, when it names one.
+   *
+   * Only direct members are read, so a controller built on a base class of
+   * the project's own has members nothing here can see. A check that would
+   * call a member missing has to know that, and this is how it tells.
+   */
+  readonly superClass?: string;
   readonly actions: readonly StimulusMember[];
   readonly targets: readonly StimulusMember[];
   readonly values: readonly StimulusValue[];
@@ -74,6 +82,8 @@ export function stimulusSource(source: string): StimulusSource {
   const open = tokens.findIndex((t, i) => i > klass && t.text === '{');
   const close = closingToken(tokens, open);
   if (close < 0) { return empty; }
+  const extended = tokens.findIndex((t, i) => i > klass && i < open && t.text === 'extends');
+  const superClass = extended > 0 ? tokens[extended + 1]?.text : undefined;
   const actions: StimulusMember[] = [], targets: StimulusMember[] = [], values: StimulusValue[] = [];
   const outlets: StimulusMember[] = [], classes: StimulusMember[] = [], outletCallbacks: StimulusMember[] = [];
   const memberCallbacks: StimulusMember[] = [];
@@ -162,7 +172,7 @@ export function stimulusSource(source: string): StimulusSource {
     }
   }
   return { range: tokens[klass]!, bodyRange: { start: tokens[open]!.start, end: tokens[close]!.end },
-    actions, targets, values,
+    ...(superClass === undefined ? {} : { superClass }), actions, targets, values,
     outlets, classes, dispatches, ...(outletsRange ? { outletsRange } : {}), outletCallbacks, memberCallbacks, accesses };
 }
 

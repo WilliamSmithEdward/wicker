@@ -936,6 +936,50 @@ class WickerFrontendTestController {
     }
   });
 
+  /*
+   * A template asks for a member by name and the controller declares it by
+   * name, with nothing between them. When they disagree Stimulus attaches
+   * nothing and says nothing, in the browser or anywhere else.
+   */
+  test('reports a binding no member answers, and a declaration no page fills', async () => {
+    const problems = (document: vscode.TextDocument): vscode.Diagnostic[] =>
+      vscode.languages.getDiagnostics(document.uri).filter((entry) => typeof entry.code === 'string' && entry.code.endsWith('stimulus-member'));
+    const messages = (document: vscode.TextDocument): string => problems(document).map((entry) => entry.message).join('\n');
+
+    // A target, a method and a value the controller does not declare.
+    await replace(page, `<div {{ stimulus_controller('wicker-test') }} data-wicker-test-nickname-value="x">
+      <output data-wicker-test-target="missing"></output>
+      <button data-action="click->wicker-test#nope"></button>
+    </div>`);
+    await eventually(() => problems(page).length === 3);
+    assert.match(messages(page), /does not declare "missing" in static targets/);
+    assert.match(messages(page), /declares no nope\(\) method/);
+    assert.match(messages(page), /does not declare "nickname" in static values/);
+    assert.ok(problems(page).every((entry) => entry.severity === vscode.DiagnosticSeverity.Warning));
+
+    // The bindings the fixture's own page writes all resolve, and a value
+    // nothing sets is not reported: a value declares its own default.
+    await replace(page, pageSource);
+    await eventually(() => problems(page).length === 0 && problems(js).length === 0);
+
+    // A target no page fills throws when the controller reads it, so it is
+    // greyed where it is declared rather than squiggled where it is used.
+    await replace(js, jsSource.replace("['output']", "['output', 'orphan']"));
+    await eventually(() => problems(js).length === 1);
+    const unused = problems(js)[0]!;
+    assert.match(unused.message, /No page binds the target "orphan"/);
+    assert.equal(unused.severity, vscode.DiagnosticSeverity.Hint);
+    assert.deepEqual(unused.tags, [vscode.DiagnosticTag.Unnecessary]);
+    assert.equal(js.getText(unused.range), 'orphan');
+
+    // Only direct members are read, so a controller built on a base class of
+    // the project's own is left alone in both directions rather than called
+    // wrong about members nothing here can see.
+    await replace(js, jsSource.replace("['output']", "['output', 'orphan']").replace('extends Controller', 'extends BaseController'));
+    await replace(page, `<div {{ stimulus_controller('wicker-test') }}><output data-wicker-test-target="missing"></output></div>`);
+    await eventually(() => problems(js).length === 0 && problems(page).length === 0);
+  });
+
   test('completes every part of an action descriptor, not just the method', async () => {
     const offers = async (marked: string): Promise<string[]> =>
       (await items(page, await at(page, marked))).map((item) => item.label as string);

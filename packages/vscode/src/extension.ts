@@ -17,6 +17,7 @@ import { Deferred } from './debounce.js';
 import { severityFromSettings } from './severity.js';
 import { counted } from './text.js';
 import { describeImportMap, missingImportDiagnostics } from './importDiagnostics.js';
+import { stimulusMemberDiagnostics, unusedStimulusMemberDiagnostics } from './stimulusDiagnostics.js';
 import { ImportExtensionActionProvider } from './importActions.js';
 import { StimulusMemberActionProvider, connectOutlet } from './stimulusActions.js';
 import { LiveComponentProvider, liveComponentDiagnostics } from './liveComponents.js';
@@ -287,10 +288,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
       return;
     }
     diagnostics.set(document.uri, script
-      ? missingImportDiagnostics(sessions, session, document)
+      ? [...missingImportDiagnostics(sessions, session, document),
+        ...unusedStimulusMemberDiagnostics(sessions, session, document)]
       : [...buildDiagnostics(session, document), ...twigCallableDiagnostics(session, document),
         ...routeDiagnostics(sessions, session, document), ...twigBlockDiagnostics(sessions, session, document),
-        ...liveComponentDiagnostics(sessions, session, document)]);
+        ...liveComponentDiagnostics(sessions, session, document),
+        ...stimulusMemberDiagnostics(sessions, session, document)]);
   };
 
   const refreshAllDiagnostics = (): void => {
@@ -353,6 +356,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
     // pass, and re-diagnosing every open document on each announcement did
     // five times the work of doing it once after the burst.
     sessions.onDidChange(() => afterChange.schedule('all', undefined, () => {
+      refreshAllDiagnostics();
+      semanticTokens.refresh();
+      stimulusMembers.refresh();
+    })),
+    // A Stimulus binding is checked against a file that is not the one being
+    // edited, in both directions: a template's bindings against the
+    // controller, and a controller's declarations against every page. So a
+    // source changing re-checks what is open, coalesced into one pass the
+    // same way a rebuild's several announcements are.
+    sessions.onDidChangeRenderSites(() => afterChange.schedule('all', undefined, () => {
       refreshAllDiagnostics();
       semanticTokens.refresh();
       stimulusMembers.refresh();

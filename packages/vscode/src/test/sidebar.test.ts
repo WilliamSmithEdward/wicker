@@ -829,6 +829,60 @@ class SidebarCreatedController {
     }
   });
 
+  /*
+   * A controller answering only JSON renders nothing, so no render site finds
+   * it. It had no row at all, while a JSON action did appear under any
+   * controller that also rendered a page, and a row that was there opened
+   * nothing because there was no render call to open.
+   */
+  test('lists a controller whose actions only answer JSON, and opens them', async () => {
+    const settings = vscode.workspace.getConfiguration('wicker');
+    const previousCommand = settings.inspect<string[]>('console.command')?.workspaceValue;
+    const previousEnabled = settings.inspect<boolean>('console.enabled')?.workspaceValue;
+    const php = vscode.Uri.joinPath(rootUri, 'src/Controller/WickerJsonOnlyController.php');
+    const routes = { wicker_json_only: { path: '/api/v1/wicker/only', method: 'GET',
+      defaults: { _controller: 'App\\Controller\\WickerJsonOnlyController::list' } } };
+    const fake = `process.stdout.write(JSON.stringify(process.argv.includes('debug:router') ? ${JSON.stringify(routes)} : { loader_paths: { '(None)': ['templates'] } }));`;
+    const own = memorySessions();
+    const tree = new ProjectTreeProvider(own);
+    try {
+      await vscode.workspace.fs.writeFile(php, Buffer.from(
+        "<?php namespace App\\Controller;\nclass WickerJsonOnlyController {\n  public function list() { return $this->json(['items' => []]); }\n}\n"));
+      await settings.update('console.enabled', true, vscode.ConfigurationTarget.Workspace);
+      await settings.update('console.command', [process.env['npm_node_execpath'] ?? 'node', '-e', fake, '--'], vscode.ConfigurationTarget.Workspace);
+      await vscode.commands.executeCommand('wicker.reindex');
+      await own.initialize();
+
+      const project = (await tree.getChildren()).find((child) => child.root.toString() === rootUri.toString());
+      const controllers = await tree.getChildren(await section(tree, project, 'controllers'));
+      const only = controllers.find((child) => child.kind === 'controller' && child.className === 'App\\Controller\\WickerJsonOnlyController');
+      assert.ok(only, 'a controller that renders nothing still has a row');
+      const row = await tree.getTreeItem(only);
+      assert.equal(row.collapsibleState, vscode.TreeItemCollapsibleState.Collapsed);
+      assert.equal(row.description, '1');
+      assert.equal(row.command?.command, 'wicker.openController');
+
+      const actions = await tree.getChildren(only);
+      assert.equal(actions.length, 1);
+      const action = await tree.getTreeItem(actions[0]!);
+      assert.match(typeof action.label === 'string' ? action.label : action.label?.label ?? '', /\/api\/v1\/wicker\/only/);
+      assert.equal(action.collapsibleState, vscode.TreeItemCollapsibleState.None);
+      assert.ok(action.command, 'an action that renders nothing opens where it is declared');
+      await vscode.commands.executeCommand(action.command.command, ...(action.command.arguments ?? []));
+      const editor = vscode.window.activeTextEditor;
+      assert.equal(editor?.document.uri.toString(), php.toString());
+      assert.match(editor?.document.lineAt(editor.selection.start.line).text ?? '', /function list\(\)/);
+    } finally {
+      tree.dispose();
+      own.dispose();
+      await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+      try { await vscode.workspace.fs.delete(php); } catch { /* never written */ }
+      await settings.update('console.command', previousCommand, vscode.ConfigurationTarget.Workspace);
+      await settings.update('console.enabled', previousEnabled, vscode.ConfigurationTarget.Workspace);
+      await vscode.commands.executeCommand('wicker.reindex');
+    }
+  });
+
   test('has an empty tree when no Symfony project is detected', async () => {
     const empty = new SessionManager(new ConsoleMemory({
       keys: () => [], get: <T>(_key: string, fallback?: T): T | undefined => fallback,

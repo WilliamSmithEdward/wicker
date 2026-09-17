@@ -177,7 +177,9 @@ Click the leaf in the Activity Bar to open Wicker. Each Symfony project shows
 Under **Controllers**, expand a controller and an action to see its template
 targets. Clicking the controller opens its PHP file; clicking an action selects
 its first render call or `#[Template]` attribute; clicking a resolved target opens
-the Twig file. Unresolved names stay visible with a warning.
+the Twig file. Unresolved names stay visible with a warning. A controller is
+listed when it renders a template or a route names it, so one that only answers
+JSON has a row too, and its actions open where they are declared.
 
 Action rows lead with their registered HTTP method and URL, such as
 `GET /dashboard`, with `index()` as secondary detail. When route discovery is

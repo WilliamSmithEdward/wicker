@@ -395,7 +395,8 @@ Healthy projects contain Controllers and Templates sections. Under Controllers,
 expand TaskController, then its index action (labelled by its route when known): clicking the action selects its PHP template
 name and clicking the template opens Twig. WickerTourController includes both
 render calls and a Template attribute. Unresolved names remain visible with a
-warning; methods without literal template names are omitted. The tree follows
+warning. A controller is listed when it renders a template or a route names
+it, and an action that renders nothing opens where it is declared. The tree follows
 unsaved PHP edits; undo temporary edits after checking this.
 Limited namespace discovery or a truncated index shows an expandable warning
 with Retry and Settings actions.

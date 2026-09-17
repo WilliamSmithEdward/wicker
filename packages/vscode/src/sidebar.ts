@@ -714,13 +714,17 @@ Extends ${node.name}.`;
       const templateNames = [...new Set(sites.map((site) => site.templateName))];
       const item = new vscode.TreeItem(template ? node.name : controller ? node.className.split('\\').at(-1)! :
         routeLabels.length ? routeLabels.join(' · ') : `${node.methodName}()`,
-        (template ? (await this.getChildren(node)).length === 0 : sites.length === 0) ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Collapsed);
+        // A controller holds its actions whether or not any renders; an
+        // action holds only what it renders.
+        (template || controller ? (await this.getChildren(node)).length === 0 : sites.length === 0)
+          ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Collapsed);
       // An action is a PHP method whatever its route returns. The leaf and the
       // object belong to the route sections; what it renders sits below it.
       item.iconPath = sidebarIcon(template ? 'template' : controller ? 'controller' : 'method');
       item.tooltip = `${node.className}${controller ? '' : `::${node.methodName}()`}\n${node.projectPath}`;
       if (!template) {
-        item.description = controller ? String(new Set(sites.map((site) => site.methodName)).size) :
+        // The number of actions listed beneath it, rendering or not.
+        item.description = controller ? String(controllerActionMethods(this.sessions, session, node).length) :
           routes.length ? `${node.methodName}()` : templateNames.join(', ');
         if (routes.length) {
           item.tooltip += `\n\nRoutes:\n${routes.map((route) => `${route.methods} ${route.path} (${route.name})`).join('\n')}`;
@@ -728,7 +732,8 @@ Extends ${node.name}.`;
           item.contextValue = 'routed';
         }
         if (!controller && templateNames.length) { item.tooltip += `\n\nRenders:\n${templateNames.join('\n')}`; }
-        item.tooltip += controller ? '\nOpen controller file.' : '\nOpen the first render call or #[Template] attribute.';
+        item.tooltip += controller ? '\nOpen controller file.'
+          : sites.length ? '\nOpen the first render call or #[Template] attribute.' : '\nOpen the action.';
         item.resourceUri = session.uriOf(node.projectPath);
       } else {
         const resolved = session.lookup(node.name);
@@ -740,7 +745,14 @@ Extends ${node.name}.`;
           item.resourceUri = session.uriFor(resolved);
         }
       }
-      if (sites.length > 0 && (!template || session.lookup(node.name) !== undefined)) {
+      // A controller opens its file and an action opens where it is declared,
+      // whether or not either renders anything. A row drawn for a controller
+      // that an edit has since removed opens nothing.
+      const opens = template ? sites.length > 0 && session.lookup(node.name) !== undefined
+        : controller ? controllersInProject(this.sessions, session).some((entry) =>
+          entry.projectPath === node.projectPath && entry.className === node.className)
+          : sites.length > 0 || routes.length > 0;
+      if (opens) {
         item.command = {
           command: 'wicker.openController', title: template ? 'Open template' : controller ? 'Open controller' : 'Open render call',
           arguments: [node],
@@ -1026,12 +1038,19 @@ export class WickerSidebar implements vscode.Disposable {
     if (!isControllerNode(node)) { return Promise.resolve(); }
     return this.reveal(node.root, (session) => {
       const site = controllerSites(this.sessions, session, node)[0];
-      if (site === undefined) { return undefined; }
       if (node.kind === 'controllerTemplate') {
-        const template = session.lookup(node.name);
+        const template = site === undefined ? undefined : session.lookup(node.name);
         return template && { projectPath: template.projectPath };
       }
-      return { projectPath: node.projectPath, ...(node.kind === 'controllerMethod' ? { range: site.nameRange } : {}) };
+      if (node.kind === 'controller') {
+        return controllersInProject(this.sessions, session).some((entry) =>
+          entry.projectPath === node.projectPath && entry.className === node.className) ? { projectPath: node.projectPath } : undefined;
+      }
+      if (site !== undefined) { return { projectPath: node.projectPath, range: site.nameRange }; }
+      // An action that renders nothing is opened where it is declared.
+      const [route] = controllerRoutes(this.sessions, session, node);
+      const action = route === undefined ? undefined : routeAction(this.sessions, session, route);
+      return action && { projectPath: action.projectPath, range: action.action.range };
     }, options);
   }
 
@@ -1374,19 +1393,44 @@ function componentClassPath(sessions: SessionManager, session: ProjectSession, c
  * here, and deciding ownership is a question per controller, so the answer for
  * a whole project was rebuilt once per row drawn.
  */
-const owned = new WeakMap<ProjectSession,
-  { version: number; layout: number; enabled: boolean; controllers: readonly RenderingController[] }>();
+const owned = new WeakMap<ProjectSession, { version: number; sources: number; routes: readonly SymfonyRoute[];
+  layout: number; enabled: boolean; controllers: readonly RenderingController[] }>();
 
+/**
+ * The project's controllers: those that render a template, and those a route
+ * names.
+ *
+ * A controller answering only JSON renders nothing, so it has no render site
+ * to be found by. It had no row at all, while a JSON method did appear under
+ * any controller that also rendered a page. A route names its controller
+ * outright, which is evidence enough for a row.
+ *
+ * Kept on everything it is read from: the render sites, the PHP the actions
+ * are found in, and the route list itself, which a console pass replaces.
+ */
 function controllersInProject(sessions: SessionManager, session: ProjectSession): readonly RenderingController[] {
   const version = session.renderSites.index.version;
+  const sources = session.frontendSources.index.version;
+  const routes = session.frontend.routes;
   const enabled = isEnabled();
   const found = owned.get(session);
-  if (found?.version === version && found.layout === sessions.layoutVersion && found.enabled === enabled) {
+  if (found?.version === version && found.sources === sources && found.routes === routes &&
+    found.layout === sessions.layoutVersion && found.enabled === enabled) {
     return found.controllers;
   }
-  const controllers = session.renderSites.index.controllers()
-    .filter((controller) => sessions.owns(session, controller.projectPath));
-  owned.set(session, { version, layout: sessions.layoutVersion, enabled, controllers });
+  const byClass = new Map(session.renderSites.index.controllers()
+    .filter((controller) => sessions.owns(session, controller.projectPath))
+    .map((controller) => [`${controller.projectPath}\n${controller.className}`, controller]));
+  for (const route of routes) {
+    const target = routeAction(sessions, session, route);
+    const key = target === undefined ? undefined : `${target.projectPath}\n${target.action.className}`;
+    if (target !== undefined && key !== undefined && !byClass.has(key)) {
+      byClass.set(key, { projectPath: target.projectPath, className: target.action.className, sites: [] });
+    }
+  }
+  const controllers = [...byClass.values()]
+    .sort((left, right) => left.className.localeCompare(right.className) || left.projectPath.localeCompare(right.projectPath));
+  owned.set(session, { version, sources, routes, layout: sessions.layoutVersion, enabled, controllers });
   return controllers;
 }
 

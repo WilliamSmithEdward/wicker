@@ -328,8 +328,12 @@ suite('Stimulus and API connections', () => {
       // API routes holds JSON endpoints and nothing else. The fragment route is
       // fetched by script, but it renders a template, and a leaf icon under a
       // section that promises JSON read as a route filed in the wrong place.
-      const entries = await tree.getChildren(section);
-      assert.deepEqual(await Promise.all(entries.map(async (node) => (await tree.getTreeItem(node)).label)), ['GET /_wicker-test/api']);
+      // Grouped by path: the folder is the prefix, read once, and the row
+      // beneath it is named by where the path ends.
+      const folders = await tree.getChildren(section);
+      assert.deepEqual(await Promise.all(folders.map(async (node) => (await tree.getTreeItem(node)).label)), ['_wicker-test']);
+      const entries = await tree.getChildren(folders[0]);
+      assert.deepEqual(await Promise.all(entries.map(async (node) => (await tree.getTreeItem(node)).label)), ['GET api']);
       assert.equal(((await tree.getTreeItem(entries[0]!)).iconPath as vscode.ThemeIcon).id, 'symbol-object');
       assert.equal((await tree.getTreeItem(entries[0]!)).description, 'wicker_test_json', 'a JSON endpoint explains itself');
       // A route row stands for its action's file, so its git state shows here

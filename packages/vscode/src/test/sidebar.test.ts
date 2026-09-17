@@ -883,6 +883,83 @@ class SidebarCreatedController {
     }
   });
 
+  /*
+   * A flat list of endpoints is a wall of /api/v1/... prefixes that differ
+   * only at the end. Grouped by path, the prefix is read once and each row is
+   * named by where it ends; the setting gives the flat list back.
+   */
+  test('groups the API routes by path, and lists them flat when asked', async () => {
+    const settings = vscode.workspace.getConfiguration('wicker');
+    const previousCommand = settings.inspect<string[]>('console.command')?.workspaceValue;
+    const previousEnabled = settings.inspect<boolean>('console.enabled')?.workspaceValue;
+    const previousHierarchy = settings.inspect<boolean>('sidebar.apiRouteHierarchy')?.workspaceValue;
+    const php = vscode.Uri.joinPath(rootUri, 'src/Controller/WickerApiTreeController.php');
+    const controller = 'App\\Controller\\WickerApiTreeController';
+    const routes = {
+      wicker_tree_health: { path: '/api/health', method: 'GET', defaults: { _controller: `${controller}::health` } },
+      wicker_tree_items: { path: '/api/v1/items', method: 'GET', defaults: { _controller: `${controller}::items` } },
+      wicker_tree_item: { path: '/api/v1/items/{id}', method: 'GET', defaults: { _controller: `${controller}::item` } },
+    };
+    const fake = `process.stdout.write(JSON.stringify(process.argv.includes('debug:router') ? ${JSON.stringify(routes)} : { loader_paths: { '(None)': ['templates'] } }));`;
+    const own = memorySessions();
+    const tree = new ProjectTreeProvider(own);
+    const labelOf = (item: vscode.TreeItem): string => typeof item.label === 'string' ? item.label : item.label?.label ?? '';
+    const rows = async (node: SidebarNode): Promise<string[]> => Promise.all((await tree.getChildren(node)).map(async (child) => {
+      const item = await tree.getTreeItem(child);
+      return child.kind === 'routeFolder' ? `${labelOf(item)}/ ${String(item.description)}` : labelOf(item);
+    }));
+    const folder = async (node: SidebarNode, name: string): Promise<SidebarNode> => {
+      const found = (await tree.getChildren(node)).find((child) => child.kind === 'routeFolder' && child.path.split('/').at(-1) === name);
+      assert.ok(found, `a ${name} folder`);
+      return found;
+    };
+    try {
+      await vscode.workspace.fs.writeFile(php, Buffer.from([
+        '<?php namespace App\\Controller;', 'class WickerApiTreeController {',
+        "  public function health() { return $this->json(['ok' => true]); }",
+        "  public function items() { return $this->json(['items' => []]); }",
+        "  public function item() { return $this->json(['item' => null]); }", '}', ''].join('\n')));
+      await settings.update('console.enabled', true, vscode.ConfigurationTarget.Workspace);
+      await settings.update('console.command', [process.env['npm_node_execpath'] ?? 'node', '-e', fake, '--'], vscode.ConfigurationTarget.Workspace);
+      await own.initialize();
+      const project = (await tree.getChildren()).find((child) => child.root.toString() === rootUri.toString());
+      assert.ok(project);
+      const api = (await tree.getChildren(project)).find((child) => child.kind === 'section' && child.section === 'api');
+      assert.ok(api, 'the API routes section');
+
+      // api > v1 > items > {id}, each folder counting what lies beneath it and
+      // a route sitting beside the folder of the routes beneath it.
+      assert.deepEqual(await rows(api), ['api/ 3']);
+      const top = await folder(api, 'api');
+      assert.deepEqual(await rows(top), ['v1/ 2', 'GET health']);
+      const v1 = await folder(top, 'v1');
+      assert.deepEqual(await rows(v1), ['items/ 1', 'GET items']);
+      const items = await folder(v1, 'items');
+      assert.deepEqual(await rows(items), ['GET {id}']);
+      const [leaf] = await tree.getChildren(items);
+      assert.ok(leaf);
+      assert.match(tooltipOf(await tree.getTreeItem(leaf)), /GET \/api\/v1\/items\/\{id\}/);
+      // The way back up, which is what reveal walks.
+      assert.deepEqual(tree.getParent(leaf), items);
+      assert.deepEqual(tree.getParent(items), v1);
+      assert.deepEqual(tree.getParent(top), api);
+
+      await settings.update('sidebar.apiRouteHierarchy', false, vscode.ConfigurationTarget.Workspace);
+      assert.deepEqual(await rows(api), ['GET /api/health', 'GET /api/v1/items', 'GET /api/v1/items/{id}']);
+      const [flat] = await tree.getChildren(api);
+      assert.ok(flat);
+      assert.deepEqual(tree.getParent(flat), api);
+    } finally {
+      tree.dispose();
+      own.dispose();
+      try { await vscode.workspace.fs.delete(php); } catch { /* never written */ }
+      await settings.update('sidebar.apiRouteHierarchy', previousHierarchy, vscode.ConfigurationTarget.Workspace);
+      await settings.update('console.command', previousCommand, vscode.ConfigurationTarget.Workspace);
+      await settings.update('console.enabled', previousEnabled, vscode.ConfigurationTarget.Workspace);
+      await vscode.commands.executeCommand('wicker.reindex');
+    }
+  });
+
   test('has an empty tree when no Symfony project is detected', async () => {
     const empty = new SessionManager(new ConsoleMemory({
       keys: () => [], get: <T>(_key: string, fallback?: T): T | undefined => fallback,

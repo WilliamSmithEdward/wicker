@@ -9,6 +9,7 @@ import { counted } from './text.js';
 import { apiRoutes, compareRoutePaths, controllerDependencies, frontendIndex, routeAction, routeConsumers, routeRequesters, stimulusControllers, templateRoutes, templatesBinding } from './frontendProject.js';
 import { dependencyKind, sidebarIcon, type SidebarRole } from './sidebarIcons.js';
 import { commandLabel, seconds, slowestAnswer } from './consoleTimings.js';
+import { routeFolderOf, routeLeafName, routeLevel, routeSegments } from './routeTree.js';
 import { controllerScripts, templateControllers, templateScripts, type BoundController, type BoundWiring, type RelatedScript } from './relatedScripts.js';
 import { templateStyles, type RelatedStyle } from './relatedStyles.js';
 import { chainChildren, templateEntrypoints, type ChainEntry } from './loadingChain.js';
@@ -39,6 +40,7 @@ export type SidebarNode =
   | { readonly kind: 'project'; readonly root: vscode.Uri }
   | { readonly kind: 'section'; readonly root: vscode.Uri; readonly section: SectionName }
   | { readonly kind: 'route'; readonly root: vscode.Uri; readonly name: string; readonly section: 'api' | 'templateRoutes' }
+  | { readonly kind: 'routeFolder'; readonly root: vscode.Uri; readonly section: 'api'; readonly path: string }
   | { readonly kind: 'routeConsumer'; readonly root: vscode.Uri; readonly name: string; readonly section: 'api' | 'templateRoutes'; readonly projectPath: string; readonly offset: number }
   | { readonly kind: 'routeTemplate'; readonly root: vscode.Uri; readonly name: string; readonly section: 'api' | 'templateRoutes'; readonly templateName: string }
   | ControllerNode
@@ -118,7 +120,8 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
         }
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
-        if (event.affectsConfiguration('wicker.enable') || event.affectsConfiguration('wicker.sidebar.colors')) {
+        if (event.affectsConfiguration('wicker.enable') || event.affectsConfiguration('wicker.sidebar.colors') ||
+          event.affectsConfiguration('wicker.sidebar.apiRouteHierarchy')) {
           this.refresh();
         }
       }),
@@ -216,7 +219,11 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     if (node.kind === 'section' && (node.section === 'api' || node.section === 'templateRoutes')) {
       const section = node.section;
       const routes = section === 'api' ? apiRoutes(this.sessions, session) : templateRoutes(this.sessions, session);
+      if (section === 'api' && routeHierarchyOn()) { return routeLevelNodes(node.root, routes, ''); }
       return routes.map((route) => ({ kind: 'route', root: node.root, name: route.name, section }));
+    }
+    if (node.kind === 'routeFolder') {
+      return routeLevelNodes(node.root, apiRoutes(this.sessions, session), node.path);
     }
     if (node.kind === 'route') {
       const route = session.frontend.routes.find((route) => route.name === node.name);
@@ -361,7 +368,15 @@ export class ProjectTreeProvider implements vscode.TreeDataProvider<SidebarNode>
     if (node.kind === 'wiring') { return { kind: 'boundController', root: node.root, name: node.name, parent: node.parent }; }
     if (node.kind === 'script' || node.kind === 'style' || node.kind === 'stimulusGroup') { return node.parent; }
     if (node.kind === 'loaded') { return node.parent; }
-    if (node.kind === 'route') { return { kind: 'section', root: node.root, section: node.section }; }
+    if (node.kind === 'route' || node.kind === 'routeFolder') {
+      // A route is a leaf of the folder its path ends in, and a folder of the
+      // one above it; both reach the section where the path runs out.
+      const path = node.kind === 'routeFolder' ? node.path : node.section === 'api' && routeHierarchyOn()
+        ? this.sessionForRoot(node.root)?.frontend.routes.find((route) => route.name === node.name)?.path : undefined;
+      const folder = path === undefined ? '' : routeFolderOf(path);
+      return folder === '' ? { kind: 'section', root: node.root, section: node.section }
+        : { kind: 'routeFolder', root: node.root, section: 'api', path: folder };
+    }
     if (node.kind === 'routeConsumer' || node.kind === 'routeTemplate') { return { kind: 'route', root: node.root, name: node.name, section: node.section }; }
     if (node.kind === 'project') {
       return undefined;
@@ -652,10 +667,25 @@ Extends ${node.name}.`;
         'Routes whose controller actions render Twig HTML. Select a route to open its PHP action, or expand it to browse rendered templates and references.';
       return item;
     }
+    if (node.kind === 'routeFolder') {
+      const folder = routeSegments(node.path);
+      const count = apiRoutes(this.sessions, session).filter((route) => {
+        const segments = routeSegments(route.path);
+        return segments.length > folder.length && folder.every((segment, at) => segments[at] === segment);
+      }).length;
+      const item = new vscode.TreeItem(folder.at(-1) ?? node.path, vscode.TreeItemCollapsibleState.Collapsed);
+      item.iconPath = sidebarIcon('routeFolder');
+      item.description = String(count);
+      item.tooltip = `/${node.path}\n${counted(count, 'endpoint')} beneath this path.`;
+      return item;
+    }
     if (node.kind === 'route' || node.kind === 'routeConsumer' || node.kind === 'routeTemplate') {
       const route = session.frontend.routes.find((route) => route.name === node.name);
       const rowIcon = route ? routeIcon(this.sessions, session, route) : 'route';
-      const label = node.kind === 'route' ? `${route?.methods ?? ''} ${route?.path ?? node.name}` :
+      // Inside the hierarchy the folders above already spell the path, so the
+      // row is named by where it ends; the tooltip still gives the whole of it.
+      const nested = node.kind === 'route' && node.section === 'api' && route !== undefined && routeHierarchyOn();
+      const label = node.kind === 'route' ? `${route?.methods ?? ''} ${route === undefined ? node.name : nested ? routeLeafName(route.path) : route.path}` :
         node.kind === 'routeTemplate' ? node.templateName : node.projectPath;
       const item = new vscode.TreeItem(label, (node.kind === 'route' || node.kind === 'routeTemplate') && (await this.getChildren(node)).length
         ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
@@ -668,7 +698,7 @@ Extends ${node.name}.`;
       const fetchedBy = fetchers.length === 0 ? '' : ` · fetched by ${basename(fetchers[0]!.projectPath)}${
         fetchers.length > 1 ? ` +${fetchers.length - 1}` : ''}`;
       item.description = node.kind === 'route' ? `${node.name}${fetchedBy}` : node.kind === 'routeTemplate' ? 'Renders' : 'Consumer';
-      item.tooltip = node.kind === 'route' ? `${route?.controller ?? node.name}\n${fetchers.length === 0 ? '' :
+      item.tooltip = node.kind === 'route' ? `${nested && route ? `${route.methods} ${route.path}\n` : ''}${route?.controller ?? node.name}\n${fetchers.length === 0 ? '' :
         `Fetched by:\n${fetchers.map((use) => `${use.projectPath}${use.via === undefined ? '' : ` (${use.via})`}`).join('\n')}\n`
       }Open the endpoint action. Expand to explore its connections.` :
         node.kind === 'routeTemplate' ? `HTML rendered by ${node.name}` : `Explicit reference to ${node.name}\n${node.projectPath}`;
@@ -1218,6 +1248,7 @@ function nodeId(node: SidebarNode): string {
     : isControllerNode(node) ? [node.projectPath, node.className,
       node.kind === 'controller' ? '' : node.methodName, node.kind === 'controllerTemplate' ? node.name : '']
       : node.kind === 'section' ? node.section
+      : node.kind === 'routeFolder' ? [node.section, node.path]
       : node.kind === 'route' ? [node.section, node.name] : node.kind === 'routeConsumer' ? [node.section, node.name, node.projectPath, node.offset]
       : node.kind === 'routeTemplate' ? [node.section, node.name, node.templateName]
       : node.kind === 'warning' ? node.reason : node.kind === 'action' ? [node.reason, node.action]
@@ -1476,6 +1507,30 @@ function controllerActionMethods(sessions: SessionManager, session: ProjectSessi
  * method and keeps the method icon. The leaf icon claims a template is
  * rendered, so it must never land on an endpoint that renders nothing.
  */
+let hierarchy: boolean | undefined;
+
+/**
+ * Whether the API routes are grouped by path, read once per turn of the event
+ * loop: every route row asks while a tree is drawn, and building a
+ * configuration snapshot per row is the cost the colours already avoid.
+ */
+function routeHierarchyOn(): boolean {
+  if (hierarchy === undefined) {
+    hierarchy = vscode.workspace.getConfiguration('wicker').get<boolean>('sidebar.apiRouteHierarchy', true);
+    queueMicrotask(() => { hierarchy = undefined; });
+  }
+  return hierarchy;
+}
+
+/** One level of the API route hierarchy as rows: the folders beneath a path, then the routes that end there. */
+function routeLevelNodes(root: vscode.Uri, routes: readonly SymfonyRoute[], folder: string): SidebarNode[] {
+  const level = routeLevel(routes, folder);
+  return [
+    ...level.folders.map((entry) => ({ kind: 'routeFolder' as const, root, section: 'api' as const, path: entry.path })),
+    ...level.routes.map((route) => ({ kind: 'route' as const, root, name: route.name, section: 'api' as const })),
+  ];
+}
+
 function routeIcon(sessions: SessionManager, session: ProjectSession, route: SymfonyRoute): SidebarRole {
   const action = routeAction(sessions, session, route)?.action;
   if (route.format === 'json' || action?.json) { return 'jsonRoute'; }

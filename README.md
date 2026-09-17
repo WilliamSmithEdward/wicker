@@ -474,7 +474,10 @@ The **API routes** branch appears when there are JSON endpoints, by response
 format or by what the action returns. Click an endpoint to open its action;
 expand it to browse what calls it. A `/api` path prefix alone does not claim
 that an endpoint returns JSON, and a route that renders a template is never
-listed here.
+listed here. Endpoints are grouped by URL path, so `/api/v1/tasks/{id}` sits
+under api › v1 › tasks, each folder counts what lies beneath it, and each row is
+named by its last segment with the whole path in its tooltip. Set
+`wicker.sidebar.apiRouteHierarchy` to `false` for one level with full paths.
 JSON routes use the `{}` object icon and routes rendering Twig a leaf with a
 route arrow. Twig template files use a plain leaf. A row under a controller is
 a PHP method and keeps the method icon whatever its route returns. The icons

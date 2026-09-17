@@ -57,6 +57,7 @@ export const SIDEBAR_ICONS = {
   apiRoutes: { id: 'radio-tower', hue: 'apiRoute' },
   jsonRoute: { id: 'symbol-object', hue: 'apiRoute' },
   route: { id: 'globe', hue: 'apiRoute' },
+  routeFolder: { id: 'folder', hue: 'apiRoute' },
   consumer: { id: 'references', hue: 'apiRoute' },
   templates: { id: 'files', hue: 'template' },
   template: { id: 'template-leaf', hue: 'template' },

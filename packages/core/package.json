@@ -1,6 +1,6 @@
 {
   "name": "@wicker/core",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "private": true,
   "description": "Editor-agnostic Symfony and Twig intelligence engine for Wicker",
   "license": "MIT",

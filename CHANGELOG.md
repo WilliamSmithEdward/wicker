@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.12.0
+
+Stimulus bindings are checked in both directions.
+
+### Added
+
+- **A binding no member answers is reported.** An action naming no method, or
+  a target, value, class or outlet in none of the controller's `static` lists,
+  is reported where it is written, under
+  `wicker.diagnostics.unknownStimulusMember`. Stimulus attaches nothing and
+  reports nothing, in the browser or anywhere else.
+- **A declaration no page fills is greyed.** A `static targets`, `classes` or
+  `outlets` entry nothing binds is marked where it is declared, under
+  `wicker.diagnostics.unusedStimulusMember`, since reading it throws where
+  nothing provides it. Values are left out, because a value declares its own
+  default, and actions because a method is callable from the controller
+  itself. Both checks stand down for a controller built on a base class of
+  your own, whose inherited members are not read.
+- **Controllers group by namespace.** The part that tells them apart becomes
+  a row, so `App\Controller\Admin\UserController` sits under **Admin**, while
+  the namespace every controller shares is folded away and a project with one
+  namespace is unchanged. `wicker.sidebar.controllerNamespaces` turns it off.
+
 ## 0.11.0
 
 A controller is read by what it produces.

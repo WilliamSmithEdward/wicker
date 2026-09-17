@@ -234,8 +234,9 @@ Hover the project name to see where namespaces came from. Limited namespace
 discovery or a truncated index shows an expandable warning with **Retry** and
 the relevant **Settings** action. A saved Symfony namespace list stays in the
 tooltip while the console is unavailable. Right-click a project and choose
-**Show diagnostics** to open its detailed report in Output. The same command
-in the Command Palette reports all detected projects.
+**Show diagnostics** to open its detailed report in Output, including how
+long each console command took. The same command in the Command Palette
+reports all detected projects.
 
 A project appears as soon as its files are read, drawn with the routes,
 components and namespaces Symfony reported the last time it was opened. The

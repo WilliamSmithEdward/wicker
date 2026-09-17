@@ -6,8 +6,8 @@ import * as vscode from 'vscode';
 
 import { ProcessConsoleRunner } from '../console.js';
 import { ConsoleMemory } from '../consoleMemory.js';
+import { commandLabel } from '../consoleTimings.js';
 import { SessionManager, type ProjectSession } from '../session.js';
-import { until } from './support.js';
 
 const ROOT = path.resolve(__dirname, '../../fixtures/symfony-app');
 
@@ -27,7 +27,6 @@ suite('console', () => {
     const asked = (): string[] => { try { return fs.readFileSync(marker, 'utf8').split('\n').filter(Boolean); } catch { return []; } };
     const remembered = new Map<string, unknown>();
     const owned: SessionManager[] = [];
-    let initialized: Promise<void> | undefined;
     const sessionsWithMemory = (): SessionManager => {
       const sessions = new SessionManager(new ConsoleMemory({
         keys: () => [...remembered.keys()],
@@ -67,21 +66,22 @@ suite('console', () => {
       assert.equal(opened.consolePending, false);
       first.dispose();
 
-      // Slow now, so the second opening is seen before the console answers.
-      await settings.update('console.command', fakeConsole(1500, 'assets/controllers'), vscode.ConfigurationTarget.Workspace);
+      // The second opening, stopped between its halves: drawn, and nothing asked.
+      await settings.update('console.command', fakeConsole(300, 'assets/controllers'), vscode.ConfigurationTarget.Workspace);
       await vscode.commands.executeCommand('wicker.reindex');
       fs.rmSync(marker, { force: true });
       const second = sessionsWithMemory();
-      initialized = second.initialize();
-      await until(() => rootSession(second) !== undefined, 'the project should be published before the console answers');
-      const reopened = rootSession(second)!;
+      await second.publishAll();
+      const reopened = rootSession(second);
+      assert.ok(reopened);
       assert.equal(reopened.consolePending, true);
       assert.ok(reopened.frontend.routes.some((route) => route.name === 'wicker_remembered'), 'routes stand in from the last answer');
       assert.match(reopened.frontend.routesStatus, /earlier Symfony console answer/);
       assert.equal(reopened.loaderPaths.source, 'remembered');
       assert.equal(reopened.frontend.controllerDirectory, 'assets/controllers');
       assert.equal(reopened.discoveryCurrent, false, 'checks wait for the console');
-      await initialized;
+      assert.deepEqual(asked(), [], 'nothing is asked to draw the tree');
+      await second.askAll();
       assert.equal(reopened.consolePending, false);
       assert.match(reopened.frontend.routesStatus, /from Symfony console$/);
       assert.equal(reopened.loaderPaths.source, 'console');
@@ -89,6 +89,11 @@ suite('console', () => {
       const order = asked();
       assert.deepEqual(sorted(order.slice(0, 3)), CONTENT, order.join(', '));
       assert.deepEqual(sorted(order.slice(3)), CONFIGURATION, order.join(', '));
+      // Each was timed, so a slow open can be read off in the diagnostics report.
+      assert.deepEqual(sorted(reopened.consoleTimings.map((timing) => commandLabel(timing.command))), [
+        'debug:config framework asset_mapper', 'debug:config stimulus', 'debug:container',
+        'debug:router', 'debug:twig', 'debug:twig-component']);
+      assert.ok(reopened.consoleTimings.every((timing) => timing.ok && timing.ms >= 300), 'each waited for the console');
       second.dispose();
 
       // The Stimulus directory moved while the editor was closed: the
@@ -105,9 +110,8 @@ suite('console', () => {
       assert.deepEqual(sorted(again.slice(6)), CONTENT, again.join(', '));
       third.dispose();
     } finally {
-      // A failed assertion above leaves an opening in flight, and its
-      // sessions would keep answering the next test's console.
-      await initialized?.catch(() => undefined);
+      // A failed assertion above leaves its sessions open, and they would
+      // keep answering the next test's console.
       for (const sessions of owned) { sessions.dispose(); }
       fs.rmSync(marker, { force: true });
       await settings.update('console.command', previousCommand, vscode.ConfigurationTarget.Workspace);

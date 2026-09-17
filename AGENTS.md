@@ -228,7 +228,11 @@ configuration answers are kept for the pass and confirmed against the console
 after it has been published, so a first open boots the kernel three times
 before anything visible and three times after. Routes and components are
 remembered only until the console answers, because their absence breaks
-nothing while a stale list would say a route added since does not exist.
+nothing while a stale list would say a route added since does not exist. The
+status bar shows progress for the read only: asking the console and confirming
+what was remembered have none, because nothing waits for them and a spinner
+through both read as a hang. Show diagnostics prints how long each command
+took, which is the first thing to ask for when someone says an open is slow.
 
 **A memo has to be keyed on everything its answer was read from.** The Stimulus
 wiring memo was keyed on the scanned-file index and the controller list, but the

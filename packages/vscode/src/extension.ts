@@ -21,6 +21,7 @@ import { ImportExtensionActionProvider } from './importActions.js';
 import { StimulusMemberActionProvider, connectOutlet } from './stimulusActions.js';
 import { LiveComponentProvider, liveComponentDiagnostics } from './liveComponents.js';
 import { ConsoleMemory } from './consoleMemory.js';
+import { describeTimings } from './consoleTimings.js';
 import { RenderedByProvider } from './renderedBy.js';
 import { routeDiagnostics } from './routeDiagnostics.js';
 import {
@@ -250,6 +251,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
           `  Components     ${session.components.status}`,
           `  Stimulus       ${session.frontend.stimulusStatus}`,
           `  Routes         ${session.frontend.routesStatus}`,
+          `  Console took   ${describeTimings(session.consoleTimings)}`,
           `  Twig callables ${session.loaderPaths.callables === undefined ? 'unavailable; unknown-name checks suspended' :
             `${session.loaderPaths.callables.filters.entries.length} filters, ${session.loaderPaths.callables.functions.entries.length} functions${session.canCheckCallables ? '' : ' (refresh pending or unsaved project changes)'}`}`,
           `  detected by    ${session.project.evidence.join(', ')}`,
@@ -386,17 +388,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
   // on a large or remote project the read takes long enough that a command
   // or a hover asked for meanwhile should answer with nothing rather than not
   // exist. Reading the whole template tree is also past the point where
-  // silence reads as a hang, so it shows progress, and the console, asked
-  // once the tree is up, can take most of a minute on a remote machine, so
-  // the status bar says which of the two it is waiting for.
+  // silence reads as a hang, so it shows progress.
   await vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Window, title: 'Wicker' },
-    (progress) => sessions.initialize((message) => progress.report({ message })),
+    { location: vscode.ProgressLocation.Window, title: 'Wicker: indexing templates' },
+    () => sessions.publishAll(),
   );
   sidebar.finishLoading();
   refreshAllDiagnostics();
   // Editors already open when the extension activated get their colour too.
   stimulusMembers.refresh();
+  // The console is asked with no progress of its own. The tree is drawn and
+  // usable, its row says what is still being asked, and nothing waits for the
+  // confirmation that follows; a status bar spinning through both, for a
+  // minute on a machine where Symfony boots slowly, read as a hang.
+  await sessions.askAll();
   return { sidebar };
 }
 

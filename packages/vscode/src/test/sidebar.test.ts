@@ -794,11 +794,16 @@ class SidebarCreatedController {
     try {
       await settings.update('console.enabled', true, vscode.ConfigurationTarget.Workspace);
       await settings.update('console.command', [node, '-e',
-        `setTimeout(() => process.stdout.write(${JSON.stringify(answer)}), 2500)`, '--'], vscode.ConfigurationTarget.Workspace);
-      const initialized = own.initialize();
-      await until(() => published() !== undefined, 'the project should be published before the console answers');
-      const session = published()!;
+        `setTimeout(() => process.stdout.write(${JSON.stringify(answer)}), 300)`, '--'], vscode.ConfigurationTarget.Workspace);
+      // The half of initialize() that is worth waiting for: no console is asked.
+      await own.publishAll();
+      const session = published();
+      assert.ok(session);
       assert.equal(session.consolePending, true);
+      // Every folder is drawn before any console is asked: a second project
+      // used to wait for the first project's console.
+      assert.equal(own.all().length, 2);
+      assert.ok(own.all().every((candidate) => candidate.consolePending));
       const project = (await tree.getChildren()).find((child) => child.root.toString() === rootUri.toString());
       assert.ok(project);
       const children = await tree.getChildren(project);
@@ -808,15 +813,13 @@ class SidebarCreatedController {
       assert.equal(item.label, 'Asking the Symfony console...');
       assert.match(tooltipOf(item), /has not answered yet/);
       assert.match(tooltipOf(await tree.getTreeItem(project)), /waiting for the Symfony console/);
-      // Every folder is drawn before any console is asked: a second project
-      // used to wait for the first project's console.
-      await until(() => own.all().length === 2, 'every folder should be published before the console answers');
-      assert.ok(own.all().every((candidate) => candidate.consolePending));
 
-      await initialized;
+      await own.askAll();
       assert.equal(session.consolePending, false);
       assert.equal(session.loaderPaths.source, 'console');
       assert.ok(!(await tree.getChildren(project)).some((child) => child.kind === 'pending'));
+      // How long the console took is there to be read off, not described.
+      assert.match(tooltipOf(await tree.getTreeItem(project)), /Slowest console answer: debug:[a-z:-]+( [a-z_]+)*, \d+\.\d s/);
     } finally {
       tree.dispose();
       own.dispose();

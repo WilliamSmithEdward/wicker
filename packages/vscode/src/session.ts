@@ -30,6 +30,7 @@ import { ProcessConsoleRunner } from './console.js';
 import { discoverComponents, type ComponentDiscovery } from './componentDiscovery.js';
 import { VsCodeFileSystem, type KnownSources } from './fileSystem.js';
 import type { ConsoleMemory } from './consoleMemory.js';
+import type { ConsoleTiming } from './consoleTimings.js';
 import { dirname, enginePathOf, inIgnoredDirectory } from './paths.js';
 import { RenderSiteTracker } from './renderSiteTracker.js';
 import { TemplateContextTracker } from './templateContextTracker.js';
@@ -120,6 +121,8 @@ export class ProjectSession implements vscode.Disposable {
   private discoveryPending = false;
   /** Whether the console has answered once, so the tree is no longer provisional. */
   private consoleAnswered = false;
+  /** How long the console took over each command, the last time it was asked. */
+  private readonly timings = new Map<string, ConsoleTiming>();
   /** Files read from disk on demand, cleared whenever the project is rebuilt. */
   private readonly sourceMaps = new Map<string, string | undefined>();
   private disposed = false;
@@ -180,6 +183,11 @@ export class ProjectSession implements vscode.Disposable {
   /** The console command as configured, so a failure can name what was run. */
   get consoleCommand(): string | undefined {
     return ProcessConsoleRunner.create(this.project.root)?.describe();
+  }
+
+  /** How long each console command took the last time it ran, for the diagnostics report. */
+  get consoleTimings(): readonly ConsoleTiming[] {
+    return [...this.timings.values()];
   }
 
   /** Console data describes saved files; unsaved registration edits cannot disprove a name. */
@@ -458,7 +466,16 @@ export class ProjectSession implements vscode.Disposable {
   /** The console, answering configuration questions from the last time it was asked. */
   private rememberingRunner(): ConsoleRunner | undefined {
     const inner = ProcessConsoleRunner.create(this.project.root);
-    return inner === undefined ? undefined : new RememberingRunner(inner, this.consoleAnswers, this.memory, this.project.root);
+    return inner === undefined ? undefined
+      : new RememberingRunner({ run: (args) => this.timed(inner, args) }, this.consoleAnswers, this.memory, this.project.root);
+  }
+
+  /** Runs a command and keeps how long it took, so a slow open can be read off rather than described. */
+  private async timed(runner: ConsoleRunner, command: readonly string[]): Promise<ConsoleResult> {
+    const started = performance.now();
+    const result = await runner.run(command);
+    this.timings.set(JSON.stringify(command), { command, ms: performance.now() - started, ok: result.ok });
+    return result;
   }
 
   /**
@@ -475,7 +492,7 @@ export class ProjectSession implements vscode.Disposable {
       this.consoleAnswers.get(JSON.stringify(command))?.remembered === true);
     const inner = ProcessConsoleRunner.create(this.project.root);
     if (unconfirmed.length === 0 || inner === undefined || this.loaderPathInfo.source !== 'console') { return false; }
-    const answers = await Promise.all(unconfirmed.map(async (command) => ({ command, now: await inner.run(command) })));
+    const answers = await Promise.all(unconfirmed.map(async (command) => ({ command, now: await this.timed(inner, command) })));
     if (this.disposed) { return false; }
     let changed = false;
     for (const { command, now } of answers) {
@@ -827,38 +844,44 @@ export class SessionManager implements vscode.Disposable {
   constructor(private readonly memory: ConsoleMemory) {}
 
   /**
-   * Detects and indexes every workspace folder.
+   * Detects and indexes every workspace folder, then asks every console.
    *
-   * Every project is published as soon as its files are read, and only then
-   * is any console asked: a second folder used to wait for the first folder's
-   * console, which on a remote machine is the whole wait. The promise
-   * resolves once every console has answered too, so a caller that goes on
-   * to read routes or components reads the real ones; `progress` is told
-   * which of the two is under way.
+   * The two halves are separate because only the first is worth waiting for.
+   * `publishAll` puts every project in the tree from its files, and `askAll`
+   * fills in what only Symfony can say: a second folder used to wait for the
+   * first folder's console, which on a remote machine is the whole wait. A
+   * caller that goes on to read routes or components wants both.
    */
-  async initialize(progress?: (message: string) => void): Promise<void> {
-    const published: ProjectSession[] = [];
+  async initialize(): Promise<void> {
+    await this.publishAll();
+    await this.askAll();
+  }
+
+  /** Puts every workspace folder's project in the tree, from its files and what the console said last time. */
+  async publishAll(): Promise<void> {
     for (const folder of vscode.workspace.workspaceFolders ?? []) {
-      const session = await this.publish(folder, progress);
-      if (session !== undefined) { published.push(session); }
-    }
-    for (const session of published) {
-      await this.ask(session, progress);
+      await this.publish(folder);
     }
   }
 
-  async addFolder(folder: vscode.WorkspaceFolder, progress?: (message: string) => void): Promise<void> {
-    const session = await this.publish(folder, progress);
-    if (session !== undefined) { await this.ask(session, progress); }
+  /** Asks the console of every project that has not heard from it yet, one project at a time. */
+  async askAll(): Promise<void> {
+    for (const session of this.all()) {
+      await this.ask(session);
+    }
+  }
+
+  async addFolder(folder: vscode.WorkspaceFolder): Promise<void> {
+    const session = await this.publish(folder);
+    if (session !== undefined) { await this.ask(session); }
   }
 
   /** Detects a folder's project, indexes its files and puts it in the tree. */
-  private async publish(folder: vscode.WorkspaceFolder, progress?: (message: string) => void): Promise<ProjectSession | undefined> {
+  private async publish(folder: vscode.WorkspaceFolder): Promise<ProjectSession | undefined> {
     const key = folder.uri.toString();
     if (this.sessions.has(key)) {
       return undefined;
     }
-    progress?.('indexing templates');
     const session = await ProjectSession.create(folder, this.memory);
     if (session === undefined) {
       return undefined;
@@ -881,9 +904,8 @@ export class SessionManager implements vscode.Disposable {
    * holds are kept for it and confirmed after, rather than asked for again
    * alongside everything else.
    */
-  private async ask(session: ProjectSession, progress?: (message: string) => void): Promise<void> {
+  private async ask(session: ProjectSession): Promise<void> {
     if (!session.consolePending) { return; }
-    progress?.('asking the Symfony console');
     await session.refresh('php');
   }
 

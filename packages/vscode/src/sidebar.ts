@@ -8,6 +8,7 @@ import { isEnabled, type ProjectSession, type SessionManager } from './session.j
 import { counted } from './text.js';
 import { apiRoutes, compareRoutePaths, controllerDependencies, frontendIndex, routeAction, routeConsumers, routeRequesters, stimulusControllers, templateRoutes, templatesBinding } from './frontendProject.js';
 import { dependencyKind, sidebarIcon, type SidebarRole } from './sidebarIcons.js';
+import { commandLabel, seconds, slowestAnswer } from './consoleTimings.js';
 import { controllerScripts, templateControllers, templateScripts, type BoundController, type BoundWiring, type RelatedScript } from './relatedScripts.js';
 import { templateStyles, type RelatedStyle } from './relatedStyles.js';
 import { chainChildren, templateEntrypoints, type ChainEntry } from './loadingChain.js';
@@ -761,6 +762,10 @@ Extends ${node.name}.`;
       item.tooltip += `\nNamespaces: ${source.label}\n${source.detail}`;
       if (session.loaderPaths.consoleError !== undefined) {
         item.tooltip += `\n${session.loaderPaths.consoleError}`;
+      }
+      const slowest = slowestAnswer(session.consoleTimings);
+      if (slowest !== undefined) {
+        item.tooltip += `\nSlowest console answer: ${commandLabel(slowest.command)}, ${seconds(slowest.ms)}`;
       }
       if (!this.showBundles) {
         item.tooltip += `\n${counted(visibleFiles, 'file')} shown. Bundle namespaces are hidden; use Show bundle templates to browse them.`;

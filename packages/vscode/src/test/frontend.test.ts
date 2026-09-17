@@ -829,6 +829,60 @@ class WickerFrontendTestController {
     }
   });
 
+  /*
+   * importmap.php is the whole import map only while Symfony's own reader
+   * reads it. A project can replace asset_mapper.importmap.config_reader and
+   * generate an entry for every file it authors, none of them ever written to
+   * importmap.php, and then a specifier missing from the file says nothing
+   * about what the browser is given. Reported from a real project, where
+   * every such import carried a warning that the page disproved.
+   */
+  test('leaves bare imports alone where the project has a say in the import map', async () => {
+    const original = js.getText();
+    const services = uri('config/services.yaml');
+    const decorator = uri('src/AssetMapper/WickerProbeImportMapReader.php');
+    const reported = (): boolean => vscode.languages.getDiagnostics(js.uri)
+      .some((entry) => entry.code === 'unknown-import-specifier' && entry.message.includes('#app/analytics/modal.js'));
+    // One alias that names nothing, and one whose remainder is a mapped asset's logical path.
+    const aliased = `import modal from '#app/analytics/modal.js';\nimport peer from '#app/controllers/wicker_peer_controller.ts';\n${original}`;
+    const peerLinks = (): Promise<vscode.LocationLink[]> => definitions(js, js.positionAt(aliased.indexOf('#app/controllers') + 2));
+    try {
+      await replace(js, aliased);
+      await eventually(() => reported());
+      // Importmap.php is the whole map here, so following the alias would
+      // invent a resolution the browser does not make.
+      assert.equal((await peerLinks()).length, 0);
+
+      // Replaced in configuration, which is how the project that reported it does it.
+      await vscode.workspace.fs.writeFile(services, Buffer.from(
+        'services:\n    asset_mapper.importmap.config_reader:\n        class: App\\AssetMapper\\AppImportMapConfigReader\n'));
+      await vscode.commands.executeCommand('wicker.reindex');
+      await eventually(() => !reported());
+      const report = await vscode.commands.executeCommand<string>('wicker.showProjectInfo');
+      assert.match(report ?? '', /config\/services\.yaml names asset_mapper\.importmap\.config_reader/);
+      // The alias is in no file, so it is followed to the asset it names. That
+      // is what lets the chain from an entrypoint reach everything it loads:
+      // in such a project the authored files import each other this way.
+      const links = await peerLinks();
+      assert.equal(links.length, 1);
+      assert.ok(links[0]!.targetUri.path.endsWith(PEER), `expected ${PEER}, got ${links[0]!.targetUri.path}`);
+      await vscode.workspace.fs.delete(services);
+      await vscode.commands.executeCommand('wicker.reindex');
+      await eventually(() => reported());
+
+      // Decorated by attribute, which names the service in PHP and nowhere else.
+      await vscode.workspace.fs.writeFile(decorator, Buffer.from(
+        "<?php namespace App\\AssetMapper;\n#[AsDecorator(decorates: 'asset_mapper.importmap.config_reader')]\nclass WickerProbeImportMapReader {}\n"));
+      await eventually(() => !reported());
+    } finally {
+      for (const file of [services, decorator]) { try { await vscode.workspace.fs.delete(file); } catch { /* never written */ } }
+      try { await vscode.workspace.fs.delete(uri('src/AssetMapper'), { recursive: true }); } catch { /* never created */ }
+      await replace(js, original);
+      await vscode.commands.executeCommand('wicker.reindex');
+      await vscode.commands.executeCommand('workbench.action.closePanel');
+    }
+  });
+
   test('completes every part of an action descriptor, not just the method', async () => {
     const offers = async (marked: string): Promise<string[]> =>
       (await items(page, await at(page, marked))).map((item) => item.label as string);

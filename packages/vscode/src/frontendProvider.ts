@@ -7,7 +7,7 @@ import { ACTION_OPTIONS, COMMON_EVENTS, EVENT_TARGETS, KEY_FILTERS,
 import { basename, enginePathOf } from './paths.js';
 import { rangeOf } from './ranges.js';
 import type { ProjectSession, SessionManager } from './session.js';
-import { fetchValuesOf, frontendIndex, resolveSpecifier, routeAction, routeConsumers, scanOf } from './frontendProject.js';
+import { fetchValuesOf, frontendIndex, generatedAliasPath, resolveSpecifier, routeAction, routeConsumers, scanOf } from './frontendProject.js';
 import { OutletQueries } from './outletQueries.js';
 import type { FrontendTarget as Target, FrontendCandidate as Candidate, FrontendQuery as Query } from './frontendQueries.js';
 
@@ -222,7 +222,7 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
       .find((entry) => offset >= entry.range.start && offset <= entry.range.end);
     if (!found) { return undefined; }
 
-    const target = resolveSpecifier(session, path, found.specifier);
+    const target = resolveSpecifier(this.sessions, session, path, found.specifier);
     if (target === undefined) { return { name: found.specifier, range: found.range, candidates: [] }; }
 
     return { name: found.specifier, range: found.range, candidates: [{
@@ -354,6 +354,17 @@ export class FrontendProvider implements vscode.CompletionItemProvider, vscode.D
     if (relative !== undefined) {
       candidates.push({ name: found.specifier, projectPath: relative, range: { start: 0, end: 0 },
         label: `Relative import · ${relative}`, kind: vscode.CompletionItemKind.File });
+    }
+
+    // An alias the project generates is in no file, so it is reached by what
+    // it names rather than by an entry, and said to be.
+    const generated = candidates.some((entry) => entry.name === found.specifier)
+      ? undefined : generatedAliasPath(this.sessions, session, found.specifier);
+    if (generated !== undefined) {
+      candidates.push({ name: found.specifier, projectPath: generated, range: { start: 0, end: 0 },
+        label: `Generated importmap alias · ${generated}`, kind: vscode.CompletionItemKind.Module,
+        documentation: 'This project replaces the service that reads importmap.php, so its import map holds entries the file does not. '
+          + 'The alias is followed to the mapped asset whose logical path it names.' });
     }
 
     return { name: found.specifier, range: found.range, candidates };

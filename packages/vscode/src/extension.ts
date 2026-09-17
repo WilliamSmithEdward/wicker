@@ -16,7 +16,7 @@ import {
 import { Deferred } from './debounce.js';
 import { severityFromSettings } from './severity.js';
 import { counted } from './text.js';
-import { missingImportDiagnostics } from './importDiagnostics.js';
+import { describeImportMap, missingImportDiagnostics } from './importDiagnostics.js';
 import { ImportExtensionActionProvider } from './importActions.js';
 import { StimulusMemberActionProvider, connectOutlet } from './stimulusActions.js';
 import { LiveComponentProvider, liveComponentDiagnostics } from './liveComponents.js';
@@ -251,6 +251,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<Wicker
           `  Components     ${session.components.status}`,
           `  Stimulus       ${session.frontend.stimulusStatus}`,
           `  Routes         ${session.frontend.routesStatus}`,
+          `  Import map     ${describeImportMap(sessions, session)}`,
           `  Console took   ${describeTimings(session.consoleTimings)}`,
           `  Twig callables ${session.loaderPaths.callables === undefined ? 'unavailable; unknown-name checks suspended' :
             `${session.loaderPaths.callables.filters.entries.length} filters, ${session.loaderPaths.callables.functions.entries.length} functions${session.canCheckCallables ? '' : ' (refresh pending or unsaved project changes)'}`}`,

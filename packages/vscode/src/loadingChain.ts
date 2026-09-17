@@ -61,7 +61,7 @@ export function chainChildren(sessions: SessionManager, session: ProjectSession,
   const file = basename(projectPath);
   const found = new Map<string, string>();
   for (const specifier of specifiers) {
-    const target = resolveSpecifier(session, projectPath, specifier.text);
+    const target = resolveSpecifier(sessions, session, projectPath, specifier.text);
     // A specifier resolving to nothing is reported where it is written, by the
     // import diagnostics. A row here would say it twice and explain it less.
     if (target === undefined || target === projectPath) { continue; }

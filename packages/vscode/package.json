@@ -284,7 +284,7 @@
             "off"
           ],
           "default": "warning",
-          "markdownDescription": "How to report a JavaScript import the browser cannot resolve: a relative path outside the asset map, one written without its file extension, or a bare specifier declared in no `importmap.php` entry. Each check is suspended when the discovery it depends on is unavailable."
+          "markdownDescription": "How to report a JavaScript import the browser cannot resolve: a relative path outside the asset map, one written without its file extension, or a bare specifier declared in no `importmap.php` entry. Each check is suspended when the discovery it depends on is unavailable. The last is also suspended where the project's configuration or PHP names `asset_mapper.importmap.config_reader`: a project that replaces that service can add entries the file never holds."
         },
         "wicker.diagnostics.missingRouteParameter": {
           "type": "string",

@@ -1,4 +1,5 @@
 import { controllerForReference, fetchValueReferences, resolveRelativeImport, scanFrontend, type FrontendIndex, type FrontendScan, type EndpointAction, type EndpointUse, type OffsetRange, type StimulusController, type SymfonyRoute, type PhpTypeDeclaration, type PhpDependency } from '@wicker/core';
+import { IMPORTMAP_READER } from './assetDiscovery.js';
 import { isEnabled, type ProjectSession, type SessionManager } from './session.js';
 
 /**
@@ -40,10 +41,59 @@ export function isStylesheet(projectPath: string): boolean {
  * the same moment, and the stylesheet list could not follow a bare `@import`
  * at all.
  */
-export function resolveSpecifier(session: ProjectSession, from: string, specifier: string): string | undefined {
+export function resolveSpecifier(sessions: SessionManager, session: ProjectSession, from: string, specifier: string): string | undefined {
   return resolveRelativeImport(from, specifier) ?? (isStylesheet(from)
     ? session.assets.map.lookup(specifier)?.projectPath
-    : session.assets.importMap.find((entry) => entry.specifier === specifier)?.projectPath);
+    : session.assets.importMap.find((entry) => entry.specifier === specifier)?.projectPath
+      ?? generatedAliasPath(sessions, session, specifier));
+}
+
+/** Kept per filtered index, which is replaced whenever a source changes. */
+const namedInPhp = new WeakMap<FrontendIndex, { readonly path: string | undefined }>();
+
+/**
+ * The file in which the project names the service that reads `importmap.php`,
+ * if it does anywhere.
+ *
+ * The file is the whole import map only while Symfony's own reader reads it.
+ * A project that replaces or decorates the reader can generate entries it
+ * never writes down, and then what the file lacks says nothing about what the
+ * browser is given. Configuration is one place a service is replaced, found
+ * when the assets are discovered; the other is PHP, where a class decorates it
+ * by attribute, and the project's PHP is already held, so that is a search of
+ * text in memory.
+ */
+export function importMapReaderSource(sessions: SessionManager, session: ProjectSession): string | undefined {
+  if (session.assets.importMapReader !== undefined) { return session.assets.importMapReader; }
+  const index = frontendIndex(sessions, session);
+  let found = namedInPhp.get(index);
+  if (found === undefined) {
+    found = { path: index.all().find((file) => file.projectPath.endsWith('.php') && file.source.includes(IMPORTMAP_READER))?.projectPath };
+    namedInPhp.set(index, found);
+  }
+  return found.path;
+}
+
+/**
+ * The file a `#` alias names in a project that generates its import map.
+ *
+ * Such a project gives every file it authors an alias, written to no file, so
+ * one script imports another as `#app/analytics/modal.js` and the chain from
+ * an entrypoint to everything it loads runs through names that cannot be read
+ * anywhere. What generates them is the project's own PHP and cannot be run,
+ * but the shape is the one an alias has to have: a prefix, then the asset's
+ * logical path. So an alias whose remainder is a mapped asset's logical path
+ * is taken to name that asset.
+ *
+ * Only a `#` specifier, which no package can be called, and only where the
+ * project names the reader. Anywhere else a specifier in no `importmap.php`
+ * entry is one the browser cannot resolve, and following it would draw an
+ * edge the import diagnostics are reporting as broken.
+ */
+export function generatedAliasPath(sessions: SessionManager, session: ProjectSession, specifier: string): string | undefined {
+  const slash = specifier.indexOf('/');
+  if (!specifier.startsWith('#') || slash === -1 || importMapReaderSource(sessions, session) === undefined) { return undefined; }
+  return session.assets.map.lookup(specifier.slice(slash + 1))?.projectPath;
 }
 
 /**

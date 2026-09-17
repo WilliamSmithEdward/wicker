@@ -48,7 +48,7 @@ export async function templateStyles(sessions: SessionManager, session: ProjectS
 
   const found = new Map<string, Set<string>>();
   for (const [seed, reason] of seeds) {
-    for (const stylesheet of stylesheetsFrom(session, index, seed)) {
+    for (const stylesheet of stylesheetsFrom(sessions, session, index, seed)) {
       let reasons = found.get(stylesheet);
       if (!reasons) { reasons = new Set(); found.set(stylesheet, reasons); }
       reasons.add(reason);
@@ -66,7 +66,7 @@ export async function templateStyles(sessions: SessionManager, session: ProjectS
  * A seed may itself be a stylesheet, in which case it counts and its own
  * `@import`s are followed too.
  */
-function stylesheetsFrom(session: ProjectSession, index: FrontendIndex, seed: string): string[] {
+function stylesheetsFrom(sessions: SessionManager, session: ProjectSession, index: FrontendIndex, seed: string): string[] {
   const queue = [seed], visited = new Set<string>();
   const stylesheets: string[] = [];
 
@@ -85,7 +85,7 @@ function stylesheetsFrom(session: ProjectSession, index: FrontendIndex, seed: st
       : importSpecifiers(source).map((entry) => entry.specifier);
 
     for (const specifier of specifiers) {
-      const target = resolveSpecifier(session, path, specifier);
+      const target = resolveSpecifier(sessions, session, path, specifier);
       if (target !== undefined && !visited.has(target)) { queue.push(target); }
     }
   }

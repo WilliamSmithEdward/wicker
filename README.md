@@ -434,6 +434,16 @@ extension gains the one that exists. On a `data-controller` attribute, a
 refactoring connects the controller to another through an outlet, declaring
 it in the controller and binding it on the element in one edit.
 
+JavaScript imports are checked the way the browser resolves them: a relative
+path has to be a mapped asset written with its extension, and a bare specifier
+has to be an `importmap.php` entry. That file is the whole import map only
+while Symfony's own reader reads it. Where a project's configuration or PHP
+names `asset_mapper.importmap.config_reader`, it can generate entries the file
+never holds, so bare imports are not checked, and a generated `#` alias such
+as `#app/analytics/modal.js` is followed to the mapped asset whose logical
+path it names. The chain from an entrypoint then still reaches the scripts and
+stylesheets it loads. Show diagnostics says which file names the service.
+
 Routes come from `debug:router --format=json`. In Twig, complete literal route
 names in `path()` and `url()`, then navigate to the application's PHP action.
 Inside the call, complete the route's parameters; hover lists each placeholder

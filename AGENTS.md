@@ -234,6 +234,16 @@ what was remembered have none, because nothing waits for them and a spinner
 through both read as a hang. Show diagnostics prints how long each command
 took, which is the first thing to ask for when someone says an open is slow.
 
+**`importmap.php` is not always the whole import map.** A project replaced
+`asset_mapper.importmap.config_reader` with a reader that generates a
+`#app/<logical path>` alias for every file it authors and never writes them
+down. Every such import was reported as unresolvable, and the chain from an
+entrypoint stopped at the first one, so the scripts and styles under its
+templates were missing. Where the project's configuration or PHP names that
+service, bare imports are not checked and a `#` alias is followed to the
+mapped asset its remainder names. Without that evidence the same alias is one
+the browser cannot resolve, and following it would invent a resolution.
+
 **A memo has to be keyed on everything its answer was read from.** The Stimulus
 wiring memo was keyed on the scanned-file index and the controller list, but the
 walk resolves names through the template index, which the scoped refresh above

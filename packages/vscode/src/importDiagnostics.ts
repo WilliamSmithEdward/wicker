@@ -2,6 +2,8 @@ import { importSpecifiers, resolveRelativeImport } from '@wicker/core';
 import { severityFromSettings } from './severity.js';
 import * as vscode from 'vscode';
 
+import { IMPORTMAP_READER } from './assetDiscovery.js';
+import { importMapReaderSource } from './frontendProject.js';
 import { enginePathOf } from './paths.js';
 import type { ProjectSession, SessionManager } from './session.js';
 import { rangeOf } from './ranges.js';
@@ -23,7 +25,10 @@ import { rangeOf } from './ranges.js';
  * invented name; both fail at runtime with nothing in the server log.
  *
  * Both checks are suspended when the evidence for them is missing, since a
- * warning on every import is worse than none.
+ * warning on every import is worse than none. For a bare specifier that
+ * includes a project with a say in what the import map holds: `importmap.php`
+ * is the whole map only while Symfony's own reader reads it, and a project
+ * that replaces the reader can generate entries it never writes to the file.
  */
 export function missingImportDiagnostics(
   sessions: SessionManager,
@@ -45,7 +50,7 @@ export function missingImportDiagnostics(
   // it. Reporting from an empty read marks every bare specifier in the project
   // as unresolvable, which is exactly the shape of a wrong answer given
   // confidently.
-  const canCheckBare = importMapFound && importMap.length > 0;
+  const canCheckBare = importMapFound && importMap.length > 0 && importMapReaderSource(sessions, session) === undefined;
 
   const source = document.getText();
   const result: vscode.Diagnostic[] = [];
@@ -76,5 +81,15 @@ export function missingImportDiagnostics(
   }
 
   return sessions.sessionFor(document) === session ? result : [];
+}
+
+/** What the import map is read from, for the diagnostics report: why a bare import is or is not checked. */
+export function describeImportMap(sessions: SessionManager, session: ProjectSession): string {
+  const { importMap, importMapFound } = session.assets;
+  if (!importMapFound) { return 'no importmap.php'; }
+  const entries = `${importMap.length} ${importMap.length === 1 ? 'entry' : 'entries'} in importmap.php`;
+  const source = importMapReaderSource(sessions, session);
+  return source === undefined ? entries
+    : `${entries}; ${source} names ${IMPORTMAP_READER}, so the project may add its own: bare imports are not checked, and a # alias is followed to the asset it names`;
 }
 

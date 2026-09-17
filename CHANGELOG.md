@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.10.0
+
+The API routes open by path, and a controller that renders nothing has a row.
+
+### Added
+
+- **API routes as a hierarchy.** The section opens a path segment at a time,
+  so `/api/v1/tasks/{id}` sits under api › v1 › tasks. Each folder counts what
+  lies beneath it, and each row is named by its last segment with the whole
+  path in its tooltip. `wicker.sidebar.apiRouteHierarchy`, on by default,
+  gives the flat list with full paths back.
+
+### Fixed
+
+- **Controllers that only answer JSON.** The Controllers section was built
+  from render calls alone, so a controller rendering nothing had no row. A
+  controller is now listed when a route names it and counts all its actions,
+  and an action that renders nothing opens where it is declared instead of
+  opening nothing.
+- **Scripts and styles in a project that generates its import map.**
+  `importmap()` is read whether it takes one entrypoint or a list, and a
+  generated `#` alias passed to it is followed to the asset it names. Where
+  neither was read a template had no entrypoint, and so no scripts or
+  stylesheets beneath it.
+
 ## 0.9.3
 
 ### Fixed

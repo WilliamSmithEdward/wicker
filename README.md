@@ -142,7 +142,7 @@ extension still works when PHP cannot be run.
 
 ## Development
 
-Requires Node 20.19 or newer.
+Requires Node 22 or newer for development and packaging.
 
 ```bash
 npm install

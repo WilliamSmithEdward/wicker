@@ -21,6 +21,9 @@ is published. It uses:
 - Semgrep Community Edition with `p/security-audit` and `p/secrets` rules.
 - `npm audit` against the lockfile, including development dependencies.
 
+The dependency audit receives only the lockfile in an isolated job, without a
+source checkout, repository npm configuration, lifecycle scripts or caches.
+
 Every finding fails the gate, regardless of severity. Scanner errors and
 warnings, skipped scanner jobs, and missing or malformed reports also fail.
 There is no baseline or accepted-findings list. Semgrep inline `nosemgrep`

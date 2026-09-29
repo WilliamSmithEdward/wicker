@@ -24,10 +24,17 @@ is published. It uses:
 The dependency audit receives only the lockfile in an isolated job, without a
 source checkout, repository npm configuration, lifecycle scripts or caches.
 
-Every finding fails the gate, regardless of severity. Scanner errors and
+Every unexpected finding fails the gate, regardless of severity. Scanner errors and
 warnings, skipped scanner jobs, and missing or malformed reports also fail.
-There is no baseline or accepted-findings list. Semgrep inline `nosemgrep`
-comments do not suppress the check. Investigate failures and fix their cause;
+There is no broad baseline. The two reviewed false positives in
+[semgrep-exceptions.json](.github/security/semgrep-exceptions.json) match the exact
+rule, location and SHA-256 hash of each fixture's contents (with LF line endings).
+They cover Symfony's documented `ComponentAttributes` output in the Alert and
+Badge templates. Any changed fixture requires another review; a finding at
+another location or from another rule still fails. Reports list these reviews,
+retain the unmodified scanner output, and mark only these findings as accepted
+in the SARIF uploaded to GitHub. Semgrep inline `nosemgrep` comments remain
+disabled. Investigate failures and fix their cause;
 do not make the check optional or silently exclude a finding to obtain a pass.
 
 Tests and fixtures remain in scope. Generated files, installed dependencies

@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { createReport, inspectSarif } from './security-report.mjs';
+import { createReport, inspectSarif, reviewSemgrepFindings } from './security-report.mjs';
 
 const environment = {
   SCAN_SHA: 'a'.repeat(40),
@@ -94,4 +95,44 @@ test('dependency advisories of any severity and absent commit identity fail', t 
   });
   assert.equal(createReport(directory, environment).status, 'FAIL');
   assert.ok(createReport(directory, { ...environment, SCAN_SHA: '' }).problems.includes('Missing or invalid scanned commit'));
+});
+
+function reviewedFixture(t) {
+  const { directory } = fixture(t);
+  const source = '<div {{ attributes }}></div>\n';
+  writeFileSync(join(directory, 'component.twig'), source);
+  const finding = { check_id: 'unquoted-attribute', path: 'component.twig', start: { line: 1, col: 6 }, end: { line: 1, col: 22 } };
+  const exception = {
+    rule: finding.check_id, path: finding.path, start: finding.start, end: finding.end,
+    sourceSha256: createHash('sha256').update(source).digest('hex'),
+    reason: 'A reviewed framework attribute bag.', reference: 'https://example.com/component-attributes',
+  };
+  return { directory, source, finding, exception };
+}
+
+test('review applies only to the exact rule, location and fixture, preserving other findings', t => {
+  const { directory, finding, exception } = reviewedFixture(t);
+  const unexpected = [
+    { ...finding, check_id: 'another-rule' },
+    { ...finding, path: 'another.twig' },
+    { ...finding, start: { line: 2, col: 6 } },
+    { ...finding, end: { line: 1, col: 23 } },
+  ];
+  const reviews = reviewSemgrepFindings([finding, ...unexpected], [exception], directory);
+  assert.equal(reviews.length, 1);
+  assert.equal(reviews[0].reason, exception.reason);
+  assert.equal(reviewSemgrepFindings(unexpected, [exception], directory).length, 0);
+});
+
+test('changed fixture content invalidates review even when the finding stays in place', t => {
+  const { directory, source, finding, exception } = reviewedFixture(t);
+  writeFileSync(join(directory, finding.path), `${source}<script>unexpected()</script>\n`);
+  assert.throws(() => reviewSemgrepFindings([finding], [exception], directory), /Reviewed fixture changed/);
+});
+
+test('Windows line endings preserve review identity, but missing rationale fails', t => {
+  const { directory, source, finding, exception } = reviewedFixture(t);
+  writeFileSync(join(directory, finding.path), source.replaceAll('\n', '\r\n'));
+  assert.equal(reviewSemgrepFindings([finding], [exception], directory).length, 1);
+  assert.throws(() => reviewSemgrepFindings([finding], [{ ...exception, reason: '' }], directory), /reason and reference/);
 });

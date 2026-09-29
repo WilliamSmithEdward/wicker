@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.12.1
+
+### Fixed
+
+- Asset paths and CSS `url()` references avoid excessive regular-expression
+  backtracking on malformed input. CSS URL navigation also preserves the correct
+  source range when a filename is `url`.
+- Updated the integration test runner's dependency chain to resolve the reported
+  dependency vulnerabilities.
+
+### Added
+
+- CodeQL, Semgrep and dependency audits run on repository changes and releases.
+  Unexpected findings or incomplete scans fail the security gate.
+- Future releases include a security summary and the complete scanner evidence
+  for their exact commit. The repository now documents private vulnerability
+  reporting and uses Dependabot for development-tool updates.
+
 ## 0.12.0
 
 Stimulus bindings are checked in both directions.

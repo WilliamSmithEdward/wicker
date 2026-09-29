@@ -140,6 +140,13 @@ describe('AssetMap', () => {
     expect(map.forProjectPath('assets/styles/app.css')?.logicalPath).toBe('styles/app.css');
   });
 
+  it('stops at the first fragment or query marker even with a long malformed suffix', async () => {
+    const map = await build();
+    const suffix = `${'#'.repeat(20_000)}\nignored`;
+    expect(map.lookup(`styles/app.css?${suffix}`)?.projectPath).toBe('assets/styles/app.css');
+    expect(map.lookup(`styles/app.css${suffix}`)?.projectPath).toBe('assets/styles/app.css');
+  });
+
   it('reports truncation rather than walking a vendor tree without bound', async () => {
     const many: Record<string, string> = {};
     for (let i = 0; i < 40; i += 1) { many[`/app/assets/file${i}.js`] = 'x'; }

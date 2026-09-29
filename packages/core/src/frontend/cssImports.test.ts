@@ -58,4 +58,23 @@ describe('cssUrls', () => {
     expect(cssUrls(`/* url('old.png') */ a { background: url('new.png'); }`).map((e) => e.specifier))
       .toEqual(['new.png']);
   });
+
+  it('handles long whitespace and unfinished candidates without rescanning their bodies', () => {
+    const spaces = ' '.repeat(50_000);
+    expect(cssUrls(`url(${spaces}`)).toEqual([]);
+    expect(cssUrls(`url(icon.png${spaces}`)).toEqual([]);
+    const source = `url(${spaces}"url"${spaces}) url(  next.png  )`;
+    const found = cssUrls(source);
+    expect(found.map((entry) => entry.specifier)).toEqual(['url', 'next.png']);
+    for (const entry of found) {
+      expect(source.slice(entry.range.start, entry.range.end)).toBe(entry.specifier);
+    }
+  });
+
+  it('recovers after computed, mismatched and incomplete URLs', () => {
+    const source = `url(var(--icon)) url('bad") url('unfinished\n url("good.png")`;
+    const found = cssUrls(source);
+    expect(found.map((entry) => entry.specifier)).toEqual(['good.png']);
+    expect(source.slice(found[0]!.range.start, found[0]!.range.end)).toBe('good.png');
+  });
 });

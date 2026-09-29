@@ -812,7 +812,7 @@ class SidebarCreatedController {
     try {
       await settings.update('console.enabled', true, vscode.ConfigurationTarget.Workspace);
       await settings.update('console.command', [node, '-e',
-        `setTimeout(() => process.stdout.write(${JSON.stringify(answer)}), 300)`, '--'], vscode.ConfigurationTarget.Workspace);
+        'setTimeout(() => process.stdout.write(process.argv[1]), 300)', '--', answer], vscode.ConfigurationTarget.Workspace);
       // The half of initialize() that is worth waiting for: no console is asked.
       await own.publishAll();
       const session = published();

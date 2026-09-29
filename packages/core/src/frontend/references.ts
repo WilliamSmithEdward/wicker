@@ -70,7 +70,10 @@ export function scanFrontend(source: string, twig: boolean): FrontendScan {
   if (!twig) { const requests = fetchReferences(source, 0, source.length); return { references: requests, requests, bindings: [], scripts: [{ start: 0, end: source.length }], routeCalls: [] }; }
   const references: FrontendReference[] = [], requests: FrontendReference[] = [], bindings: StimulusEndpointBinding[] = [], scripts: OffsetRange[] = [];
   const routeCalls: RouteCall[] = [];
-  const comments: OffsetRange[] = [...source.matchAll(/<!--[\s\S]*?(?:-->|$)/g)].map((match) => ({ start: match.index, end: match.index + match[0].length }));
+  // The string form keeps TypeScript tooling from reading <!-- as a legacy
+  // JavaScript comment opener inside a regex literal.
+  const htmlComment = new RegExp('<!--[\\s\\S]*?(?:-->|$)', 'g');
+  const comments: OffsetRange[] = [...source.matchAll(htmlComment)].map((match) => ({ start: match.index, end: match.index + match[0].length }));
   const blanked: OffsetRange[] = [];
   let verbatim = false;
   for (const region of lexTwigRegions(source)) {
@@ -187,7 +190,7 @@ export function scanFrontend(source: string, twig: boolean): FrontendScan {
   }
   pieces.push(source.slice(mask));
   let html = pieces.join('');
-  html = html.replace(/<!--[\s\S]*?(?:-->|$)/g, (comment) => ' '.repeat(comment.length));
+  html = html.replace(htmlComment, (comment) => ' '.repeat(comment.length));
   const tag = /<([a-z][\w:-]*)\b/gi;
   let match: RegExpExecArray | null;
   while ((match = tag.exec(html))) {

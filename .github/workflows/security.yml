@@ -108,12 +108,13 @@ jobs:
       - name: Scan all findings and fail on scanner warnings
         run: |
           mkdir -p security-results/semgrep
-          semgrep scan --config p/security-audit --config p/secrets --error --strict --disable-nosem --metrics off --disable-version-check --max-target-bytes 0 --json-output security-results/semgrep/semgrep.json --sarif-output security-results/semgrep/semgrep.sarif .
+          semgrep scan --config p/security-audit --config p/secrets --strict --disable-nosem --metrics off --disable-version-check --max-target-bytes 0 --json-output security-results/semgrep/semgrep.json --sarif-output security-results/semgrep/semgrep.sarif .
+          node security-report.mjs semgrep security-results/semgrep
       - name: Upload to GitHub code scanning
-        if: ${{ !cancelled() && hashFiles('security-results/semgrep/semgrep.sarif') != '' && needs.revision.outputs.tag == '' }}
+        if: ${{ !cancelled() && hashFiles('security-results/semgrep-reviewed/semgrep.sarif') != '' && needs.revision.outputs.tag == '' }}
         uses: github/codeql-action/upload-sarif@7999b86c43a865dc79d8923397f35af22de63401 # v4
         with:
-          sarif_file: security-results/semgrep/semgrep.sarif
+          sarif_file: security-results/semgrep-reviewed/semgrep.sarif
           category: semgrep
       - name: Retain analysis even on failure
         if: ${{ !cancelled() }}

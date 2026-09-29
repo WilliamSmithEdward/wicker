@@ -76,7 +76,7 @@ jobs:
         run: node security-report.mjs sarif security-results/codeql-${{ matrix.language }}
       - name: Upload to GitHub code scanning
         if: ${{ !cancelled() && hashFiles(format('security-results/codeql-{0}/*.sarif', matrix.language)) != '' && needs.revision.outputs.tag == '' }}
-        uses: github/codeql-action/upload-sarif@7999b86c43a865dc79d8923397f35af22de63401 # v4
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           sarif_file: security-results/codeql-${{ matrix.language }}
           category: codeql-${{ matrix.language }}
@@ -112,7 +112,7 @@ jobs:
           node security-report.mjs semgrep security-results/semgrep
       - name: Upload to GitHub code scanning
         if: ${{ !cancelled() && hashFiles('security-results/semgrep-reviewed/semgrep.sarif') != '' && needs.revision.outputs.tag == '' }}
-        uses: github/codeql-action/upload-sarif@7999b86c43a865dc79d8923397f35af22de63401 # v4
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
         with:
           sarif_file: security-results/semgrep-reviewed/semgrep.sarif
           category: semgrep

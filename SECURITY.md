@@ -20,6 +20,7 @@ is published. It uses:
 - CodeQL's `security-extended` queries for JavaScript/TypeScript and GitHub Actions.
 - Semgrep Community Edition with `p/security-audit` and `p/secrets` rules.
 - `npm audit` against the lockfile, including development dependencies.
+- `pip-audit` against Semgrep's hash-pinned dependency tree.
 - ClamAV and YARA-X, in their own **Malware scan** job, over the checkout, its
   installed dependencies and the VSIX.
 
@@ -104,6 +105,17 @@ with `--require-hashes` from
 GitHub's Dependabot security updates are enabled. Dependency updates still need
 review and passing CI; they are not automatically merged. Wicker continues to
 ship no third-party runtime code.
+
+Accepted advisories are in
+[dependency-exceptions.json](.github/security/dependency-exceptions.json),
+matched on the exact package, version and advisory ID. The one there is
+[GHSA-w6j9-cwv2-h6wq](https://github.com/advisories/GHSA-w6j9-cwv2-h6wq) in
+PyJWT 2.13.0. Semgrep 1.178.0, the newest release, requires `pyjwt~=2.13.0`, so
+the fixed 2.14.0 cannot be installed beside it. The flaw makes a JWK set with
+one malformed RSA key fail to parse, which its maintainers class as a
+conditional availability failure rather than a signature or claims bypass, and
+Semgrep here never logs in or parses a JWK set. Remove the entry when Semgrep
+allows PyJWT 2.14.0; GitHub's Dependabot alert for it stays open until then.
 
 The test CLI currently requests Mocha 11, whose dependencies include vulnerable
 versions of `diff` and `serialize-javascript`. A scoped npm override uses Mocha

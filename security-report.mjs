@@ -233,6 +233,42 @@ export function inspectMalware(directory, now = Date.now()) {
   };
 }
 
+/**
+ * Advisories in the Semgrep toolchain, from pip-audit's JSON.
+ *
+ * An advisory is accepted only as the exact package, version and advisory ID
+ * reviewed, so an upgrade, a new advisory or a changed version needs another
+ * review.
+ */
+export function inspectPipAudit(directory, exceptions = readJson('.github/security/dependency-exceptions.json')) {
+  const data = readJson(join(directory, 'pip-audit.json'));
+  requireEvidence(Array.isArray(data.dependencies) && data.dependencies.length > 0
+    && data.dependencies.every(entry => typeof entry.name === 'string' && typeof entry.version === 'string'
+      && Array.isArray(entry.vulns ?? [])), 'Missing or invalid pip-audit evidence');
+  const advisories = data.dependencies.flatMap(entry => (entry.vulns ?? []).map(vulnerability => ({
+    package: entry.name.toLowerCase(), version: entry.version, advisory: vulnerability.id, aliases: vulnerability.aliases ?? [] })));
+  const exit = exitCode(directory, 'pip-audit-exit.txt');
+  requireEvidence(exit === (advisories.length > 0 ? 1 : 0), `pip-audit exited ${exit} with ${advisories.length} advisories`);
+  requireEvidence(Array.isArray(exceptions), 'Invalid dependency exceptions');
+  const reviewed = [];
+  const unexpected = [];
+  for (const advisory of advisories) {
+    const exception = exceptions.find(entry => entry.ecosystem === 'pip' && entry.package === advisory.package
+      && entry.version === advisory.version && entry.advisory === advisory.advisory);
+    if (!exception) { unexpected.push(advisory); continue; }
+    requireEvidence(typeof exception.reason === 'string' && exception.reason.length > 0
+      && typeof exception.reference === 'string' && exception.reference.length > 0, 'Exception requires a reason and reference');
+    reviewed.push({ label: `Accepted advisory ${advisory.advisory} in ${advisory.package} ${advisory.version}`,
+      reason: exception.reason, reference: exception.reference });
+  }
+  return {
+    findings: unexpected.length,
+    details: unexpected.map(entry => `pip: ${entry.package} ${entry.version} ${[entry.advisory, ...entry.aliases].join(' ')}`),
+    reviewed,
+    tools: [{ name: 'pip-audit', version: 'pinned in .github/security/audit.txt' }],
+  };
+}
+
 function inspectAudit(directory) {
   const data = readJson(join(directory, 'npm-audit.json'));
   const findings = data.metadata?.vulnerabilities?.total;
@@ -267,6 +303,7 @@ export function createReport(directory, environment) {
     ['CodeQL GitHub Actions', 'codeql-actions', inspectSarif],
     ['Semgrep', 'semgrep', inspectSemgrep],
     ['npm audit (including development tools)', 'dependencies', inspectAudit],
+    ['pip-audit (Semgrep toolchain)', 'dependencies', directory => inspectPipAudit(directory)],
     ['ClamAV and YARA-X malware scan', 'malware', inspectMalware],
   ].map(([name, folder, inspect]) => {
     try {
@@ -303,12 +340,13 @@ export function createReport(directory, environment) {
     `Release: ${report.tag ?? 'not a release scan'}`, '',
     `Generated: ${report.generatedAt}`, '',
     `[Workflow run](${report.run})`, '',
-    '| Analysis | Unexpected findings | Reviewed false positives |', '| --- | --- | --- |',
+    '| Analysis | Unexpected findings | Reviewed exceptions |', '| --- | --- | --- |',
     ...scanners.map(scanner => `| ${scanner.name} | ${scanner.findings ?? 'Unavailable (failed)'} | ${scanner.reviewed?.length ?? 0} |`), '',
     ...problems.map(problem => `- ${problem.replaceAll('\n', ' ')}`), '',
-    ...scanners.flatMap(scanner => (scanner.reviewed ?? []).map(entry => `- Reviewed false positive in \`${entry.path}\`: ${entry.reason} [Reference](${entry.reference})`)), '',
-    'Policy: every unexpected finding fails, regardless of severity. The only exceptions are the exact reviewed findings listed above, matched against fixture content hashes. Scanner failures, warnings, skipped jobs and missing or malformed evidence fail the gate.', '',
-    'Scope: CodeQL security-extended for JavaScript/TypeScript and GitHub Actions; Semgrep Community Edition p/security-audit and p/secrets; npm lockfile audit including development tools; ClamAV and YARA-X with the YARA Forge full rule set over the checkout, its installed dependencies and the VSIX. Semgrep registry rules, vulnerability advisories and ClamAV signatures are fetched at scan time; the YARA-X engine and YARA Forge release are pinned by SHA-256. Generated output and dependencies are excluded from source scanning.', '',
+    ...scanners.flatMap(scanner => (scanner.reviewed ?? []).map(entry =>
+      `- ${entry.label ?? `Reviewed false positive in \`${entry.path}\``}: ${entry.reason} [Reference](${entry.reference})`)), '',
+    'Policy: every unexpected finding fails, regardless of severity. The only exceptions are the exact reviewed findings listed above, matched against file content hashes or, for an advisory, the exact package version and advisory ID. Scanner failures, warnings, skipped jobs and missing or malformed evidence fail the gate.', '',
+    'Scope: CodeQL security-extended for JavaScript/TypeScript and GitHub Actions; Semgrep Community Edition p/security-audit and p/secrets; npm lockfile audit including development tools; pip-audit of the hash-pinned Semgrep toolchain; ClamAV and YARA-X with the YARA Forge full rule set over the checkout, its installed dependencies and the VSIX. Semgrep registry rules, vulnerability advisories and ClamAV signatures are fetched at scan time; the YARA-X engine and YARA Forge release are pinned by SHA-256. Generated output and dependencies are excluded from source scanning.', '',
     `VSIX: ${report.tag ? 'the asset attached to the release, checked against the digest GitHub records for it' : 'built from the scanned commit'}. Each malware engine must detect the EICAR test file before its clean result counts.`, '',
     'Raw results and their SHA-256 digests accompany this report. It records the checks performed on the named commit and VSIX; it is not an audit or a certification. A passing scan does not prove the absence of vulnerabilities or malware.', '',
   ].join('\n');

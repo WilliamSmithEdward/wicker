@@ -45,7 +45,11 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dependency-lockfile
-          path: package-lock.json
+          path: |
+            package-lock.json
+            .github/security/requirements.txt
+            .github/security/audit.txt
+          include-hidden-files: true
           if-no-files-found: error
 
   codeql:
@@ -157,6 +161,19 @@ jobs:
           mkdir -p security-results/dependencies
           node -e 'require("node:fs").writeFileSync("audit/package.json", JSON.stringify({name:"wicker-security-audit",version:"0.0.0"}))'
           npm audit --prefix audit --ignore-scripts --package-lock-only --include=dev --audit-level=low --json > security-results/dependencies/npm-audit.json
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12.14'
+      # The Semgrep tree is audited the way the npm lockfile is: from its
+      # hash-pinned list alone, resolving nothing. Findings are judged by the gate.
+      - name: Audit the Semgrep toolchain
+        run: |
+          python -m venv "$RUNNER_TEMP/pip-audit"
+          "$RUNNER_TEMP/pip-audit/bin/pip" install --quiet --require-hashes --only-binary=:all: -r audit/.github/security/audit.txt
+          status=0
+          "$RUNNER_TEMP/pip-audit/bin/pip-audit" --requirement audit/.github/security/requirements.txt --require-hashes --disable-pip \
+            --progress-spinner off --format json --output security-results/dependencies/pip-audit.json || status=$?
+          echo "$status" > security-results/dependencies/pip-audit-exit.txt
       - name: Retain audit even on failure
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

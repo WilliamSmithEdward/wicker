@@ -100,7 +100,7 @@ an active supply-chain attack vector.
 
 ### Commands
 
-    npm install                          once, Node 20.19+
+    npm install                          once, Node 22+
     npm run check                        the gate: build, typecheck, lint, test
     npm test                             unit tests only
     npm run lint:fix                     apply lint fixes

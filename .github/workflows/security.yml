@@ -130,10 +130,11 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
+          package-manager-cache: false
       - name: Audit locked dependencies including development tools
         run: |
           mkdir -p security-results/dependencies
-          npm audit --package-lock-only --include=dev --audit-level=low --json > security-results/dependencies/npm-audit.json
+          npm audit --ignore-scripts --package-lock-only --include=dev --audit-level=low --json > security-results/dependencies/npm-audit.json
       - name: Retain audit even on failure
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

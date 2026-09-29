@@ -1,5 +1,10 @@
 # Wicker: Symfony & Twig Tooling
 
+[![CI](https://github.com/WilliamSmithEdward/wicker/actions/workflows/ci.yml/badge.svg)](https://github.com/WilliamSmithEdward/wicker/actions/workflows/ci.yml)
+[![Security](https://github.com/WilliamSmithEdward/wicker/actions/workflows/security.yml/badge.svg)](https://github.com/WilliamSmithEdward/wicker/actions/workflows/security.yml)
+[![Marketplace version](https://img.shields.io/visual-studio-marketplace/v/WilliamSmithE.wicker)](https://marketplace.visualstudio.com/items?itemName=WilliamSmithE.wicker)
+[![License: MIT](https://img.shields.io/github/license/WilliamSmithEdward/wicker)](https://github.com/WilliamSmithEdward/wicker/blob/main/LICENSE)
+
 Wicker aims to be a one-stop shop for Symfony and Twig development in VS Code,
 with a developer experience that is a joy to use and lowers cognitive load as
 much as possible. It starts by connecting controllers and templates directly
@@ -98,6 +103,18 @@ configuration uses. Nothing is bundled that was not written for it.
 That is a deliberate constraint rather than a boast. It keeps the supply chain
 empty, keeps the bundle small, and means every behaviour is one the project can
 change. Build tooling is a separate matter and stays conventional.
+
+## Security
+
+CodeQL, Semgrep and dependency audits run in the
+[Security workflow](https://github.com/WilliamSmithEdward/wicker/actions/workflows/security.yml).
+Findings and incomplete scans fail the check. Future releases include a security
+report identifying the scanned commit and results; a passing scan is not a
+guarantee that the software has no vulnerabilities.
+
+For supported versions, release checks and private vulnerability reporting, see
+the [security policy](https://github.com/WilliamSmithEdward/wicker/blob/main/SECURITY.md).
+Please [report vulnerabilities privately](https://github.com/WilliamSmithEdward/wicker/security/advisories/new).
 
 ## Architecture
 

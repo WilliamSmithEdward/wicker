@@ -1,0 +1,201 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '23 8 * * 1'
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional vX.Y.Z tag of a draft release to scan and attach reports before publishing'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  revision:
+    name: Resolve revision
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.revision.outputs.sha }}
+      tag: ${{ steps.revision.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.release_tag || github.sha }}
+          persist-credentials: false
+      - id: revision
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+        run: |
+          if [[ -n "$RELEASE_TAG" && ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'Expected a vX.Y.Z release tag' >&2
+            exit 1
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    needs: revision
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, actions]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.revision.outputs.sha }}
+          persist-credentials: false
+      - uses: github/codeql-action/init@7999b86c43a865dc79d8923397f35af22de63401 # v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+          queries: security-extended
+      - uses: github/codeql-action/analyze@7999b86c43a865dc79d8923397f35af22de63401 # v4
+        with:
+          output: security-results/codeql-${{ matrix.language }}
+          upload: false
+      - name: Reject findings or incomplete analysis
+        run: node security-report.mjs sarif security-results/codeql-${{ matrix.language }}
+      - name: Upload to GitHub code scanning
+        if: ${{ !cancelled() && hashFiles(format('security-results/codeql-{0}/*.sarif', matrix.language)) != '' && needs.revision.outputs.tag == '' }}
+        uses: github/codeql-action/upload-sarif@7999b86c43a865dc79d8923397f35af22de63401 # v4
+        with:
+          sarif_file: security-results/codeql-${{ matrix.language }}
+          category: codeql-${{ matrix.language }}
+      - name: Retain analysis even on failure
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: security-codeql-${{ matrix.language }}
+          path: security-results/
+          if-no-files-found: error
+
+  semgrep:
+    name: Semgrep
+    needs: revision
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.revision.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r .github/security/requirements.txt
+      - name: Scan all findings and fail on scanner warnings
+        run: |
+          mkdir -p security-results/semgrep
+          semgrep scan --config p/security-audit --config p/secrets --error --strict --disable-nosem --metrics off --disable-version-check --max-target-bytes 0 --json-output security-results/semgrep/semgrep.json --sarif-output security-results/semgrep/semgrep.sarif .
+      - name: Upload to GitHub code scanning
+        if: ${{ !cancelled() && hashFiles('security-results/semgrep/semgrep.sarif') != '' && needs.revision.outputs.tag == '' }}
+        uses: github/codeql-action/upload-sarif@7999b86c43a865dc79d8923397f35af22de63401 # v4
+        with:
+          sarif_file: security-results/semgrep/semgrep.sarif
+          category: semgrep
+      - name: Retain analysis even on failure
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: security-semgrep
+          path: security-results/
+          if-no-files-found: error
+
+  dependencies:
+    name: Dependency audit
+    needs: revision
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.revision.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+      - name: Audit locked dependencies including development tools
+        run: |
+          mkdir -p security-results/dependencies
+          npm audit --package-lock-only --include=dev --audit-level=low --json > security-results/dependencies/npm-audit.json
+      - name: Retain audit even on failure
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: security-dependencies
+          path: security-results/
+          if-no-files-found: error
+
+  report:
+    name: Security gate
+    if: ${{ !cancelled() }}
+    needs: [revision, codeql, semgrep, dependencies]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.revision.outputs.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: security-*
+          path: security-results
+          merge-multiple: true
+      - name: Write report and enforce the gate
+        if: ${{ !cancelled() }}
+        env:
+          SCAN_SHA: ${{ needs.revision.outputs.sha }}
+          RELEASE_TAG: ${{ needs.revision.outputs.tag }}
+          SCAN_JOBS: ${{ toJSON(needs) }}
+        run: node security-report.mjs report security-results
+      - name: Retain report and raw results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: security-report
+          path: security-results/
+          if-no-files-found: error
+
+  release-report:
+    name: Attach release report
+    if: ${{ !cancelled() && needs.revision.outputs.tag != '' }}
+    needs: [revision, report]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      # This job executes no repository code with its release-write token.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: security-report
+          path: security-results
+      - name: Attach summary and complete scanner evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.revision.outputs.tag }}
+        run: |
+          test -s security-results/security-report.md
+          test -s security-results/security-report.json
+          tar -czf security-results.tar.gz -C security-results .
+          gh release upload "$RELEASE_TAG" security-results/security-report.md security-results/security-report.json security-results.tar.gz --clobber

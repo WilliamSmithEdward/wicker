@@ -1,0 +1,9 @@
+# Dependencies, generated output and editor downloads are not authored source.
+node_modules/
+**/node_modules/
+**/dist/
+**/out/
+**/.vscode-test/
+coverage/
+security-results/
+# Tests and fixtures deliberately remain in scope.

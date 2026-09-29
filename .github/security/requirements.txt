@@ -1,0 +1,2 @@
+# CI tooling only; never bundled into the extension.
+semgrep==1.178.0

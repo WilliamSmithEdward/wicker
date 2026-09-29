@@ -467,8 +467,10 @@ is not a hang.
 3. `npm run vsix -w wicker`.
 4. Commit, then tag `vX.Y.Z` and push the tag.
 5. `gh release create vX.Y.Z --draft --title "vX.Y.Z" --notes-file <notes> <the .vsix>`.
-6. `gh workflow run security.yml --ref main -f release_tag=vX.Y.Z`. Wait for
+6. `gh workflow run security.yml --ref main -f release_tag=vX.Y.Z`, with `main`
+   at the release commit, or the malware job stops. Wait for
    the entire run to succeed, including Security gate and Attach release report.
+   The malware job scans the VSIX attached to the draft, not a rebuild.
    Verify that the draft's security report identifies the release commit and
    says PASS. Missing reports, findings or scanner errors block publication.
 7. Publish the draft, then publish with the script pattern in the next paragraph.

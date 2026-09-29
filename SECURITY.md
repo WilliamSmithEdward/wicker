@@ -137,7 +137,9 @@ For a pre-publication check:
 1. Push the release commit and its `vX.Y.Z` tag, then create a **draft** GitHub
    release with the same title and attach the VSIX.
 2. Run the Security workflow on `main`, setting `release_tag` to that tag:
-   `gh workflow run security.yml --ref main -f release_tag=vX.Y.Z`.
+   `gh workflow run security.yml --ref main -f release_tag=vX.Y.Z`. `main` must
+   be at the release commit: the malware job builds nothing from a ref it did
+   not check out itself, and stops if the two differ.
 3. Wait for the whole run to succeed, including **Security gate** and
    **Attach release report**. Check that the report names the intended tag and
    commit. Publish the draft only after both the report and normal release

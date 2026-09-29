@@ -5,6 +5,15 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # Keep editor API types aligned with engines.vscode; raise both deliberately.
+      - dependency-name: '@types/vscode'
+      # TypeScript 7 is outside typescript-eslint's supported peer range.
+      - dependency-name: typescript
+        versions: ['>=7.0.0 <8.0.0']
+      # Node types track the supported toolchain, not the newest Node release.
+      - dependency-name: '@types/node'
+        update-types: [version-update:semver-major]
     groups:
       development-tools:
         update-types: [minor, patch]

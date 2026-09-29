@@ -108,7 +108,7 @@ change. Build tooling is a separate matter and stays conventional.
 
 CodeQL, Semgrep and dependency audits run in the
 [Security workflow](https://github.com/WilliamSmithEdward/wicker/actions/workflows/security.yml).
-Findings and incomplete scans fail the check. Future releases include a security
+Unexpected findings and incomplete scans fail the check. Future releases include a security
 report identifying the scanned commit and results; a passing scan is not a
 guarantee that the software has no vulnerabilities.
 

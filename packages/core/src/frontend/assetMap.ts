@@ -160,8 +160,8 @@ export class AssetMap {
   lookup(logicalPath: string): MappedAsset | undefined {
     const direct = this.byLogicalPath.get(logicalPath);
     if (direct) { return direct; }
-    const bare = logicalPath.replace(/[?#].*$/, '');
-    return bare === logicalPath ? undefined : this.byLogicalPath.get(bare);
+    const suffix = logicalPath.search(/[?#]/);
+    return suffix < 0 ? undefined : this.byLogicalPath.get(logicalPath.slice(0, suffix));
   }
 
   /** The name a file answers to, for the reverse direction. */

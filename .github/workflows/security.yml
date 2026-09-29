@@ -116,7 +116,9 @@ jobs:
           package-manager-cache: false
       # Every package in Semgrep's tree is pinned with its hashes; one that does
       # not match is refused rather than installed.
-      - run: python -m pip install --require-hashes --only-binary=:all: -r .github/security/requirements.txt
+      - name: Install Semgrep and its dependencies by hash
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r .github/security/requirements.txt
       - name: Scan all findings and fail on scanner warnings
         run: |
           mkdir -p security-results/semgrep

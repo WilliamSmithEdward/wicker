@@ -4,6 +4,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # A release is adopted once it is a week old; a security update is not held back.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     ignore:
       # Keep editor API types aligned with engines.vscode; raise both deliberately.
@@ -21,10 +24,24 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       actions:
         update-types: [minor, patch]
+  # Semgrep and its whole tree, hash-pinned by pip-compile from requirements.in.
   - package-ecosystem: pip
     directory: /.github/security
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
+  # The ClamAV engine image, pinned by digest. Signatures are fetched per run.
+  # YARA-X and YARA Forge are release downloads no ecosystem here follows;
+  # the YARA update workflow proposes those.
+  - package-ecosystem: docker
+    directory: /.github/security/clamav
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7

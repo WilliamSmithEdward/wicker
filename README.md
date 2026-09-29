@@ -106,11 +106,13 @@ change. Build tooling is a separate matter and stays conventional.
 
 ## Security
 
-CodeQL, Semgrep and dependency audits run in the
-[Security workflow](https://github.com/WilliamSmithEdward/wicker/actions/workflows/security.yml).
-Unexpected findings and incomplete scans fail the check. Future releases include a security
-report identifying the scanned commit and results; a passing scan is not a
-guarantee that the software has no vulnerabilities.
+CodeQL, Semgrep, dependency audits and a ClamAV and YARA-X malware scan of the
+code, its dependencies and the VSIX run in the
+[Security workflow](https://github.com/WilliamSmithEdward/wicker/actions/workflows/security.yml),
+on every change and daily. Unexpected findings and incomplete scans fail the
+check. Releases include a security report identifying the scanned commit, the
+VSIX and the results; a passing scan is not a guarantee that the software has
+no vulnerabilities.
 
 For supported versions, release checks and private vulnerability reporting, see
 the [security policy](https://github.com/WilliamSmithEdward/wicker/blob/main/SECURITY.md).

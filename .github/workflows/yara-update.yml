@@ -1,0 +1,58 @@
+name: YARA update
+
+# Weekly, proposes the newest YARA Forge rules and any YARA-X release a week
+# old, as a pull request. A pull request opened with this workflow's own token
+# starts no other workflow, so the Security scan is started on the branch here
+# and has to pass before anyone merges.
+on:
+  schedule:
+    - cron: '41 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: yara-update
+
+jobs:
+  propose:
+    name: Propose YARA pins
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    env:
+      BRANCH: automation/yara-update
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.23.2'
+          package-manager-cache: false
+      - id: propose
+        name: Read the latest releases and their recorded digests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/security/yara-update.mjs
+      - name: Open or refresh the pull request, then scan it
+        if: ${{ steps.propose.outputs.changed == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: ${{ steps.propose.outputs.title }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch --create "$BRANCH"
+          git add .github/security/yara.json
+          git commit --message "$TITLE"
+          # One rolling branch: a newer proposal replaces one not yet merged.
+          git push --force origin "$BRANCH"
+          if gh pr view "$BRANCH" --json state --jq .state 2>/dev/null | grep -qx OPEN; then
+            gh pr edit "$BRANCH" --title "$TITLE" --body-file yara-update.md
+          else
+            gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file yara-update.md
+          fi
+          gh workflow run security.yml --ref "$BRANCH"

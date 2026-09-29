@@ -1,0 +1,8 @@
+# CI tooling only; never bundled into the extension.
+#
+# requirements.txt is compiled from this file on the CI's Python, 3.12, with
+#   pip-compile --allow-unsafe --generate-hashes --strip-extras --output-file=requirements.txt requirements.in
+# and Dependabot re-compiles it. pip-tools 7.5 with pip 25 writes a spurious
+# --no-index into the header's command line, where it would mean "ignore PyPI"
+# to anything that re-runs it, so the header records the command above.
+semgrep==1.178.0

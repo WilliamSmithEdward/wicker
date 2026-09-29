@@ -253,6 +253,19 @@ outlived the page that bound it. Both checks stand down for a controller whose
 `superClass` is not Stimulus' own `Controller`, since only direct members are
 read and calling an inherited one missing is a confident wrong answer.
 
+**A scanner's clean result means nothing until it has detected something.**
+The malware scan makes ClamAV and YARA-X detect the EICAR test file on every
+run before their results count, and holds ClamAV to scanning every listed
+file. That check caught two empty files ClamAV does not count, now listed
+apart. YARA-X 1.20.0 also reports `SIGNATURE_BASE_Powershell_Case_Anomaly` on
+six dependency files that the rule, compiled alone, does not match, and that
+1.21.0 does not match at all; they are reviewed in
+`.github/security/malware-exceptions.json` by file hash, and those entries go
+when 1.21.0 is pinned. 1.20.0's NDJSON output also prints a line for every
+file scanned, so detections are read from each line's rules, never counted by
+lines. Every exception is bound to a file's hash, so a dependency update that
+touches one of those files fails the scan until it is reviewed again.
+
 **A memo has to be keyed on everything its answer was read from.** The Stimulus
 wiring memo was keyed on the scanned-file index and the controller list, but the
 walk resolves names through the template index, which the scoped refresh above

@@ -4,13 +4,15 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { createReport, inspectSarif, reviewSemgrepFindings } from './security-report.mjs';
+import { collectMalwareDetections, createReport, inspectMalware, inspectSarif, parseClamavVersion,
+  reviewMalwareDetections, reviewSemgrepFindings } from './security-report.mjs';
 
 const environment = {
   SCAN_SHA: 'a'.repeat(40),
-  SCAN_JOBS: JSON.stringify(Object.fromEntries(
-    ['revision', 'codeql', 'semgrep', 'dependencies'].map(name => [name, { result: 'success' }]),
-  )),
+  SCAN_JOBS: JSON.stringify({
+    ...Object.fromEntries(['revision', 'codeql', 'semgrep', 'dependencies', 'malware'].map(name => [name, { result: 'success' }])),
+    'release-asset': { result: 'skipped' },
+  }),
   GITHUB_SERVER_URL: 'https://github.com',
   GITHUB_REPOSITORY: 'example/repository',
   GITHUB_RUN_ID: '123',
@@ -30,7 +32,40 @@ function fixture(t) {
   }
   write('semgrep/semgrep.json', { results: [], errors: [], paths: { scanned: ['source.ts'] } });
   write('dependencies/npm-audit.json', { auditReportVersion: 2, vulnerabilities: {}, metadata: { vulnerabilities: { total: 0 } } });
+  writeMalwareEvidence(join(directory, 'malware'));
   return { directory, sarif, write };
+}
+
+/** ClamAV's version line, in the ctime form it prints: `Tue Sep  1 06:26:15 2026`. */
+function clamavDate(date) {
+  const [weekday, day, month, year, time] = date.toUTCString().replace(',', '').split(' ');
+  return `${weekday} ${month} ${day.padStart(2, ' ')} ${time} ${year}`;
+}
+
+const EICAR_ANCHOR_YARA = '{"path":"/tmp/anchor/eicar.com","rules":[{"identifier":"BINARYALERT_Eicar_Av_Test"}]}\n';
+
+/** Clean evidence from a scan of two files, with both engines proven on the anchor. */
+function writeMalwareEvidence(directory, { signaturesAt = new Date() } = {}) {
+  mkdirSync(directory, { recursive: true });
+  const files = {
+    'targets.txt': 'package.json\nsrc/extension.ts\n',
+    'empty.txt': 'node_modules/pkg/.npmignore\n',
+    'clamav-version.txt': `ClamAV 1.5.4/28138/${clamavDate(signaturesAt)}\n`,
+    'clamav-anchor.log': '/anchor/eicar.com: Eicar-Test-Signature FOUND\n',
+    'clamav-anchor-exit.txt': '1\n',
+    'clamav.log': '\n----------- SCAN SUMMARY -----------\nKnown viruses: 3628083\nScanned files: 2\nInfected files: 0\n',
+    'clamav-exit.txt': '0\n',
+    'yara-version.txt': 'yara-x-cli 1.20.0\n',
+    'yara-anchor.ndjson': EICAR_ANCHOR_YARA,
+    'yara-anchor-exit.txt': '0\n',
+    'yara.ndjson': '',
+    'yara.err': '',
+    'yara-exit.txt': '0\n',
+    'detections.json': '[]\n',
+    'yara-pins.json': readFileSync('.github/security/yara.json', 'utf8'),
+  };
+  for (const [name, content] of Object.entries(files)) writeFileSync(join(directory, name), content);
+  return directory;
 }
 
 test('passing evidence records the scanned commit and digests of every raw report', t => {
@@ -38,7 +73,7 @@ test('passing evidence records the scanned commit and digests of every raw repor
   const report = createReport(directory, environment);
   assert.equal(report.status, 'PASS');
   assert.equal(report.commit, environment.SCAN_SHA);
-  assert.equal(report.evidence.length, 5);
+  assert.equal(report.evidence.length, 20);
   assert.ok(report.evidence.every(file => /^[a-f0-9]{64}$/.test(file.sha256)));
 });
 
@@ -135,4 +170,98 @@ test('Windows line endings preserve review identity, but missing rationale fails
   writeFileSync(join(directory, finding.path), source.replaceAll('\n', '\r\n'));
   assert.equal(reviewSemgrepFindings([finding], [exception], directory).length, 1);
   assert.throws(() => reviewSemgrepFindings([finding], [{ ...exception, reason: '' }], directory), /reason and reference/);
+});
+
+function malwareFixture(t, options) {
+  const directory = mkdtempSync(join(tmpdir(), 'wicker-malware-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  return writeMalwareEvidence(directory, options);
+}
+
+test('a clean malware scan passes and names the engines and rule release', t => {
+  const result = inspectMalware(malwareFixture(t));
+  assert.equal(result.findings, 0);
+  assert.equal(result.scannedFiles, 2);
+  assert.equal(result.emptyFiles, 1);
+  assert.deepEqual(result.tools.map(tool => tool.name), ['ClamAV', 'YARA-X', 'YARA Forge rules']);
+  assert.match(result.tools[0].version, /^1\.5\.4, daily signatures 28138 of /);
+});
+
+/*
+ * A scanner that loaded no signatures reports every file as clean. Each engine
+ * has to detect the EICAR test file first, or its clean result proves nothing.
+ */
+test('an engine that misses the EICAR anchor fails the scan however clean the rest is', t => {
+  const directory = malwareFixture(t);
+  writeFileSync(join(directory, 'clamav-anchor.log'), '');
+  assert.throws(() => inspectMalware(directory), /ClamAV did not detect the EICAR test file/);
+  writeMalwareEvidence(directory);
+  writeFileSync(join(directory, 'yara-anchor.ndjson'), '');
+  assert.throws(() => inspectMalware(directory), /YARA-X did not detect the EICAR test file/);
+});
+
+test('signatures freshclam did not update, skipped files and scanner errors fail', t => {
+  const stale = malwareFixture(t, { signaturesAt: new Date(Date.now() - 4 * 24 * 60 * 60 * 1000) });
+  assert.throws(() => inspectMalware(stale), /more than three days old/);
+
+  const directory = malwareFixture(t);
+  writeFileSync(join(directory, 'clamav.log'), 'Scanned files: 1\n');
+  assert.throws(() => inspectMalware(directory), /ClamAV scanned 1 of 2 files/);
+  writeMalwareEvidence(directory);
+  writeFileSync(join(directory, 'clamav-exit.txt'), '2\n');
+  assert.throws(() => inspectMalware(directory), /exit code 2/);
+  writeMalwareEvidence(directory);
+  writeFileSync(join(directory, 'yara.err'), 'error: timeout scanning src/extension.ts\n');
+  assert.throws(() => inspectMalware(directory), /YARA-X reported errors/);
+});
+
+test('ClamAV prints a padded day of the month, and its version line still parses', () => {
+  const parsed = parseClamavVersion('ClamAV 1.5.4/28001/Thu Sep  3 06:26:15 2026\n');
+  assert.equal(parsed.daily, 28001);
+  assert.equal(new Date(parsed.date).toISOString(), '2026-09-03T06:26:15.000Z');
+});
+
+test('a detection fails the report and is named in it, file digest included', t => {
+  const { directory } = fixture(t);
+  const malware = join(directory, 'malware');
+  mkdirSync(join(directory, 'scanned'));
+  writeFileSync(join(directory, 'scanned', 'payload.js'), 'not really malware');
+  writeFileSync(join(malware, 'clamav.log'), 'scanned/payload.js: Js.Trojan.Example FOUND\nScanned files: 2\n');
+  writeFileSync(join(malware, 'yara.ndjson'), '{"path":"scanned/payload.js","rules":[{"identifier":"EXAMPLE_Rule"}]}\n');
+  const detections = collectMalwareDetections(malware, directory);
+  assert.deepEqual(detections.map(entry => `${entry.engine} ${entry.signature}`), ['ClamAV Js.Trojan.Example', 'YARA-X EXAMPLE_Rule']);
+  assert.ok(detections.every(entry => entry.sha256 === createHash('sha256').update('not really malware').digest('hex')));
+  const report = createReport(directory, environment);
+  assert.equal(report.status, 'FAIL');
+  assert.ok(report.problems.includes('ClamAV and YARA-X malware scan: 2 finding(s)'));
+  assert.ok(report.problems.some(problem => problem.startsWith('ClamAV: Js.Trojan.Example in scanned/payload.js (sha256 ')));
+});
+
+test('a detection can only be accepted for the exact engine, signature, path and bytes reviewed', () => {
+  const detection = { engine: 'YARA-X', signature: 'EXAMPLE_Rule', path: 'node_modules/pkg/index.js', sha256: 'b'.repeat(64) };
+  const exception = { ...detection, reason: 'A reviewed false positive.', reference: 'https://example.com/review' };
+  assert.ok(reviewMalwareDetections([detection], [exception])[0].exception);
+  for (const changed of [{ engine: 'ClamAV' }, { signature: 'OTHER' }, { path: 'node_modules/other.js' }, { sha256: 'c'.repeat(64) }]) {
+    assert.equal(reviewMalwareDetections([{ ...detection, ...changed }], [exception])[0].exception, undefined);
+  }
+  assert.throws(() => reviewMalwareDetections([detection], [{ ...exception, reference: '' }]), /reason and reference/);
+});
+
+test('detections outside the scanned tree, and evidence that disagrees with itself, fail', t => {
+  const directory = malwareFixture(t);
+  writeFileSync(join(directory, 'clamav.log'), '../../etc/passwd: Example FOUND\nScanned files: 2\n');
+  assert.throws(() => collectMalwareDetections(directory, directory), /outside the scanned tree/);
+  writeMalwareEvidence(directory);
+  writeFileSync(join(directory, 'yara.ndjson'), '{"path":"package.json","rules":[{"identifier":"EXAMPLE_Rule"}]}\n');
+  assert.throws(() => inspectMalware(directory), /disagree/);
+});
+
+test('a release scan must have fetched the release VSIX, and any other scan must not', t => {
+  const { directory } = fixture(t);
+  const jobs = JSON.parse(environment.SCAN_JOBS);
+  const release = { ...environment, RELEASE_TAG: 'v1.2.3' };
+  assert.ok(createReport(directory, release).problems.includes('release-asset job: skipped, expected success'));
+  jobs['release-asset'] = { result: 'success' };
+  assert.equal(createReport(directory, { ...release, SCAN_JOBS: JSON.stringify(jobs) }).status, 'PASS');
+  assert.equal(createReport(directory, { ...environment, SCAN_JOBS: JSON.stringify(jobs) }).status, 'FAIL');
 });

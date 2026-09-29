@@ -14,6 +14,13 @@ import { pathToFileURL } from 'node:url';
 const PINS = '.github/security/yara.json';
 const COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 
+// Where the pins come from is fixed here rather than read from the pins file,
+// so nothing written into that file can steer where this script connects.
+const ENGINE_REPOSITORY = 'VirusTotal/yara-x';
+const RULES_REPOSITORY = 'YARAHQ/yara-forge';
+const RULES_ASSET = 'yara-forge-rules-full.zip';
+const engineAsset = tag => `yara-x-${tag}-x86_64-unknown-linux-gnu.tar.gz`;
+
 async function api(path) {
   const response = await fetch(`https://api.github.com/${path}`, {
     headers: {
@@ -48,23 +55,27 @@ function newer(left, right) {
 }
 
 export async function propose(pins, now = Date.now()) {
+  if (pins.engine.repository !== ENGINE_REPOSITORY || pins.rules.repository !== RULES_REPOSITORY
+    || pins.rules.asset !== RULES_ASSET || pins.engine.asset !== engineAsset(pins.engine.tag)) {
+    throw new Error(`${PINS} names a repository or asset this updater does not follow`);
+  }
   const next = structuredClone(pins);
 
-  const forge = await api(`repos/${pins.rules.repository}/releases/latest`);
+  const forge = await api(`repos/${RULES_REPOSITORY}/releases/latest`);
   if (forge.tag_name !== pins.rules.tag) {
     next.rules.tag = forge.tag_name;
-    next.rules.sha256 = digestOf(forge, pins.rules.asset);
+    next.rules.sha256 = digestOf(forge, RULES_ASSET);
   }
 
   const current = versionOf(pins.engine.tag);
-  const candidates = (await api(`repos/${pins.engine.repository}/releases?per_page=30`))
+  const candidates = (await api(`repos/${ENGINE_REPOSITORY}/releases?per_page=30`))
     .filter(release => !release.draft && !release.prerelease && versionOf(release.tag_name)
       && now - Date.parse(release.published_at) >= COOLDOWN_MS)
     .sort((left, right) => (newer(versionOf(left.tag_name), versionOf(right.tag_name)) ? -1 : 1));
   const engine = candidates[0];
   if (engine && current && newer(versionOf(engine.tag_name), current)) {
     next.engine.tag = engine.tag_name;
-    next.engine.asset = pins.engine.asset.replace(pins.engine.tag, engine.tag_name);
+    next.engine.asset = engineAsset(engine.tag_name);
     next.engine.sha256 = digestOf(engine, next.engine.asset);
   }
   return next;

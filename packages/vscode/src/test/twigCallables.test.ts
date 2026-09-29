@@ -108,7 +108,7 @@ suite('Twig filters and functions', () => {
     const text = hover.contents.map((content) => typeof content === 'string' ? content : content.value).join('\n');
     assert.match(text, /not a Twig call signature/);
     const links = Array.from(text.matchAll(/\]\(([^)]+)\)/g), (match) => match[1]);
-    assert.ok(links.includes('https://twig.symfony.com/doc/3.x/filters/upper.html'));
+    assert.ok(links.some((link) => link === 'https://twig.symfony.com/doc/3.x/filters/upper.html'));
   });
 
   test('diagnostics distinguish filters/functions and leave macros, tests and wildcard calls alone', async () => {

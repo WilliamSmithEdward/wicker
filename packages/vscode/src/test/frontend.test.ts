@@ -188,7 +188,7 @@ suite('Stimulus and API connections', () => {
     assert.ok(text.includes('anywhere on the page'), text);
     assert.ok(text.includes('hasWickerPeerOutlet'));
     const links = Array.from(text.matchAll(/\]\(([^)]+)\)/g), (match) => match[1]);
-    assert.ok(links.includes('https://stimulus.hotwired.dev/reference/outlets'));
+    assert.ok(links.some((link) => link === 'https://stimulus.hotwired.dev/reference/outlets'));
     assert.ok((await definitions(page, position)).some((link) => link.targetUri.toString() === peer.uri.toString()));
     assert.ok(!(await items(page, position)).some((item) => item.detail?.startsWith('Stimulus outlet')), 'Selector text must not be replaced by an outlet name');
   });

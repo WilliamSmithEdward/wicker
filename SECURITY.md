@@ -21,8 +21,10 @@ is published. It uses:
 - Semgrep Community Edition with `p/security-audit` and `p/secrets` rules.
 - `npm audit` against the lockfile, including development dependencies.
 - `pip-audit` against Semgrep's hash-pinned dependency tree.
-- ClamAV and YARA-X, in their own **Malware scan** job, over the checkout, its
-  installed dependencies and the VSIX.
+
+The [Malware scan workflow](https://github.com/WilliamSmithEdward/wicker/actions/workflows/malware-scan.yml)
+runs on the same events. Its **ClamAV** and **YARA-X** jobs scan the checkout,
+its installed dependencies and the VSIX.
 
 The dependency audit receives only the lockfile in an isolated job, without a
 source checkout, repository npm configuration, lifecycle scripts or caches.
@@ -85,10 +87,10 @@ on its own the rule does not match them in 1.20.0 or 1.21.0, and 1.21.0 does
 not match them with the full rule set either. Remove them when YARA-X 1.21.0
 or later is pinned.
 
-The [YARA update workflow](.github/workflows/yara-update.yml) runs weekly. It
+The [Update YARA rules workflow](.github/workflows/update-yara-rules.yml) runs weekly. It
 proposes the newest YARA Forge release, and any YARA-X release at least a week
 old, as a pull request that records the digests GitHub holds for the assets,
-then starts the Security workflow on that branch. Merge it only when that scan
+then starts the Malware scan workflow on that branch. Merge it only when that scan
 passes. Pull requests the workflow opens with its own token start no other
 workflow, which is why it starts the scan itself.
 
@@ -126,7 +128,9 @@ dependency. Verify changes to it with the real VS Code integration suite.
 ## Reports for future releases
 
 New releases receive `security-report.md`, `security-report.json`, and
-`security-results.tar.gz` containing the raw scanner results. Reports identify
+`security-results.tar.gz` from the Security workflow, and `malware-report.md`,
+`malware-report.json` and `malware-results.tar.gz` from the Malware scan
+workflow, each tarball containing the raw scanner results. Reports identify
 the exact scanned commit, workflow run, tool versions where reported, finding
 counts, failures, and SHA-256 digests of the raw results. Failed analysis produces
 a **FAIL** report rather than claiming the release is clean. Existing releases
@@ -136,13 +140,15 @@ For a pre-publication check:
 
 1. Push the release commit and its `vX.Y.Z` tag, then create a **draft** GitHub
    release with the same title and attach the VSIX.
-2. Run the Security workflow on `main`, setting `release_tag` to that tag:
-   `gh workflow run security.yml --ref main -f release_tag=vX.Y.Z`. `main` must
-   be at the release commit: the malware job builds nothing from a ref it did
-   not check out itself, and stops if the two differ.
-3. Wait for the whole run to succeed, including **Security gate** and
-   **Attach release report**. Check that the report names the intended tag and
-   commit. Publish the draft only after both the report and normal release
+2. Run the Security and Malware scan workflows on `main`, setting
+   `release_tag` to that tag:
+   `gh workflow run security.yml --ref main -f release_tag=vX.Y.Z` and
+   `gh workflow run malware-scan.yml --ref main -f release_tag=vX.Y.Z`. `main`
+   must be at the release commit: the ClamAV and YARA-X jobs build nothing from
+   a ref they did not check out themselves, and stop if the two differ.
+3. Wait for both runs to succeed, including **Security passed**, **Malware scan
+   passed** and each **Attach release report**. Check that the reports name the
+   intended tag and commit. Publish the draft only after both the report and normal release
    checks pass, then publish that same VSIX to the Marketplace.
 
 Publication triggers another scan and refreshes the same report assets. A
@@ -155,8 +161,8 @@ release. They are evidence of the checks performed, not a certification that no
 vulnerability or malware exists. Missing reports mean analysis has not completed
 successfully.
 
-To enforce the merge gate in repository rules, require the **Security gate**
-check alongside CI. Workflow files alone do not prevent a maintainer from
+To enforce the merge gate in repository rules, require the **CI passed**,
+**Security passed** and **Malware scan passed** checks. Workflow files alone do not prevent a maintainer from
 merging or publishing manually.
 
 ## Maintainer references

@@ -9,14 +9,27 @@ import { collectMalwareDetections, createReport, inspectMalware, inspectPipAudit
 
 const environment = {
   SCAN_SHA: 'a'.repeat(40),
-  SCAN_JOBS: JSON.stringify({
-    ...Object.fromEntries(['revision', 'codeql', 'semgrep', 'dependencies', 'malware'].map(name => [name, { result: 'success' }])),
-    'release-asset': { result: 'skipped' },
-  }),
+  SCAN_JOBS: JSON.stringify(Object.fromEntries(['revision', 'codeql', 'semgrep', 'dependencies'].map(name => [name, { result: 'success' }]))),
   GITHUB_SERVER_URL: 'https://github.com',
   GITHUB_REPOSITORY: 'example/repository',
   GITHUB_RUN_ID: '123',
 };
+
+/** The Malware scan workflow's jobs, as its report job sees them. */
+const malwareEnvironment = {
+  ...environment,
+  SCAN_JOBS: JSON.stringify({
+    ...Object.fromEntries(['revision', 'clamav', 'yara-x'].map(name => [name, { result: 'success' }])),
+    'release-asset': { result: 'skipped' },
+  }),
+};
+
+function malwareReportFixture(t) {
+  const directory = mkdtempSync(join(tmpdir(), 'wicker-malware-report-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  writeMalwareEvidence(join(directory, 'malware'));
+  return directory;
+}
 
 function fixture(t) {
   const directory = mkdtempSync(join(tmpdir(), 'wicker-security-'));
@@ -34,7 +47,6 @@ function fixture(t) {
   write('dependencies/npm-audit.json', { auditReportVersion: 2, vulnerabilities: {}, metadata: { vulnerabilities: { total: 0 } } });
   write('dependencies/pip-audit.json', { dependencies: [{ name: 'semgrep', version: '1.178.0', vulns: [] }], fixes: [] });
   writeFileSync(join(directory, 'dependencies/pip-audit-exit.txt'), '0\n');
-  writeMalwareEvidence(join(directory, 'malware'));
   return { directory, sarif, write };
 }
 
@@ -63,7 +75,8 @@ function writeMalwareEvidence(directory, { signaturesAt = new Date() } = {}) {
     'yara.ndjson': '',
     'yara.err': '',
     'yara-exit.txt': '0\n',
-    'detections.json': '[]\n',
+    'detections-clamav.json': '[]\n',
+    'detections-yara-x.json': '[]\n',
     'yara-pins.json': readFileSync('.github/security/yara.json', 'utf8'),
   };
   for (const [name, content] of Object.entries(files)) writeFileSync(join(directory, name), content);
@@ -75,8 +88,23 @@ test('passing evidence records the scanned commit and digests of every raw repor
   const report = createReport(directory, environment);
   assert.equal(report.status, 'PASS');
   assert.equal(report.commit, environment.SCAN_SHA);
-  assert.equal(report.evidence.length, 22);
+  assert.equal(report.evidence.length, 7);
   assert.ok(report.evidence.every(file => /^[a-f0-9]{64}$/.test(file.sha256)));
+});
+
+test('a passing malware report is written apart from the security report', t => {
+  const directory = malwareReportFixture(t);
+  const report = createReport(directory, malwareEnvironment, 'malware');
+  assert.equal(report.status, 'PASS');
+  assert.equal(report.evidence.length, 16);
+  assert.match(readFileSync(join(directory, 'malware-report.md'), 'utf8'), /^# Wicker malware report/);
+});
+
+test('each engine job judges only its own evidence', t => {
+  const directory = malwareFixture(t);
+  writeFileSync(join(directory, 'yara-anchor.ndjson'), '');
+  assert.equal(inspectMalware(directory, Date.now(), ['clamav']).findings, 0);
+  assert.throws(() => inspectMalware(directory, Date.now(), ['yara-x']), /YARA-X did not detect the EICAR test file/);
 });
 
 test('even a suppressed note-level finding fails', t => {
@@ -224,7 +252,7 @@ test('ClamAV prints a padded day of the month, and its version line still parses
 });
 
 test('a detection fails the report and is named in it, file digest included', t => {
-  const { directory } = fixture(t);
+  const directory = malwareReportFixture(t);
   const malware = join(directory, 'malware');
   mkdirSync(join(directory, 'scanned'));
   writeFileSync(join(directory, 'scanned', 'payload.js'), 'not really malware');
@@ -233,7 +261,7 @@ test('a detection fails the report and is named in it, file digest included', t 
   const detections = collectMalwareDetections(malware, directory);
   assert.deepEqual(detections.map(entry => `${entry.engine} ${entry.signature}`), ['ClamAV Js.Trojan.Example', 'YARA-X EXAMPLE_Rule']);
   assert.ok(detections.every(entry => entry.sha256 === createHash('sha256').update('not really malware').digest('hex')));
-  const report = createReport(directory, environment);
+  const report = createReport(directory, malwareEnvironment, 'malware');
   assert.equal(report.status, 'FAIL');
   assert.ok(report.problems.includes('ClamAV and YARA-X malware scan: 2 finding(s)'));
   assert.ok(report.problems.some(problem => problem.startsWith('ClamAV: Js.Trojan.Example in scanned/payload.js (sha256 ')));
@@ -294,11 +322,11 @@ test('pip-audit evidence that is missing or contradicts its exit code fails', t 
 });
 
 test('a release scan must have fetched the release VSIX, and any other scan must not', t => {
-  const { directory } = fixture(t);
-  const jobs = JSON.parse(environment.SCAN_JOBS);
-  const release = { ...environment, RELEASE_TAG: 'v1.2.3' };
-  assert.ok(createReport(directory, release).problems.includes('release-asset job: skipped, expected success'));
+  const directory = malwareReportFixture(t);
+  const jobs = JSON.parse(malwareEnvironment.SCAN_JOBS);
+  const release = { ...malwareEnvironment, RELEASE_TAG: 'v1.2.3' };
+  assert.ok(createReport(directory, release, 'malware').problems.includes('release-asset job: skipped, expected success'));
   jobs['release-asset'] = { result: 'success' };
-  assert.equal(createReport(directory, { ...release, SCAN_JOBS: JSON.stringify(jobs) }).status, 'PASS');
-  assert.equal(createReport(directory, { ...environment, SCAN_JOBS: JSON.stringify(jobs) }).status, 'FAIL');
+  assert.equal(createReport(directory, { ...release, SCAN_JOBS: JSON.stringify(jobs) }, 'malware').status, 'PASS');
+  assert.equal(createReport(directory, { ...malwareEnvironment, SCAN_JOBS: JSON.stringify(jobs) }, 'malware').status, 'FAIL');
 });

@@ -467,12 +467,13 @@ is not a hang.
 3. `npm run vsix -w wicker`.
 4. Commit, then tag `vX.Y.Z` and push the tag.
 5. `gh release create vX.Y.Z --draft --title "vX.Y.Z" --notes-file <notes> <the .vsix>`.
-6. `gh workflow run security.yml --ref main -f release_tag=vX.Y.Z`, with `main`
-   at the release commit, or the malware job stops. Wait for
-   the entire run to succeed, including Security gate and Attach release report.
-   The malware job scans the VSIX attached to the draft, not a rebuild.
-   Verify that the draft's security report identifies the release commit and
-   says PASS. Missing reports, findings or scanner errors block publication.
+6. `gh workflow run security.yml --ref main -f release_tag=vX.Y.Z` and
+   `gh workflow run malware-scan.yml --ref main -f release_tag=vX.Y.Z`, with
+   `main` at the release commit, or the ClamAV and YARA-X jobs stop. Wait for
+   both runs to succeed, including Security passed, Malware scan passed and
+   each Attach release report. The malware scan examines the VSIX attached to
+   the draft, not a rebuild. Verify that the draft's security and malware
+   reports identify the release commit and say PASS. Missing reports, findings or scanner errors block publication.
 7. Publish the draft, then publish with the script pattern in the next paragraph.
    See SECURITY.md for report contents and the publication-triggered re-scan.
 

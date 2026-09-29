@@ -38,7 +38,7 @@ updates:
       default-days: 7
   # The ClamAV engine image, pinned by digest. Signatures are fetched per run.
   # YARA-X and YARA Forge are release downloads no ecosystem here follows;
-  # the YARA update workflow proposes those.
+  # update-yara-rules.yml proposes those.
   - package-ecosystem: docker
     directory: /.github/security/clamav
     schedule:

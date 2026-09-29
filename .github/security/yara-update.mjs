@@ -105,7 +105,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     const body = [
       'Updates the malware scan pins in `.github/security/yara.json`.', '',
       ...changes, '',
-      'Each SHA-256 is the digest GitHub records for the release asset. The Security workflow started on this branch downloads the assets, refuses any that do not match, proves the engine on the EICAR test file and scans the repository with the new rules. Merge only when that run passes.',
+      'Each SHA-256 is the digest GitHub records for the release asset. The Malware scan workflow started on this branch downloads the assets, refuses any that do not match, proves the engine on the EICAR test file and scans the repository with the new rules. Merge only when that run passes.',
     ].join('\n');
     writeFileSync('yara-update.md', `${body}\n`);
     console.log(body);

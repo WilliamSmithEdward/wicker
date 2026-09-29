@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/WilliamSmithEdward/wicker/actions/workflows/ci.yml/badge.svg)](https://github.com/WilliamSmithEdward/wicker/actions/workflows/ci.yml)
 [![Security](https://github.com/WilliamSmithEdward/wicker/actions/workflows/security.yml/badge.svg)](https://github.com/WilliamSmithEdward/wicker/actions/workflows/security.yml)
+[![Malware scan](https://github.com/WilliamSmithEdward/wicker/actions/workflows/malware-scan.yml/badge.svg)](https://github.com/WilliamSmithEdward/wicker/actions/workflows/malware-scan.yml)
 [![Marketplace version](https://img.shields.io/visual-studio-marketplace/v/WilliamSmithE.wicker)](https://marketplace.visualstudio.com/items?itemName=WilliamSmithE.wicker)
 [![License: MIT](https://img.shields.io/github/license/WilliamSmithEdward/wicker)](https://github.com/WilliamSmithEdward/wicker/blob/main/LICENSE)
 
@@ -106,13 +107,14 @@ change. Build tooling is a separate matter and stays conventional.
 
 ## Security
 
-CodeQL, Semgrep, dependency audits and a ClamAV and YARA-X malware scan of the
-code, its dependencies and the VSIX run in the
+CodeQL, Semgrep and dependency audits run in the
 [Security workflow](https://github.com/WilliamSmithEdward/wicker/actions/workflows/security.yml),
+and a ClamAV and YARA-X scan of the code, its dependencies and the VSIX in the
+[Malware scan workflow](https://github.com/WilliamSmithEdward/wicker/actions/workflows/malware-scan.yml),
 on every change and daily. Unexpected findings and incomplete scans fail the
-check. Releases include a security report identifying the scanned commit, the
-VSIX and the results; a passing scan is not a guarantee that the software has
-no vulnerabilities.
+check. Releases include security and malware reports identifying the scanned
+commit, the VSIX and the results; a passing scan is not a guarantee that the
+software has no vulnerabilities.
 
 For supported versions, release checks and private vulnerability reporting, see
 the [security policy](https://github.com/WilliamSmithEdward/wicker/blob/main/SECURITY.md).

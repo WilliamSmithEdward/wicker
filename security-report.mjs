@@ -160,16 +160,27 @@ export function parseClamavVersion(text) {
  * bytes that were reviewed, so a changed file needs another review, and the
  * report job can judge the evidence without the files themselves.
  */
-export function collectMalwareDetections(directory, root = process.cwd()) {
-  const found = [...clamavDetections(readText(directory, 'clamav.log')), ...yaraDetections(readText(directory, 'yara.ndjson'))];
-  const detections = found.map(detection => {
-    const path = resolve(root, detection.path);
-    requireEvidence(!isAbsolute(detection.path) && !relative(root, path).startsWith('..'),
-      `Detection outside the scanned tree: ${detection.path}`);
-    return { ...detection, sha256: createHash('sha256').update(readFileSync(path)).digest('hex') };
+export function collectMalwareDetections(directory, root = process.cwd(), engines = MALWARE_ENGINES) {
+  return engines.flatMap(engine => {
+    const detections = rawDetections(directory, engine).map(detection => {
+      const path = resolve(root, detection.path);
+      requireEvidence(!isAbsolute(detection.path) && !relative(root, path).startsWith('..'),
+        `Detection outside the scanned tree: ${detection.path}`);
+      return { ...detection, sha256: createHash('sha256').update(readFileSync(path)).digest('hex') };
+    });
+    // One file per engine, since each engine runs in its own job.
+    writeFileSync(join(directory, `detections-${engine}.json`), `${JSON.stringify(detections, null, 2)}\n`);
+    return detections;
   });
-  writeFileSync(join(directory, 'detections.json'), `${JSON.stringify(detections, null, 2)}\n`);
-  return detections;
+}
+
+/** Each malware engine by the id of the job that runs it. */
+export const MALWARE_ENGINES = ['clamav', 'yara-x'];
+
+function rawDetections(directory, engine) {
+  return engine === 'clamav'
+    ? clamavDetections(readText(directory, 'clamav.log'))
+    : yaraDetections(readText(directory, 'yara.ndjson'));
 }
 
 export function reviewMalwareDetections(detections, exceptions) {
@@ -188,36 +199,49 @@ export function reviewMalwareDetections(detections, exceptions) {
 /** Signatures older than this mean freshclam did not update them. */
 const SIGNATURE_AGE_LIMIT_MS = 3 * 24 * 60 * 60 * 1000;
 
-export function inspectMalware(directory, now = Date.now()) {
-  const targets = readText(directory, 'targets.txt').split('\n').filter(Boolean);
-  requireEvidence(targets.length > 0, 'The malware scan listed no files');
-  // Recorded rather than scanned: an empty file has nothing to match.
-  const empty = readText(directory, 'empty.txt').split('\n').filter(Boolean);
+function inspectClamav(directory, targets, now) {
   // Each engine proves itself on the EICAR test file before its clean result counts.
   requireEvidence(exitCode(directory, 'clamav-anchor-exit.txt') === 1
     && clamavDetections(readText(directory, 'clamav-anchor.log')).some(entry => entry.signature === 'Eicar-Test-Signature'),
   'ClamAV did not detect the EICAR test file');
-  requireEvidence(exitCode(directory, 'yara-anchor-exit.txt') === 0
-    && yaraDetections(readText(directory, 'yara-anchor.ndjson')).some(entry => /eicar/i.test(entry.signature)),
-  'YARA-X did not detect the EICAR test file');
-
   const clamavExit = exitCode(directory, 'clamav-exit.txt');
   requireEvidence(clamavExit === 0 || clamavExit === 1, `ClamAV scan failed with exit code ${clamavExit}`);
-  requireEvidence(exitCode(directory, 'yara-exit.txt') === 0, 'YARA-X scan failed');
-  requireEvidence(readText(directory, 'yara.err').trim() === '', 'YARA-X reported errors');
-  const clamavLog = readText(directory, 'clamav.log');
-  const scanned = Number(/^Scanned files: (\d+)$/m.exec(clamavLog)?.[1]);
+  const scanned = Number(/^Scanned files: (\d+)$/m.exec(readText(directory, 'clamav.log'))?.[1]);
   requireEvidence(scanned === targets.length, `ClamAV scanned ${Number.isNaN(scanned) ? 'an unknown number' : scanned} of ${targets.length} files`);
   const version = parseClamavVersion(readText(directory, 'clamav-version.txt'));
   requireEvidence(now - version.date < SIGNATURE_AGE_LIMIT_MS, 'ClamAV signatures are more than three days old; freshclam did not update them');
+  return [{ name: 'ClamAV', version: `${version.engine}, daily signatures ${version.daily} of ${new Date(version.date).toISOString()}` }];
+}
 
-  const detections = readJson(join(directory, 'detections.json'));
-  requireEvidence(Array.isArray(detections) && detections.length
-    === clamavDetections(clamavLog).length + yaraDetections(readText(directory, 'yara.ndjson')).length,
-  'Malware detections and raw results disagree');
+function inspectYara(directory) {
+  requireEvidence(exitCode(directory, 'yara-anchor-exit.txt') === 0
+    && yaraDetections(readText(directory, 'yara-anchor.ndjson')).some(entry => /eicar/i.test(entry.signature)),
+  'YARA-X did not detect the EICAR test file');
+  requireEvidence(exitCode(directory, 'yara-exit.txt') === 0, 'YARA-X scan failed');
+  requireEvidence(readText(directory, 'yara.err').trim() === '', 'YARA-X reported errors');
+  const pins = readJson(join(directory, 'yara-pins.json'));
+  return [
+    { name: 'YARA-X', version: readText(directory, 'yara-version.txt').trim() },
+    { name: 'YARA Forge rules', version: `${pins.rules.tag} ${pins.rules.asset} sha256:${pins.rules.sha256}` },
+  ];
+}
+
+/** Judges the evidence of the engines named, both by default. */
+export function inspectMalware(directory, now = Date.now(), engines = MALWARE_ENGINES) {
+  const targets = readText(directory, 'targets.txt').split('\n').filter(Boolean);
+  requireEvidence(targets.length > 0, 'The malware scan listed no files');
+  // Recorded rather than scanned: an empty file has nothing to match.
+  const empty = readText(directory, 'empty.txt').split('\n').filter(Boolean);
+  const tools = engines.flatMap(engine => engine === 'clamav' ? inspectClamav(directory, targets, now) : inspectYara(directory));
+
+  const detections = engines.flatMap(engine => {
+    const recorded = readJson(join(directory, `detections-${engine}.json`));
+    requireEvidence(Array.isArray(recorded) && recorded.length === rawDetections(directory, engine).length,
+      'Malware detections and raw results disagree');
+    return recorded;
+  });
   const reviewed = reviewMalwareDetections(detections, readJson('.github/security/malware-exceptions.json'));
   const unexpected = reviewed.filter(entry => !entry.exception);
-  const pins = readJson(join(directory, 'yara-pins.json'));
   return {
     findings: unexpected.length,
     details: unexpected.map(entry => `${entry.engine}: ${entry.signature} in ${entry.path} (sha256 ${entry.sha256})`),
@@ -225,11 +249,7 @@ export function inspectMalware(directory, now = Date.now()) {
       engine: entry.engine, sha256: entry.sha256, reason: entry.exception.reason, reference: entry.exception.reference })),
     scannedFiles: targets.length,
     emptyFiles: empty.length,
-    tools: [
-      { name: 'ClamAV', version: `${version.engine}, daily signatures ${version.daily} of ${new Date(version.date).toISOString()}` },
-      { name: 'YARA-X', version: readText(directory, 'yara-version.txt').trim() },
-      { name: 'YARA Forge rules', version: `${pins.rules.tag} ${pins.rules.asset} sha256:${pins.rules.sha256}` },
-    ],
+    tools,
   };
 }
 
@@ -278,34 +298,63 @@ function inspectAudit(directory) {
   return { findings, tools: [{ name: 'npm audit', version: 'Node 22 bundled npm' }] };
 }
 
-export function createReport(directory, environment) {
+/*
+ * The Security and Malware scan workflows each write one report: which jobs
+ * must have succeeded, what judges their evidence, and what the report says.
+ */
+const REPORTS = {
+  security: {
+    title: 'Wicker security report',
+    file: 'security-report',
+    jobs: ['revision', 'codeql', 'semgrep', 'dependencies'],
+    scanners: [
+      ['CodeQL JavaScript/TypeScript', 'codeql-javascript-typescript', inspectSarif],
+      ['CodeQL GitHub Actions', 'codeql-actions', inspectSarif],
+      ['Semgrep', 'semgrep', inspectSemgrep],
+      ['npm audit (including development tools)', 'dependencies', inspectAudit],
+      ['pip-audit (Semgrep toolchain)', 'dependencies', directory => inspectPipAudit(directory)],
+    ],
+    scope: () => ['Scope: CodeQL security-extended for JavaScript/TypeScript and GitHub Actions; Semgrep Community Edition p/security-audit and p/secrets; npm lockfile audit including development tools; pip-audit of the hash-pinned Semgrep toolchain. Semgrep registry rules and vulnerability advisories are fetched at scan time. Generated output and dependencies are excluded from source scanning. The malware scan of the checkout and the VSIX has its own report.', ''],
+    subject: 'commit',
+  },
+  malware: {
+    title: 'Wicker malware report',
+    file: 'malware-report',
+    jobs: ['revision', ...MALWARE_ENGINES],
+    releaseAsset: true,
+    scanners: [['ClamAV and YARA-X malware scan', 'malware', directory => inspectMalware(directory)]],
+    scope: tag => [
+      'Scope: ClamAV and YARA-X with the YARA Forge full rule set over the checkout, its installed dependencies and the VSIX. ClamAV signatures are fetched at scan time; the YARA-X engine and YARA Forge release are pinned by SHA-256.', '',
+      `VSIX: ${tag ? 'the asset attached to the release, checked against the digest GitHub records for it' : 'built from the scanned commit'}. Each malware engine must detect the EICAR test file before its clean result counts.`, '',
+    ],
+    subject: 'commit and VSIX',
+  },
+};
+
+export function createReport(directory, environment, kind = 'security') {
+  const spec = REPORTS[kind];
   mkdirSync(directory, { recursive: true });
   const problems = [];
   let jobs = {};
   try {
     jobs = JSON.parse(environment.SCAN_JOBS ?? '{}');
-    for (const name of ['revision', 'codeql', 'semgrep', 'dependencies', 'malware']) {
+    for (const name of spec.jobs) {
       requireEvidence(jobs[name]?.result === 'success', `${name} job: ${jobs[name]?.result ?? 'missing'}`);
     }
-    // A release scan examines the VSIX attached to the release, so fetching it
-    // has to have happened; anything else builds its own and skips the fetch.
-    const expected = environment.RELEASE_TAG ? 'success' : 'skipped';
-    requireEvidence(jobs['release-asset']?.result === expected,
-      `release-asset job: ${jobs['release-asset']?.result ?? 'missing'}, expected ${expected}`);
+    if (spec.releaseAsset) {
+      // A release scan examines the VSIX attached to the release, so fetching it
+      // has to have happened; anything else builds its own and skips the fetch.
+      const expected = environment.RELEASE_TAG ? 'success' : 'skipped';
+      requireEvidence(jobs['release-asset']?.result === expected,
+        `release-asset job: ${jobs['release-asset']?.result ?? 'missing'}, expected ${expected}`);
+    }
   } catch (error) {
     problems.push(error.message);
   }
   const sha = environment.SCAN_SHA ?? '';
   if (!/^[a-f0-9]{40}$/.test(sha)) problems.push('Missing or invalid scanned commit');
 
-  const scanners = [
-    ['CodeQL JavaScript/TypeScript', 'codeql-javascript-typescript', inspectSarif],
-    ['CodeQL GitHub Actions', 'codeql-actions', inspectSarif],
-    ['Semgrep', 'semgrep', inspectSemgrep],
-    ['npm audit (including development tools)', 'dependencies', inspectAudit],
-    ['pip-audit (Semgrep toolchain)', 'dependencies', directory => inspectPipAudit(directory)],
-    ['ClamAV and YARA-X malware scan', 'malware', inspectMalware],
-  ].map(([name, folder, inspect]) => {
+  const scanners = spec.scanners.map(([name, folder, inspect]) => {
     try {
       const result = inspect(join(directory, folder));
       if (result.findings > 0) problems.push(`${name}: ${result.findings} finding(s)`, ...(result.details ?? []));
@@ -317,7 +366,7 @@ export function createReport(directory, environment) {
   });
 
   const evidence = filesIn(directory)
-    .filter(path => !['security-report.md', 'security-report.json'].includes(relative(directory, path)))
+    .filter(path => ![`${spec.file}.md`, `${spec.file}.json`].includes(relative(directory, path)))
     .map(path => ({
       path: relative(directory, path).replaceAll('\\', '/'),
       sha256: createHash('sha256').update(readFileSync(path)).digest('hex'),
@@ -334,7 +383,7 @@ export function createReport(directory, environment) {
     evidence,
   };
   const markdown = [
-    '# Wicker security report', '',
+    `# ${spec.title}`, '',
     `Result: **${report.status}**`, '',
     `Commit: \`${sha}\``, '',
     `Release: ${report.tag ?? 'not a release scan'}`, '',
@@ -346,12 +395,11 @@ export function createReport(directory, environment) {
     ...scanners.flatMap(scanner => (scanner.reviewed ?? []).map(entry =>
       `- ${entry.label ?? `Reviewed false positive in \`${entry.path}\``}: ${entry.reason} [Reference](${entry.reference})`)), '',
     'Policy: every unexpected finding fails, regardless of severity. The only exceptions are the exact reviewed findings listed above, matched against file content hashes or, for an advisory, the exact package version and advisory ID. Scanner failures, warnings, skipped jobs and missing or malformed evidence fail the gate.', '',
-    'Scope: CodeQL security-extended for JavaScript/TypeScript and GitHub Actions; Semgrep Community Edition p/security-audit and p/secrets; npm lockfile audit including development tools; pip-audit of the hash-pinned Semgrep toolchain; ClamAV and YARA-X with the YARA Forge full rule set over the checkout, its installed dependencies and the VSIX. Semgrep registry rules, vulnerability advisories and ClamAV signatures are fetched at scan time; the YARA-X engine and YARA Forge release are pinned by SHA-256. Generated output and dependencies are excluded from source scanning.', '',
-    `VSIX: ${report.tag ? 'the asset attached to the release, checked against the digest GitHub records for it' : 'built from the scanned commit'}. Each malware engine must detect the EICAR test file before its clean result counts.`, '',
-    'Raw results and their SHA-256 digests accompany this report. It records the checks performed on the named commit and VSIX; it is not an audit or a certification. A passing scan does not prove the absence of vulnerabilities or malware.', '',
+    ...spec.scope(report.tag),
+    `Raw results and their SHA-256 digests accompany this report. It records the checks performed on the named ${spec.subject}; it is not an audit or a certification. A passing scan does not prove the absence of vulnerabilities or malware.`, '',
   ].join('\n');
-  writeFileSync(join(directory, 'security-report.json'), `${JSON.stringify(report, null, 2)}\n`);
-  writeFileSync(join(directory, 'security-report.md'), markdown);
+  writeFileSync(join(directory, `${spec.file}.json`), `${JSON.stringify(report, null, 2)}\n`);
+  writeFileSync(join(directory, `${spec.file}.md`), markdown);
   if (environment.GITHUB_STEP_SUMMARY) appendFileSync(environment.GITHUB_STEP_SUMMARY, markdown);
   return report;
 }
@@ -359,7 +407,7 @@ export function createReport(directory, environment) {
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
     const [, , command, directory] = process.argv;
-    requireEvidence(directory, 'Usage: node security-report.mjs <sarif|semgrep|malware|report> <directory>');
+    requireEvidence(directory, 'Usage: node security-report.mjs <sarif|semgrep|clamav|yara-x|report|malware-report> <directory>');
     if (command === 'sarif') {
       const { findings } = inspectSarif(directory);
       requireEvidence(findings === 0, `${findings} security finding(s)`);
@@ -367,15 +415,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       const { findings, reviewed } = inspectSemgrep(directory, true);
       console.log(`Semgrep: ${findings} unexpected finding(s), ${reviewed.length} reviewed false positive(s)`);
       requireEvidence(findings === 0, `${findings} unexpected Semgrep finding(s)`);
-    } else if (command === 'malware') {
-      collectMalwareDetections(directory);
-      const { findings, details, reviewed, scannedFiles, emptyFiles } = inspectMalware(directory);
-      console.log(`Malware scan: ${scannedFiles} files and ${emptyFiles} empty, ${findings} unexpected detection(s), ${reviewed.length} reviewed`);
+    } else if (MALWARE_ENGINES.includes(command)) {
+      collectMalwareDetections(directory, process.cwd(), [command]);
+      const { findings, details, reviewed, scannedFiles, emptyFiles } = inspectMalware(directory, Date.now(), [command]);
+      console.log(`Malware scan (${command}): ${scannedFiles} files and ${emptyFiles} empty, ${findings} unexpected detection(s), ${reviewed.length} reviewed`);
       for (const detail of details) console.error(detail);
       requireEvidence(findings === 0, `${findings} unexpected malware detection(s)`);
-    } else if (command === 'report') {
-      const report = createReport(directory, process.env);
-      console.log(`Security gate: ${report.status}`);
+    } else if (command === 'report' || command === 'malware-report') {
+      const kind = command === 'report' ? 'security' : 'malware';
+      const report = createReport(directory, process.env, kind);
+      console.log(`${kind === 'security' ? 'Security' : 'Malware'} report: ${report.status}`);
       process.exitCode = report.status === 'PASS' ? 0 : 1;
     } else {
       throw new Error(`Unknown command: ${command}`);

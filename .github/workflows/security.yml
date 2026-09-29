@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Daily, so signatures and advisories published since the last change are
+  # Daily, so rules and advisories published since the last change are
   # checked against the code as it stands.
   schedule:
     - cron: '23 8 * * *'
@@ -182,96 +182,10 @@ jobs:
           path: security-results/
           if-no-files-found: error
 
-  release-asset:
-    name: Fetch release VSIX
-    needs: revision
-    if: ${{ needs.revision.outputs.tag != '' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      # A draft release and its assets are visible only with write access.
-      contents: write
-    steps:
-      # This job executes no repository code with its release-write token.
-      - name: Download the VSIX and match it to the digest GitHub recorded
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.revision.outputs.tag }}
-        run: |
-          gh release download "$RELEASE_TAG" --pattern 'wicker-*.vsix' --dir release-vsix
-          files=(release-vsix/*.vsix)
-          test "${#files[@]}" -eq 1
-          name=$(basename "${files[0]}")
-          recorded=$(gh api "repos/$GH_REPO/releases?per_page=30" \
-            --jq ".[] | select(.tag_name == \"$RELEASE_TAG\") | .assets[] | select(.name == \"$name\") | .digest")
-          actual="sha256:$(sha256sum "${files[0]}" | cut -d' ' -f1)"
-          echo "$name recorded $recorded, downloaded $actual"
-          test -n "$recorded" && test "$recorded" = "$actual"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: release-vsix
-          path: release-vsix/
-          if-no-files-found: error
-
-  malware:
-    name: Malware scan (ClamAV + YARA-X)
-    needs: [revision, release-asset]
-    if: ${{ !cancelled() && needs.revision.result == 'success' && contains(fromJSON('["success", "skipped"]'), needs.release-asset.result) }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      # This job runs the commit's own build, so it checks out only the commit
-      # the run is for, never a ref computed elsewhere, and stops if that is
-      # not the commit being scanned. A pre-release scan dispatched on main
-      # therefore needs main to be at the release commit.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Confirm this is the commit being scanned
-        env:
-          SCAN_SHA: ${{ needs.revision.outputs.sha }}
-        run: |
-          if [[ "$(git rev-parse HEAD)" != "$SCAN_SHA" ]]; then
-            echo "::error::Checked out $(git rev-parse HEAD), but the scan is of $SCAN_SHA. Dispatch from the release commit."
-            exit 1
-          fi
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '22.23.2'
-          package-manager-cache: false
-      # Installed exactly as locked, and scanned before any of it has run.
-      - name: Install dependencies without running their scripts
-        run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Build the VSIX this commit would ship
-        if: ${{ needs.revision.outputs.tag == '' }}
-        run: |
-          npm run build
-          npm run vsix -w wicker
-          mkdir -p .security-scan/vsix
-          cp packages/vscode/dist/wicker-*.vsix .security-scan/vsix/
-      - name: Take the VSIX the release ships
-        if: ${{ needs.revision.outputs.tag != '' }}
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: release-vsix
-          path: .security-scan/vsix
-      - name: Scan with ClamAV and YARA-X
-        run: bash .github/security/malware-scan.sh security-results/malware
-      - name: Reject detections and incomplete scans
-        run: node security-report.mjs malware security-results/malware
-      - name: Retain scan even on failure
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: security-malware
-          path: security-results/
-          if-no-files-found: error
-
   report:
-    name: Security gate
+    name: Security report
     if: ${{ !cancelled() }}
-    needs: [revision, codeql, semgrep, dependencies, release-asset, malware]
+    needs: [revision, codeql, semgrep, dependencies]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -329,3 +243,19 @@ jobs:
           test -s security-results/security-report.json
           tar -czf security-results.tar.gz -C security-results .
           gh release upload "$RELEASE_TAG" security-results/security-report.md security-results/security-report.json security-results.tar.gz --clobber
+
+  security-passed:
+    name: Security passed
+    if: always()
+    needs: [revision, codeql, semgrep, dependencies, report]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check every security job passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Results: $RESULTS"
+          for result in $RESULTS; do
+            [ "$result" = success ] || exit 1
+          done

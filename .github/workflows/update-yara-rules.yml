@@ -1,8 +1,8 @@
-name: YARA update
+name: Update YARA rules
 
 # Weekly, proposes the newest YARA Forge rules and any YARA-X release a week
 # old, as a pull request. A pull request opened with this workflow's own token
-# starts no other workflow, so the Security scan is started on the branch here
+# starts no other workflow, so the Malware scan is started on the branch here
 # and has to pass before anyone merges.
 on:
   schedule:
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   propose:
-    name: Propose YARA pins
+    name: Propose a YARA rule update
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -55,4 +55,4 @@ jobs:
           else
             gh pr create --base main --head "$BRANCH" --title "$TITLE" --body-file yara-update.md
           fi
-          gh workflow run security.yml --ref "$BRANCH"
+          gh workflow run malware-scan.yml --ref "$BRANCH"

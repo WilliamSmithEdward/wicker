@@ -27,7 +27,9 @@ jobs:
     env:
       BRANCH: automation/yara-update
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Keeps the checkout's credentials: a later step pushes the update
+      # branch with git. This job uploads no artifacts.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 # zizmor: ignore[artipacked]
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22.23.2'

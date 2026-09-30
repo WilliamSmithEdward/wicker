@@ -110,14 +110,22 @@ ship no third-party runtime code.
 
 Accepted advisories are in
 [dependency-exceptions.json](.github/security/dependency-exceptions.json),
-matched on the exact package, version and advisory ID. The one there is
-[GHSA-w6j9-cwv2-h6wq](https://github.com/advisories/GHSA-w6j9-cwv2-h6wq) in
+matched on the exact package, version and advisory ID. The two there are in
 PyJWT 2.13.0. Semgrep 1.178.0, the newest release, requires `pyjwt~=2.13.0`, so
-the fixed 2.14.0 cannot be installed beside it. The flaw makes a JWK set with
-one malformed RSA key fail to parse, which its maintainers class as a
-conditional availability failure rather than a signature or claims bypass, and
-Semgrep here never logs in or parses a JWK set. Remove the entry when Semgrep
-allows PyJWT 2.14.0; GitHub's Dependabot alert for it stays open until then.
+the fixed 2.14.0 cannot be installed beside it.
+
+- [GHSA-w6j9-cwv2-h6wq](https://github.com/advisories/GHSA-w6j9-cwv2-h6wq)
+  makes a JWK set with one malformed RSA key fail to parse, which its
+  maintainers class as a conditional availability failure rather than a
+  signature or claims bypass.
+- [GHSA-2gx3-rcp4-g85q](https://github.com/advisories/GHSA-2gx3-rcp4-g85q)
+  lets tokens with unknown key IDs make a server's `PyJWKClient` refetch its
+  JWKS endpoint on every request.
+
+Semgrep here never logs in, validates no incoming tokens and never parses a JWK
+set. Remove both entries when Semgrep allows PyJWT 2.14.0; GitHub's Dependabot
+alerts for them stay open until then, and Dependabot's attempts to update
+PyJWT fail for the same reason.
 
 The test CLI currently requests Mocha 11, whose dependencies include vulnerable
 versions of `diff` and `serialize-javascript`. A scoped npm override uses Mocha

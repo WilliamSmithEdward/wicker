@@ -110,22 +110,17 @@ ship no third-party runtime code.
 
 Accepted advisories are in
 [dependency-exceptions.json](.github/security/dependency-exceptions.json),
-matched on the exact package, version and advisory ID. The two there are in
-PyJWT 2.13.0. Semgrep 1.178.0, the newest release, requires `pyjwt~=2.13.0`, so
-the fixed 2.14.0 cannot be installed beside it.
+matched on the exact package, version and advisory ID. There are none.
 
-- [GHSA-w6j9-cwv2-h6wq](https://github.com/advisories/GHSA-w6j9-cwv2-h6wq)
-  makes a JWK set with one malformed RSA key fail to parse, which its
-  maintainers class as a conditional availability failure rather than a
-  signature or claims bypass.
-- [GHSA-2gx3-rcp4-g85q](https://github.com/advisories/GHSA-2gx3-rcp4-g85q)
-  lets tokens with unknown key IDs make a server's `PyJWKClient` refetch its
-  JWKS endpoint on every request.
-
-Semgrep here never logs in, validates no incoming tokens and never parses a JWK
-set. Remove both entries when Semgrep allows PyJWT 2.14.0; GitHub's Dependabot
-alerts for them stay open until then, and Dependabot's attempts to update
-PyJWT fail for the same reason.
+Semgrep 1.178.0, the newest release, requires `pyjwt~=2.13.0`, and PyJWT
+2.13.0 has advisories fixed only in 2.14.0. Only Semgrep's MCP server imports
+PyJWT; `semgrep scan` does not. So
+[requirements.txt](.github/security/requirements.txt) overrides it with
+2.14.0, and the workflow installs the tree with `--no-deps` so pip does not
+refuse the conflict. A recompile of the tree, including a Dependabot update,
+restores 2.13.0, and pip-audit then fails the gate: reapply the override as
+[requirements.in](.github/security/requirements.in) describes. Remove it when
+Semgrep allows PyJWT 2.14.0.
 
 The test CLI currently requests Mocha 11, whose dependencies include vulnerable
 versions of `diff` and `serialize-javascript`. A scoped npm override uses Mocha

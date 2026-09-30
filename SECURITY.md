@@ -132,12 +132,15 @@ For a pre-publication check:
    `gh workflow run malware-scan.yml --ref main -f release_tag=vX.Y.Z`. `main`
    must be at the release commit: the ClamAV and YARA-X jobs build nothing from
    a ref they did not check out themselves, and stop if the two differ.
+   Started by hand they are dry runs: the reports go to each run's
+   `release-preview` artifact, not to the release.
 3. Wait for both runs to succeed, including **Security passed**, **Malware scan
-   passed** and each **Attach release report**. Check that the reports name the
-   intended tag and commit. Publish the draft only after both the report and normal release
-   checks pass, then publish that same VSIX to the Marketplace.
+   passed** and each **Attach release report**. Download the `release-preview`
+   artifacts and check that the reports name the intended tag and commit.
+   Publish the draft only after both the report and normal release checks
+   pass, then publish that same VSIX to the Marketplace.
 
-Publication triggers another scan and refreshes the same report assets. A
+Publication triggers another scan and attaches the report assets. A
 post-publication failure fails the workflow and attaches a failing report; it
 cannot undo a release or Marketplace publication. GitHub's manual publishing
 controls do not enforce the draft procedure. Do not move a tag after scanning.

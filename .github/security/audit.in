@@ -1,4 +1,0 @@
-# CI tooling only: audits requirements.txt, the Semgrep tree, for published
-# advisories. Compiled like requirements.in, with the same header correction:
-#   pip-compile --allow-unsafe --generate-hashes --strip-extras --output-file=audit.txt audit.in
-pip-audit==2.10.1

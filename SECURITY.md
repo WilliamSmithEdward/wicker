@@ -20,7 +20,6 @@ is published. It uses:
 - CodeQL's `security-extended` queries for JavaScript/TypeScript and GitHub Actions.
 - Semgrep Community Edition with `p/security-audit` and `p/secrets` rules.
 - `npm audit` against the lockfile, including development dependencies.
-- `pip-audit` against Semgrep's hash-pinned dependency tree.
 
 The [Malware scan workflow](https://github.com/WilliamSmithEdward/wicker/actions/workflows/malware-scan.yml)
 runs on the same events. Its **ClamAV** and **YARA-X** jobs scan the checkout,
@@ -96,31 +95,15 @@ workflow, which is why it starts the scan itself.
 
 ### Updates
 
-Dependabot checks npm development tools, GitHub Actions, the Semgrep tree and
-the ClamAV image weekly, and adopts a release once it is a week old. Actions
-are pinned to full commit SHAs, the runner to `ubuntu-24.04`, and Node and
-Python to exact versions. Semgrep and every package it depends on are installed
-with `--require-hashes` from
-[requirements.txt](.github/security/requirements.txt), compiled from
-[requirements.in](.github/security/requirements.in).
+Dependabot checks npm development tools, GitHub Actions and the ClamAV and
+Semgrep images weekly, and adopts a release once it is a week old. Actions
+are pinned to full commit SHAs, the runner to `ubuntu-24.04`, and Node to an
+exact version. Semgrep runs from its official image, pinned by digest in
+[.github/security/semgrep/Dockerfile](.github/security/semgrep/Dockerfile).
 
 GitHub's Dependabot security updates are enabled. Dependency updates still need
 review and passing CI; they are not automatically merged. Wicker continues to
 ship no third-party runtime code.
-
-Accepted advisories are in
-[dependency-exceptions.json](.github/security/dependency-exceptions.json),
-matched on the exact package, version and advisory ID. There are none.
-
-Semgrep 1.178.0, the newest release, requires `pyjwt~=2.13.0`, and PyJWT
-2.13.0 has advisories fixed only in 2.14.0. Only Semgrep's MCP server imports
-PyJWT; `semgrep scan` does not. So
-[requirements.txt](.github/security/requirements.txt) overrides it with
-2.14.0, and the workflow installs the tree with `--no-deps` so pip does not
-refuse the conflict. A recompile of the tree, including a Dependabot update,
-restores 2.13.0, and pip-audit then fails the gate: reapply the override as
-[requirements.in](.github/security/requirements.in) describes. Remove it when
-Semgrep allows PyJWT 2.14.0.
 
 The test CLI currently requests Mocha 11, whose dependencies include vulnerable
 versions of `diff` and `serialize-javascript`. A scoped npm override uses Mocha

@@ -253,42 +253,6 @@ export function inspectMalware(directory, now = Date.now(), engines = MALWARE_EN
   };
 }
 
-/**
- * Advisories in the Semgrep toolchain, from pip-audit's JSON.
- *
- * An advisory is accepted only as the exact package, version and advisory ID
- * reviewed, so an upgrade, a new advisory or a changed version needs another
- * review.
- */
-export function inspectPipAudit(directory, exceptions = readJson('.github/security/dependency-exceptions.json')) {
-  const data = readJson(join(directory, 'pip-audit.json'));
-  requireEvidence(Array.isArray(data.dependencies) && data.dependencies.length > 0
-    && data.dependencies.every(entry => typeof entry.name === 'string' && typeof entry.version === 'string'
-      && Array.isArray(entry.vulns ?? [])), 'Missing or invalid pip-audit evidence');
-  const advisories = data.dependencies.flatMap(entry => (entry.vulns ?? []).map(vulnerability => ({
-    package: entry.name.toLowerCase(), version: entry.version, advisory: vulnerability.id, aliases: vulnerability.aliases ?? [] })));
-  const exit = exitCode(directory, 'pip-audit-exit.txt');
-  requireEvidence(exit === (advisories.length > 0 ? 1 : 0), `pip-audit exited ${exit} with ${advisories.length} advisories`);
-  requireEvidence(Array.isArray(exceptions), 'Invalid dependency exceptions');
-  const reviewed = [];
-  const unexpected = [];
-  for (const advisory of advisories) {
-    const exception = exceptions.find(entry => entry.ecosystem === 'pip' && entry.package === advisory.package
-      && entry.version === advisory.version && entry.advisory === advisory.advisory);
-    if (!exception) { unexpected.push(advisory); continue; }
-    requireEvidence(typeof exception.reason === 'string' && exception.reason.length > 0
-      && typeof exception.reference === 'string' && exception.reference.length > 0, 'Exception requires a reason and reference');
-    reviewed.push({ label: `Accepted advisory ${advisory.advisory} in ${advisory.package} ${advisory.version}`,
-      reason: exception.reason, reference: exception.reference });
-  }
-  return {
-    findings: unexpected.length,
-    details: unexpected.map(entry => `pip: ${entry.package} ${entry.version} ${[entry.advisory, ...entry.aliases].join(' ')}`),
-    reviewed,
-    tools: [{ name: 'pip-audit', version: 'pinned in .github/security/audit.txt' }],
-  };
-}
-
 function inspectAudit(directory) {
   const data = readJson(join(directory, 'npm-audit.json'));
   const findings = data.metadata?.vulnerabilities?.total;
@@ -312,9 +276,8 @@ const REPORTS = {
       ['CodeQL GitHub Actions', 'codeql-actions', inspectSarif],
       ['Semgrep', 'semgrep', inspectSemgrep],
       ['npm audit (including development tools)', 'dependencies', inspectAudit],
-      ['pip-audit (Semgrep toolchain)', 'dependencies', directory => inspectPipAudit(directory)],
     ],
-    scope: () => ['Scope: CodeQL security-extended for JavaScript/TypeScript and GitHub Actions; Semgrep Community Edition p/security-audit and p/secrets; npm lockfile audit including development tools; pip-audit of the hash-pinned Semgrep toolchain. Semgrep registry rules and vulnerability advisories are fetched at scan time. Generated output and dependencies are excluded from source scanning. The malware scan of the checkout and the VSIX has its own report.', ''],
+    scope: () => ['Scope: CodeQL security-extended for JavaScript/TypeScript and GitHub Actions; Semgrep Community Edition p/security-audit and p/secrets; npm lockfile audit including development tools. Semgrep registry rules and vulnerability advisories are fetched at scan time. Generated output and dependencies are excluded from source scanning. The malware scan of the checkout and the VSIX has its own report.', ''],
     subject: 'commit',
   },
   malware: {

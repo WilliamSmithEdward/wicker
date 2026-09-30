@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { collectMalwareDetections, createReport, inspectMalware, inspectPipAudit, inspectSarif, parseClamavVersion,
+import { collectMalwareDetections, createReport, inspectMalware, inspectSarif, parseClamavVersion,
   reviewMalwareDetections, reviewSemgrepFindings } from './security-report.mjs';
 
 const environment = {
@@ -45,8 +45,6 @@ function fixture(t) {
   }
   write('semgrep/semgrep.json', { results: [], errors: [], paths: { scanned: ['source.ts'] } });
   write('dependencies/npm-audit.json', { auditReportVersion: 2, vulnerabilities: {}, metadata: { vulnerabilities: { total: 0 } } });
-  write('dependencies/pip-audit.json', { dependencies: [{ name: 'semgrep', version: '1.178.0', vulns: [] }], fixes: [] });
-  writeFileSync(join(directory, 'dependencies/pip-audit-exit.txt'), '0\n');
   return { directory, sarif, write };
 }
 
@@ -88,7 +86,7 @@ test('passing evidence records the scanned commit and digests of every raw repor
   const report = createReport(directory, environment);
   assert.equal(report.status, 'PASS');
   assert.equal(report.commit, environment.SCAN_SHA);
-  assert.equal(report.evidence.length, 7);
+  assert.equal(report.evidence.length, 5);
   assert.ok(report.evidence.every(file => /^[a-f0-9]{64}$/.test(file.sha256)));
 });
 
@@ -284,41 +282,6 @@ test('detections outside the scanned tree, and evidence that disagrees with itse
   writeMalwareEvidence(directory);
   writeFileSync(join(directory, 'yara.ndjson'), '{"path":"package.json","rules":[{"identifier":"EXAMPLE_Rule"}]}\n');
   assert.throws(() => inspectMalware(directory), /disagree/);
-});
-
-/*
- * The Semgrep toolchain is audited like the npm lockfile. An advisory is
- * accepted only for the exact package, version and ID reviewed.
- */
-test('a toolchain advisory fails unless that exact package, version and advisory were reviewed', t => {
-  const { directory, write } = fixture(t);
-  const audit = join(directory, 'dependencies');
-  // An advisory the repository's own exceptions do not cover.
-  const vulnerable = { dependencies: [{ name: 'Example-Lib', version: '1.0.0',
-    vulns: [{ id: 'CVE-2099-0001', aliases: ['GHSA-xxxx-xxxx-xxxx'], fix_versions: ['1.0.1'] }] }], fixes: [] };
-  write('dependencies/pip-audit.json', vulnerable);
-  writeFileSync(join(audit, 'pip-audit-exit.txt'), '1\n');
-  const report = createReport(directory, environment);
-  assert.equal(report.status, 'FAIL');
-  assert.ok(report.problems.includes('pip: example-lib 1.0.0 CVE-2099-0001 GHSA-xxxx-xxxx-xxxx'));
-
-  const exception = { ecosystem: 'pip', package: 'example-lib', version: '1.0.0', advisory: 'CVE-2099-0001',
-    reason: 'Reviewed.', reference: 'https://example.com/advisory' };
-  const accepted = inspectPipAudit(audit, [exception]);
-  assert.equal(accepted.findings, 0);
-  assert.equal(accepted.reviewed[0].label, 'Accepted advisory CVE-2099-0001 in example-lib 1.0.0');
-  for (const changed of [{ version: '2.12.0' }, { advisory: 'CVE-2026-1' }, { package: 'jwt' }, { ecosystem: 'npm' }]) {
-    assert.equal(inspectPipAudit(audit, [{ ...exception, ...changed }]).findings, 1);
-  }
-});
-
-test('pip-audit evidence that is missing or contradicts its exit code fails', t => {
-  const { directory, write } = fixture(t);
-  const audit = join(directory, 'dependencies');
-  writeFileSync(join(audit, 'pip-audit-exit.txt'), '1\n');
-  assert.throws(() => inspectPipAudit(audit, []), /exited 1 with 0 advisories/);
-  write('dependencies/pip-audit.json', { dependencies: [] });
-  assert.throws(() => inspectPipAudit(audit, []), /Missing or invalid pip-audit evidence/);
 });
 
 test('a release scan must have fetched the release VSIX, and any other scan must not', t => {

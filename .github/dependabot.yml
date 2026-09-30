@@ -29,18 +29,14 @@ updates:
     groups:
       actions:
         update-types: [minor, patch]
-  # Semgrep and its whole tree, hash-pinned by pip-compile from requirements.in.
-  - package-ecosystem: pip
-    directory: /.github/security
-    schedule:
-      interval: weekly
-    cooldown:
-      default-days: 7
-  # The ClamAV engine image, pinned by digest. Signatures are fetched per run.
-  # YARA-X and YARA Forge are release downloads no ecosystem here follows;
-  # update-yara-rules.yml proposes those.
+  # The ClamAV and Semgrep images, pinned by digest. ClamAV signatures and
+  # Semgrep registry rules are fetched per run. YARA-X and YARA Forge are
+  # release downloads no ecosystem here follows; update-yara-rules.yml
+  # proposes those.
   - package-ecosystem: docker
-    directory: /.github/security/clamav
+    directories:
+      - /.github/security/clamav
+      - /.github/security/semgrep
     schedule:
       interval: weekly
     cooldown:

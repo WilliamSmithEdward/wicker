@@ -47,8 +47,6 @@ jobs:
           name: dependency-lockfile
           path: |
             package-lock.json
-            .github/security/requirements.txt
-            .github/security/audit.txt
           include-hidden-files: true
           if-no-files-found: error
 
@@ -111,23 +109,19 @@ jobs:
         with:
           ref: ${{ needs.revision.outputs.sha }}
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: '3.12.14'
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22.23.2'
           package-manager-cache: false
-      # Every package in Semgrep's tree is pinned with its hashes; one that does
-      # not match is refused rather than installed.
-      - name: Install Semgrep and its dependencies by hash
-        run: |
-          # --no-deps: requirements.txt lists the whole tree, and overrides Semgrep's PyJWT pin (see requirements.in).
-          python -m pip install --require-hashes --only-binary=:all: --no-deps -r .github/security/requirements.txt
+      - name: Build the pinned Semgrep image
+        run: docker build --quiet --tag semgrep-pinned .github/security/semgrep
+      # The runner's user owns the checkout, so Semgrep runs as that user to
+      # read it through git and to write results the next command can read.
       - name: Scan all findings and fail on scanner warnings
         run: |
           mkdir -p security-results/semgrep
-          semgrep scan --config p/security-audit --config p/secrets --strict --disable-nosem --metrics off --disable-version-check --max-target-bytes 0 --json-output security-results/semgrep/semgrep.json --sarif-output security-results/semgrep/semgrep.sarif .
+          docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --volume "$PWD:/src" --workdir /src semgrep-pinned \
+            semgrep scan --config p/security-audit --config p/secrets --strict --disable-nosem --metrics off --disable-version-check --max-target-bytes 0 --json-output security-results/semgrep/semgrep.json --sarif-output security-results/semgrep/semgrep.sarif .
           node security-report.mjs semgrep security-results/semgrep
       - name: Upload to GitHub code scanning
         if: ${{ !cancelled() && hashFiles('security-results/semgrep-reviewed/semgrep.sarif') != '' && needs.revision.outputs.tag == '' }}
@@ -162,19 +156,6 @@ jobs:
           mkdir -p security-results/dependencies
           node -e 'require("node:fs").writeFileSync("audit/package.json", JSON.stringify({name:"wicker-security-audit",version:"0.0.0"}))'
           npm audit --prefix audit --ignore-scripts --package-lock-only --include=dev --audit-level=low --json > security-results/dependencies/npm-audit.json
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: '3.12.14'
-      # The Semgrep tree is audited the way the npm lockfile is: from its
-      # hash-pinned list alone, resolving nothing. Findings are judged by the gate.
-      - name: Audit the Semgrep toolchain
-        run: |
-          python -m venv "$RUNNER_TEMP/pip-audit"
-          "$RUNNER_TEMP/pip-audit/bin/pip" install --quiet --require-hashes --only-binary=:all: -r audit/.github/security/audit.txt
-          status=0
-          "$RUNNER_TEMP/pip-audit/bin/pip-audit" --requirement audit/.github/security/requirements.txt --require-hashes --disable-pip \
-            --progress-spinner off --format json --output security-results/dependencies/pip-audit.json || status=$?
-          echo "$status" > security-results/dependencies/pip-audit-exit.txt
       - name: Retain audit even on failure
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

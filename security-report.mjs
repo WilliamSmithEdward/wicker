@@ -222,7 +222,7 @@ function inspectYara(directory) {
   const pins = readJson(join(directory, 'yara-pins.json'));
   return [
     { name: 'YARA-X', version: readText(directory, 'yara-version.txt').trim() },
-    { name: 'YARA Forge rules', version: `${pins.rules.tag} ${pins.rules.asset} sha256:${pins.rules.sha256}` },
+    { name: 'YARA Forge rules', version: `${pins.yara_forge.release} ${pins.yara_forge.asset} sha256:${pins.yara_forge.sha256}` },
   ];
 }
 

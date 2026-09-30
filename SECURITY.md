@@ -89,9 +89,9 @@ or later is pinned.
 The [Update YARA rules workflow](.github/workflows/update-yara-rules.yml) runs weekly. It
 proposes the newest YARA Forge release, and any YARA-X release at least a week
 old, as a pull request that records the digests GitHub holds for the assets,
-then starts the Malware scan workflow on that branch. Merge it only when that scan
-passes. Pull requests the workflow opens with its own token start no other
-workflow, which is why it starts the scan itself.
+then starts CI, Security and Malware scan on that branch. Merge it only when they
+pass. Pull requests the workflow opens with its own token start no other
+workflow, which is why it starts the scans itself.
 
 ### Updates
 

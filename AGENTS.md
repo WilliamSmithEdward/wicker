@@ -463,28 +463,27 @@ is not a hang.
 ### Releasing
 
 1. `npm run check` and `npm run test:integration -w wicker`, both green.
-2. Bump the version in both package manifests and add a CHANGELOG entry.
-3. `npm run vsix -w wicker`.
-4. Commit, then tag `vX.Y.Z` and push the tag.
-5. `gh release create vX.Y.Z --draft --title "vX.Y.Z" --notes-file <notes> <the .vsix>`.
-6. `gh workflow run security.yml --ref main -f release_tag=vX.Y.Z` and
-   `gh workflow run malware-scan.yml --ref main -f release_tag=vX.Y.Z`, with
-   `main` at the release commit, or the ClamAV and YARA-X jobs stop. These
-   are dry runs: they change nothing on the release. Wait for both runs to
-   succeed, including Security passed, Malware scan passed and each Attach
-   release report. The malware scan examines the VSIX attached to the draft,
-   not a rebuild. Download each run's `release-preview` artifact
-   (`gh run download <run-id> -n release-preview`) and verify that the
-   security and malware reports identify the release commit and say PASS.
-   Missing reports, findings or scanner errors block publication.
-7. Publish the draft, then publish with the script pattern in the next paragraph.
-   Publishing scans again and attaches the reports to the release. See
+2. Bump the version in both package manifests and turn the CHANGELOG's
+   Unreleased section into a `## X.Y.Z` section: the release notes are taken
+   from it, and Publish fails without one. Merge that to `main`.
+3. Optionally, `gh workflow run publish.yml --ref main` for a dry run, then
+   `gh run download <run-id> -n release-preview` and check the VSIX, the
+   reports (each says PASS and names the commit) and the notes.
+4. Tag the merged commit `vX.Y.Z` and push the tag. Publish builds the VSIX
+   from the tag in CI, refusing a tag that is not the extension's version,
+   runs Security and Malware scan on that commit and that VSIX, and only when
+   both pass signs the VSIX's build provenance and creates the GitHub release
+   with the VSIX, `wicker-X.Y.Z.sigstore.json` and both reports. See
    SECURITY.md for report contents.
+5. Download the VSIX from the release
+   (`gh release download vX.Y.Z --pattern 'wicker-*.vsix'`) and publish it to
+   the Marketplace with the pattern in the next paragraph. Never publish a
+   local build: the release's VSIX is the one that was scanned and signed.
 
 The marketplace token is in the `Azure_DevOps_PAT` user environment variable.
 Pass it to vsce as `VSCE_PAT` inside the process, never on a command line and
-never in output. Publish with `--packagePath` pointing at the artifact already
-attached to the release, so the marketplace and GitHub serve identical bytes.
+never in output. Publish with `--packagePath` pointing at the VSIX downloaded
+from the release, so the marketplace and GitHub serve identical bytes.
 
 `packages/vscode/.vscodeignore` is written as exclude-everything-then-allow. A
 forgotten exclusion publishes something by accident and a marketplace version
@@ -510,7 +509,7 @@ with each finished before the next starts.
 
 These rules are the same in every WilliamSmithEdward repository.
 
-- **How a release happens here:** publishing a GitHub release starts the release reports, which scan it and attach their reports to it. Any other step, such as a marketplace upload, is described elsewhere in this file.
+- **How a release happens here:** pushing a `vX.Y.Z` tag runs Publish, which builds the extension package in CI and creates the GitHub release with it, its signed provenance and its security and malware reports. Any other step, such as a marketplace upload, is described elsewhere in this file.
 - **Starting a workflow by hand never releases anything.** Publish and every
   release report are dry runs when started with `gh workflow run` or the Run
   workflow button. They build, scan and assemble the release files exactly

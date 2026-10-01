@@ -305,8 +305,9 @@ const REPORTS = {
   malware: {
     title: 'Wicker malware report',
     file: 'malware-report',
-    jobs: ['revision', ...MALWARE_ENGINES],
-    releaseAsset: true,
+    // The package job builds the VSIX both engines scan, which in a release
+    // is the file the release ships.
+    jobs: ['revision', 'package', ...MALWARE_ENGINES],
     scanners: [['ClamAV and YARA-X malware scan', 'malware',
       (directory, exceptions) => inspectMalware(directory, Date.now(), MALWARE_ENGINES, exceptions.malware)]],
     scope: tag => [
@@ -330,13 +331,6 @@ export function createReport(directory, environment, kind = 'security', exceptio
     jobs = JSON.parse(environment.SCAN_JOBS ?? '{}');
     for (const name of spec.jobs) {
       requireEvidence(jobs[name]?.result === 'success', `${name} job: ${jobs[name]?.result ?? 'missing'}`);
-    }
-    if (spec.releaseAsset) {
-      // A release scan examines the VSIX attached to the release, so fetching it
-      // has to have happened; anything else builds its own and skips the fetch.
-      const expected = environment.RELEASE_TAG ? 'success' : 'skipped';
-      requireEvidence(jobs['release-asset']?.result === expected,
-        `release-asset job: ${jobs['release-asset']?.result ?? 'missing'}, expected ${expected}`);
     }
   } catch (error) {
     problems.push(error.message);

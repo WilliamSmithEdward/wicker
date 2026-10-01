@@ -1,5 +1,8 @@
 name: Security
 
+# CodeQL, Semgrep and npm audit, judged by security-report.mjs, and zizmor
+# over the workflows. The publish workflow calls this one, so a release waits
+# on it and carries the report it writes.
 on:
   push:
     branches: [main]
@@ -8,13 +11,8 @@ on:
   # checked against the code as it stands.
   schedule:
     - cron: '23 8 * * *'
-  release:
-    types: [published]
   workflow_dispatch:
-    inputs:
-      release_tag:
-        description: 'Optional vX.Y.Z tag of a release, draft or published, to scan. A dry run: the reports go to the release-preview artifact, not the release'
-        type: string
+  workflow_call:
 
 permissions:
   contents: read
@@ -29,11 +27,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.release.tag_name || inputs.release_tag || github.sha }}
           persist-credentials: false
+      # A tag is a release only from Publish, which runs on vX.Y.Z tags.
       - id: revision
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
           if [[ -n "$RELEASE_TAG" && ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo 'Expected a vX.Y.Z release tag' >&2
@@ -241,45 +239,6 @@ jobs:
           name: security-report
           path: security-results/
           if-no-files-found: error
-
-  release-report:
-    name: Attach release report
-    if: ${{ !cancelled() && needs.revision.outputs.tag != '' }}
-    needs: [revision, report]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    steps:
-      # This job executes no repository code with its release-write token.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: security-report
-          path: security-results
-      - name: Bundle the complete scanner evidence
-        run: |
-          test -s security-results/security-report.md
-          test -s security-results/security-report.json
-          tar -czf security-results.tar.gz -C security-results .
-      # Started by hand, this is a dry run: the files stay on the run.
-      - name: Keep what the release would carry
-        if: github.event_name != 'release'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: release-preview
-          path: |
-            security-results/security-report.md
-            security-results/security-report.json
-            security-results.tar.gz
-          if-no-files-found: error
-      - name: Attach summary and complete scanner evidence
-        if: github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.revision.outputs.tag }}
-        run: |
-          gh release upload "$RELEASE_TAG" security-results/security-report.md security-results/security-report.json security-results.tar.gz --clobber
 
   security-passed:
     name: Security passed

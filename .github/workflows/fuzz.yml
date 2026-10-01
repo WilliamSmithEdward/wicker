@@ -1,0 +1,47 @@
+name: Fuzz
+
+# Property-based fuzzing, with fast-check, of the readers that take text Wicker
+# does not control: the PHP and Twig lexers, template references and names,
+# and the YAML, JSON and import-map readers
+# (packages/core/src/parsers.properties.test.ts). The unit tests run those
+# properties a hundred cases each on every change; this runs them at twenty
+# thousand when the readers change and two hundred thousand daily. A failure
+# prints the smallest input that breaks the property, which becomes an example
+# in that reader's tests with the fix. This is not a required check, so a
+# finding in code a pull request did not touch does not block it.
+
+on:
+  push:
+    branches: [main]
+    paths: [packages/core/src/**, package-lock.json, .github/workflows/fuzz.yml]
+  pull_request:
+    paths: [packages/core/src/**, package-lock.json, .github/workflows/fuzz.yml]
+  schedule:
+    - cron: '31 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  properties:
+    name: Parser properties
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.23.2'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Run the parser properties
+        env:
+          WICKER_PROPERTY_RUNS: ${{ github.event_name == 'schedule' && '200000' || '20000' }}
+        run: npx vitest run packages/core/src/parsers.properties.test.ts

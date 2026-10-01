@@ -69,13 +69,17 @@ function lexRegions(source: string): readonly TwigRegion[] {
     const end = terminated ? closeAt + opener.close.length : source.length;
     const bodyEnd = terminated ? closeAt : source.length;
 
+    // `{%-` and `-%}` trim surrounding whitespace; the modifier is not content.
+    // One `-` cannot be both, as in `{%-%}`, so the content never ends before
+    // it starts.
+    const innerStart = source.startsWith('-', bodyStart) ? bodyStart + 1 : bodyStart;
+    const innerEnd = bodyEnd > innerStart && source[bodyEnd - 1] === '-' ? bodyEnd - 1 : bodyEnd;
     regions.push({
       kind: opener.kind,
       start: cursor,
       end,
-      // `{%-` and `-%}` trim surrounding whitespace; the modifier is not content.
-      innerStart: source.startsWith('-', bodyStart) ? bodyStart + 1 : bodyStart,
-      innerEnd: bodyEnd > bodyStart && source[bodyEnd - 1] === '-' ? bodyEnd - 1 : bodyEnd,
+      innerStart,
+      innerEnd: Math.max(innerStart, innerEnd),
     });
 
     cursor = end;

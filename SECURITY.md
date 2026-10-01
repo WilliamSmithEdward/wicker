@@ -1,179 +1,192 @@
-# Security
+# Security policy
 
-## Report a vulnerability privately
+## Reporting a vulnerability
 
-Use [Report a vulnerability](https://github.com/WilliamSmithEdward/wicker/security/advisories/new)
-to send a private report to the maintainer. Please include the affected Wicker
-version, reproduction steps, the impact you observed, and a minimal example
-with credentials and personal data removed. Do not disclose an unpatched
-vulnerability in a public issue.
+Report a vulnerability privately, not in a public issue or pull request:
+[open a private report](https://github.com/WilliamSmithEdward/wicker/security/advisories/new).
+Only the maintainer sees it. Include the Wicker version, the VS Code version
+and the impact you observed, and the smallest file or steps that show it,
+with credentials and private data removed.
 
-Security fixes target the latest published version. Older versions do not have
-a separate maintenance branch; update to the latest release when a fix ships.
+A confirmed vulnerability is fixed in a release on the Visual Studio
+Marketplace, and the advisory is published with it,
+crediting you unless you ask otherwise.
 
-## Automated analysis
+## Supported versions
 
-The [Security workflow](https://github.com/WilliamSmithEdward/wicker/actions/workflows/security.yml)
-runs on pull requests, pushes to `main`, daily, on demand, and when a release
-is published. It uses:
+Only the latest release on the Visual Studio Marketplace receives security
+fixes. Older releases are not maintained separately; update when a fix ships.
 
-- CodeQL's `security-extended` queries for JavaScript/TypeScript and GitHub Actions.
-- Semgrep Community Edition with `p/security-audit` and `p/secrets` rules.
-- `npm audit` against the lockfile, including development dependencies.
+## Scope
 
-The [Malware scan workflow](https://github.com/WilliamSmithEdward/wicker/actions/workflows/malware-scan.yml)
-runs on the same events. Its **ClamAV** and **YARA-X** jobs scan the checkout,
-its installed dependencies and the VSIX.
+Wicker reads the Symfony projects in the workspace: PHP, Twig, YAML, JSON and
+import-map files. Its lexers and readers treat that text as input they do not
+control. It makes no network requests of its own and ships no third-party
+runtime code. It changes a file only through an edit you choose, such as a
+code action, and keeps the console's last answers in VS Code's workspace
+state.
 
-The dependency audit receives only the lockfile in an isolated job, without a
-source checkout, repository npm configuration, lifecycle scripts or caches.
+A way for a project's files, or the console's output, to make Wicker run a
+command, write a file or show active content is a vulnerability here.
 
-Every unexpected finding fails the gate, regardless of severity. Scanner errors and
-warnings, skipped scanner jobs, and missing or malformed reports also fail.
-There is no broad baseline. The two reviewed false positives in
-[semgrep-exceptions.json](.github/security/semgrep-exceptions.json) match the exact
-rule, location and SHA-256 hash of each fixture's contents (with LF line endings).
-They cover Symfony's documented `ComponentAttributes` output in the Alert and
-Badge templates. Any changed fixture requires another review; a finding at
-another location or from another rule still fails. Reports list these reviews,
-retain the unmodified scanner output, and mark only these findings as accepted
-in the SARIF uploaded to GitHub. Semgrep inline `nosemgrep` comments remain
-disabled. Investigate failures and fix their cause;
-do not make the check optional or silently exclude a finding to obtain a pass.
+### The Symfony console
 
-Tests and fixtures remain in scope. Generated files, installed dependencies
-and downloaded editor builds are excluded from source scanning. Semgrep rules
-and npm advisories are fetched at scan time, so a later scan can identify new
-problems in unchanged code. Semgrep runs without an account or uploaded source,
-and usage metrics are disabled. GitHub stores SARIF results in the repository's
-[code scanning view](https://github.com/WilliamSmithEdward/wicker/security/code-scanning)
-for branch and pull request scans. Release scans retain their results as assets.
+Wicker asks the project's own console for namespaces, routes, components and
+Twig callables, with Symfony's `debug:` commands. It runs `php bin/console`
+from the project root, or the command set in `wicker.console.command`. The
+command runs directly, not through a shell, with a time limit, and its output
+is parsed as untrusted input.
 
-The readers that take text Wicker does not control, the PHP and Twig lexers,
-template references and names, and the YAML, JSON and import-map readers, are
-also checked by property: fast-check generates input and each reader must not
-throw, must keep its offsets inside the text, and where it promises to, must
-split the text exactly. The unit tests run every property a hundred times; the
-[Fuzz workflow](https://github.com/WilliamSmithEdward/wicker/actions/workflows/fuzz.yml)
-runs them twenty thousand times when the readers change and two hundred
-thousand times daily. It is not a gate: a failure prints the smallest input
-that breaks the property, which becomes an example in that reader's tests.
+The console never runs in an untrusted workspace, because the command can
+come from workspace settings. Set `wicker.console.enabled` to `false` to turn
+it off everywhere; Wicker then reads configuration files only.
 
-[OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/WilliamSmithEdward/wicker)
-rates the repository's security practices on every change to main and weekly,
-and publishes the result the README badge shows. Some of its checks do not fit
-this project: a single maintainer cannot have a second person approve every
-change, and the VSIX is built locally and attached to the release by hand, so
-a release carries the reports' SHA-256 digests rather than a build provenance
-signature.
+## How the code is checked
 
-### Malware scan
+Three workflows check every pull request and every push to `main`, and
+their gates decide whether a change can merge: **CI passed**,
+**Security passed** and **Malware scan passed**. A gate passes only when
+every job before it did, and any unexpected finding fails it, whatever its
+severity. Security and Malware scan also run daily, on a published release,
+and by hand. A scanner error or warning, a skipped scanner job, and a missing
+or malformed report fail the gate too.
 
-Dependencies are installed with `npm ci --ignore-scripts`, so nothing they
-contain has run before it is scanned. The VSIX is the one built from the
-scanned commit, or on a release scan the asset attached to the release, after
-checking it against the SHA-256 GitHub records for that asset. Its contents
-are unpacked and scanned as well. Both engines scan the same list of files:
-every file in the checkout except Git history. Empty files are listed apart,
-since they hold nothing to match.
+- **Code:** CodeQL with the `security-extended` queries, for
+  JavaScript/TypeScript and GitHub Actions, and Semgrep Community Edition with
+  `p/security-audit` and `p/secrets`. Semgrep runs with inline `nosemgrep`
+  comments disabled and usage metrics off. Tests and fixtures are scanned;
+  generated output, installed dependencies and downloaded editor builds are
+  not. Results go to the repository's code scanning; a release scan keeps its
+  results with the release instead.
+- **Workflows:** zizmor audits the GitHub Actions workflows; a finding fails
+  Security.
+- **Dependencies:** `npm audit` over the lockfile, development tools
+  included. The audit job receives only the lockfile: no source checkout,
+  npm configuration, lifecycle scripts or caches.
+- **Malware:** ClamAV, with signatures freshclam fetches and verifies on
+  every run, and YARA-X, with the YARA Forge rules pinned to a release and
+  its SHA-256, scan every file in the checkout except Git history, the
+  dependencies `npm ci --ignore-scripts` installs, and the VSIX, packed and
+  unpacked. The VSIX is the one built from the scanned commit, or on a
+  release scan the asset attached to the release, after checking it against
+  the SHA-256 GitHub records for that asset. YARA-X uses the YARA Forge full
+  rule set. Each engine must detect the EICAR test file, assembled during the
+  run, before its clean result counts, and a ClamAV run fails if the daily
+  signatures are more than three days old.
+- **Fuzzing:** fast-check properties in
+  `packages/core/src/parsers.properties.test.ts` generate input for the
+  readers that take text Wicker does not control: the PHP and Twig lexers,
+  template references and names, the Stimulus action reader, and the YAML,
+  JSON, `composer.json`, `twig.yaml` and import-map readers. Each must not
+  throw, must keep its offsets inside the text, and where it promises to,
+  must split the text exactly. The unit tests run each property a hundred
+  times. The Fuzz workflow runs on every change to `packages/core/src` and
+  daily, twenty thousand times per property on a change and two hundred
+  thousand daily. It is not a gate: a finding becomes a regression test with
+  its fix.
+- **OpenSSF Scorecard** rates the repository's security practices on every
+  change to `main` and weekly, and the README badge shows the result.
+  Two of its checks do not fit this project: a single maintainer cannot have
+  a second person approve every change, and the VSIX is built locally and
+  attached to the release by hand, so a release carries the reports' SHA-256
+  digests rather than a build provenance signature.
 
-- **ClamAV** runs from the `clamav/clamav` image pinned by digest in
-  [clamav/Dockerfile](.github/security/clamav/Dockerfile). `freshclam`
-  updates the signatures on every run and checks each database's signature
-  before using it. A run fails if the daily signatures are more than three days
-  old, which means the update did not happen.
-- **YARA-X** runs the [YARA Forge](https://github.com/YARAHQ/yara-forge)
-  full rule set, the widest of its public collections. Both the engine release
-  and the rule release are pinned by SHA-256 in
-  [yara.json](.github/security/yara.json), and a download that does not match
-  is refused. Rule-style warnings from the compiler are not reported, since
-  they concern upstream rules; a rule that fails to compile fails the scan.
+## Accepted findings
 
-Each engine must detect the EICAR test file, assembled during the run and kept
-outside the scanned files, before its clean result counts. A scanner error,
-a file ClamAV did not scan, a YARA-X error or timeout, and any detection not
-reviewed fail the gate.
+A finding is fixed, or accepted with a written reason in
+[semgrep-exceptions.json](.github/security/semgrep-exceptions.json) or
+[malware-exceptions.json](.github/security/malware-exceptions.json). An
+entry matches the tool, the rule or signature, the path (for Semgrep, the
+exact location too) and the file's SHA-256 (for Semgrep, of its contents
+with LF line endings), so a changed file needs another review. An entry that
+no longer matches does not fail the report yet, so remove it by hand.
+CodeQL and `npm audit` have no accepted list: every result fails. zizmor
+keeps its exceptions in `.github/zizmor.yml` or inline beside the line they
+excuse, each with its reason; there are none.
 
-Reviewed false positives are in
-[malware-exceptions.json](.github/security/malware-exceptions.json), each
-matched on the engine, rule or signature, path and the SHA-256 of the file's
-contents. A changed file, such as a dependency update, needs another review.
-The current six are YARA-X 1.20.0 reporting `SIGNATURE_BASE_Powershell_Case_Anomaly`
-in dependency files that only mention PowerShell in ordinary casing. Compiled
-on its own the rule does not match them in 1.20.0 or 1.21.0, and 1.21.0 does
-not match them with the full rule set either. Remove them when YARA-X 1.21.0
-or later is pinned.
+The report lists each accepted finding, keeps the scanner's unmodified
+output, and marks only those findings as accepted in the SARIF uploaded to
+GitHub. The current entries:
 
-The [Update YARA rules workflow](.github/workflows/update-yara-rules.yml) runs weekly. It
-proposes the newest YARA Forge release, and any YARA-X release at least a week
-old, as a pull request that records the digests GitHub holds for the assets,
-then starts CI, Security and Malware scan on that branch. Merge it only when they
-pass. Pull requests the workflow opens with its own token start no other
-workflow, which is why it starts the scans itself.
+- Two Semgrep findings of
+  `generic.html-templates.security.unquoted-attribute-var` in the Alert and
+  Badge test fixtures, which use Symfony's documented `ComponentAttributes`
+  output. The fixtures are not shipped in the extension.
+- Six YARA-X matches of `SIGNATURE_BASE_Powershell_Case_Anomaly` in
+  dependency files that only mention PowerShell in ordinary casing. Only
+  YARA-X 1.20.0 with the full rule set reports them; 1.21.0 does not. Remove
+  them when YARA-X 1.21.0 or later is pinned.
 
-### Updates
+## Pinning and updates
 
-Dependabot checks npm development tools, GitHub Actions and the ClamAV and
-Semgrep images weekly, and adopts a release once it is a week old. Actions
-are pinned to full commit SHAs, the runner to `ubuntu-24.04`, and Node to an
-exact version. Semgrep runs from its official image, pinned by digest in
-[.github/security/semgrep/Dockerfile](.github/security/semgrep/Dockerfile).
+Everything the workflows run is pinned: actions to full commit SHAs,
+runners to named OS releases, scanner images to digests, Python tools to
+hash-locked lock files, the project's own dependencies to the npm lockfile
+installed with `npm ci`, Node to an exact version, and the YARA-X engine and
+YARA Forge rules to a release and its SHA-256. ClamAV's signatures change too
+often to pin, so freshclam fetches and verifies them on every run. Semgrep's
+registry rules and npm's advisories are also fetched at scan time, so a later
+scan can find new problems in unchanged code.
 
-GitHub's Dependabot security updates are enabled. A minor or patch update
-merges itself once CI, Security and Malware scan pass; a major version waits
-for review. Wicker continues to
-ship no third-party runtime code.
+Dependabot proposes updates to npm, GitHub Actions, the ClamAV and Semgrep
+images, and the hash-locked zizmor requirements once a version is a week
+old, and at once for a security advisory. The Update YARA rules workflow
+proposes new YARA pins each week. A minor or patch update, and the YARA
+pull request, merges itself once CI, Security and Malware scan pass; a
+third-party major version waits for review.
 
-The test CLI currently requests Mocha 11, whose dependencies include vulnerable
-versions of `diff` and `serialize-javascript`. A scoped npm override uses Mocha
-12.0.2 or newer in that CLI, matching the major version already used directly
-by the integration tests. Remove the override when the CLI updates its own
-dependency. Verify changes to it with the real VS Code integration suite.
+The VS Code test CLI requests Mocha 11, whose dependencies include
+vulnerable versions of `diff` and `serialize-javascript`. A scoped npm
+override gives that CLI Mocha 12.0.2 or newer, the major version the
+integration tests already use directly. Remove the override when the CLI
+updates its own dependency, and verify any change to it with the real VS
+Code integration suite.
 
-## Reports for future releases
+## Releases
 
-New releases receive `security-report.md`, `security-report.json`, and
-`security-results.tar.gz` from the Security workflow, and `malware-report.md`,
-`malware-report.json` and `malware-results.tar.gz` from the Malware scan
-workflow, each tarball containing the raw scanner results. Reports identify
-the exact scanned commit, workflow run, tool versions where reported, finding
-counts, failures, and SHA-256 digests of the raw results. Failed analysis produces
-a **FAIL** report rather than claiming the release is clean. Existing releases
-are not backfilled.
+A release is a `vX.Y.Z` tag with a GitHub release carrying the VSIX, the same
+file published to the Marketplace. The VSIX is built locally. When the
+release is published, Security and Malware scan run on the tag and attach
+their reports:
 
-For a pre-publication check:
+- `security-report.md`, `security-report.json` and `security-results.tar.gz`
+- `malware-report.md`, `malware-report.json` and `malware-results.tar.gz`
 
-1. Push the release commit and its `vX.Y.Z` tag, then create a **draft** GitHub
-   release with the same title and attach the VSIX.
-2. Run the Security and Malware scan workflows on `main`, setting
-   `release_tag` to that tag:
+Each tarball holds the raw scanner results. A report names the scanned
+commit, the workflow run, tool versions where reported, finding counts,
+failures, and the SHA-256 digests of the raw results. A failed analysis
+produces a **FAIL** report rather than claiming the release is clean, and
+missing reports mean analysis has not completed. Releases made before these
+workflows are not backfilled.
+
+The reports cover the source, the locked dependencies and the VSIX attached
+to the release. They record the checks performed; they are not a
+certification that no vulnerability or malware exists.
+
+### Checking a release before publication
+
+1. Push the release commit and its `vX.Y.Z` tag, then create a **draft**
+   GitHub release with the same title and attach the VSIX.
+2. Run Security and Malware scan on `main` with `release_tag` set to that
+   tag:
    `gh workflow run security.yml --ref main -f release_tag=vX.Y.Z` and
-   `gh workflow run malware-scan.yml --ref main -f release_tag=vX.Y.Z`. `main`
-   must be at the release commit: the ClamAV and YARA-X jobs build nothing from
-   a ref they did not check out themselves, and stop if the two differ.
-   Started by hand they are dry runs: the reports go to each run's
+   `gh workflow run malware-scan.yml --ref main -f release_tag=vX.Y.Z`.
+   `main` must be at the release commit: the ClamAV and YARA-X jobs build
+   nothing from a ref they did not check out themselves, and stop if the two
+   differ. Started by hand these are dry runs: the reports go to each run's
    `release-preview` artifact, not to the release.
-3. Wait for both runs to succeed, including **Security passed**, **Malware scan
-   passed** and each **Attach release report**. Download the `release-preview`
-   artifacts and check that the reports name the intended tag and commit.
-   Publish the draft only after both the report and normal release checks
-   pass, then publish that same VSIX to the Marketplace.
+3. Wait for both runs to succeed, including **Security passed**, **Malware
+   scan passed** and each **Attach release report**. Download the
+   `release-preview` artifacts and check that the reports name the intended
+   tag and commit. Publish the draft only after the reports and the normal
+   release checks pass, then publish that same VSIX to the Marketplace.
 
-Publication triggers another scan and attaches the report assets. A
-post-publication failure fails the workflow and attaches a failing report; it
-cannot undo a release or Marketplace publication. GitHub's manual publishing
-controls do not enforce the draft procedure. Do not move a tag after scanning.
+Publication starts another scan, which attaches the reports. A failure after
+publication fails the workflow and attaches a failing report; it cannot undo
+the release or the Marketplace publication. GitHub's publishing controls do
+not enforce this procedure. Do not move a tag after scanning it.
 
-The reports cover source, locked dependencies and the VSIX attached to the
-release. They are evidence of the checks performed, not a certification that no
-vulnerability or malware exists. Missing reports mean analysis has not completed
-successfully.
-
-To enforce the merge gate in repository rules, require the **CI passed**,
-**Security passed** and **Malware scan passed** checks. Workflow files alone do not prevent a maintainer from
-merging or publishing manually.
-
-## Maintainer references
+### Maintainer references
 
 - [GitHub CodeQL action](https://github.com/github/codeql-action)
 - [Semgrep CLI flags and exit codes](https://semgrep.dev/docs/cli-reference)
@@ -181,3 +194,19 @@ merging or publishing manually.
 - [YARA-X command line](https://virustotal.github.io/yara-x/docs/cli/commands/)
 - [YARA Forge releases](https://github.com/YARAHQ/yara-forge/releases)
 - [ClamAV Docker images](https://docs.clamav.net/manual/Installing/Docker.html)
+
+## Repository settings
+
+<!-- repo-standards:begin security-settings. Copied from WilliamSmithEdward/repo-standards, templates/security/settings-block.md. Change it there; the weekly rescan fails a copy that differs. -->
+- `main` accepts changes only through a pull request that passes
+  **CI passed**, **Security passed** and **Malware scan passed**. The
+  ruleset has no bypass, for the owner either, and refuses force-pushes and
+  deleting the branch.
+- A `v*` release tag cannot be moved or deleted once pushed, except by a
+  repository admin.
+- A workflow that uses an action not pinned to a full commit SHA fails to
+  run. Workflow tokens are read-only unless a job is granted more for
+  itself.
+- Secret scanning with push protection, Dependabot alerts and security
+  updates, and private vulnerability reporting are on.
+<!-- repo-standards:end -->

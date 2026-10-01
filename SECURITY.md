@@ -49,6 +49,24 @@ and usage metrics are disabled. GitHub stores SARIF results in the repository's
 [code scanning view](https://github.com/WilliamSmithEdward/wicker/security/code-scanning)
 for branch and pull request scans. Release scans retain their results as assets.
 
+The readers that take text Wicker does not control, the PHP and Twig lexers,
+template references and names, and the YAML, JSON and import-map readers, are
+also checked by property: fast-check generates input and each reader must not
+throw, must keep its offsets inside the text, and where it promises to, must
+split the text exactly. The unit tests run every property a hundred times; the
+[Fuzz workflow](https://github.com/WilliamSmithEdward/wicker/actions/workflows/fuzz.yml)
+runs them twenty thousand times when the readers change and two hundred
+thousand times daily. It is not a gate: a failure prints the smallest input
+that breaks the property, which becomes an example in that reader's tests.
+
+[OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/WilliamSmithEdward/wicker)
+rates the repository's security practices on every change to main and weekly,
+and publishes the result the README badge shows. Some of its checks do not fit
+this project: a single maintainer cannot have a second person approve every
+change, and the VSIX is built locally and attached to the release by hand, so
+a release carries the reports' SHA-256 digests rather than a build provenance
+signature.
+
 ### Malware scan
 
 Dependencies are installed with `npm ci --ignore-scripts`, so nothing they
@@ -101,8 +119,9 @@ are pinned to full commit SHAs, the runner to `ubuntu-24.04`, and Node to an
 exact version. Semgrep runs from its official image, pinned by digest in
 [.github/security/semgrep/Dockerfile](.github/security/semgrep/Dockerfile).
 
-GitHub's Dependabot security updates are enabled. Dependency updates still need
-review and passing CI; they are not automatically merged. Wicker continues to
+GitHub's Dependabot security updates are enabled. A minor or patch update
+merges itself once CI, Security and Malware scan pass; a major version waits
+for review. Wicker continues to
 ship no third-party runtime code.
 
 The test CLI currently requests Mocha 11, whose dependencies include vulnerable

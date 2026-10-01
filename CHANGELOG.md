@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A Twig tag whose only content is a whitespace modifier, such as `{%-%}` or an
+  unterminated `{%-`, reported content that ended before it started. Its
+  content is now empty.
+
+### Added
+
+- Property-based tests, with fast-check, of the PHP and Twig lexers and the
+  YAML, JSON and import-map readers, which found the fix above. The daily Fuzz
+  workflow runs them two hundred thousand times.
+- OpenSSF Scorecard rates the repository's security practices on every change
+  to main and weekly, and the README shows its badge.
+
 ## 0.12.1
 
 ### Fixed

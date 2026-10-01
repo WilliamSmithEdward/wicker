@@ -3,6 +3,7 @@
 [![CI](https://github.com/WilliamSmithEdward/wicker/actions/workflows/ci.yml/badge.svg)](https://github.com/WilliamSmithEdward/wicker/actions/workflows/ci.yml)
 [![Security](https://github.com/WilliamSmithEdward/wicker/actions/workflows/security.yml/badge.svg)](https://github.com/WilliamSmithEdward/wicker/actions/workflows/security.yml)
 [![Malware scan](https://github.com/WilliamSmithEdward/wicker/actions/workflows/malware-scan.yml/badge.svg)](https://github.com/WilliamSmithEdward/wicker/actions/workflows/malware-scan.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/WilliamSmithEdward/wicker/badge)](https://scorecard.dev/viewer/?uri=github.com/WilliamSmithEdward/wicker)
 [![License: MIT](https://img.shields.io/github/license/WilliamSmithEdward/wicker)](https://github.com/WilliamSmithEdward/wicker/blob/main/LICENSE)
 
 Wicker aims to be a one-stop shop for Symfony and Twig development in VS Code,

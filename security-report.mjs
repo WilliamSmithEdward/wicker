@@ -73,10 +73,18 @@ export function reviewSemgrepFindings(findings, exceptions, root = process.cwd()
     reviewed.push({ key, rule: finding.check_id, path: finding.path, sourceSha256: digest,
       reason: exception.reason, reference: exception.reference });
   }
+  // An entry nothing matches would accept the next finding to land there unreviewed.
+  const stale = exceptions.filter(entry => !reviewed.some(review =>
+    review.key === findingKey(entry.rule, entry.path, entry.start ?? {}, entry.end ?? {})));
+  requireEvidence(stale.length === 0, `Stale Semgrep exception(s), matching no finding: ${stale
+    .map(entry => `${entry.rule} at ${entry.path}:${entry.start?.line}:${entry.start?.col}`).join('; ')}`);
   return reviewed;
 }
 
-function inspectSemgrep(directory, writeReviewedSarif = false) {
+const SEMGREP_EXCEPTIONS = '.github/security/semgrep-exceptions.json';
+const MALWARE_EXCEPTIONS = '.github/security/malware-exceptions.json';
+
+function inspectSemgrep(directory, writeReviewedSarif = false, exceptions = readJson(SEMGREP_EXCEPTIONS)) {
   const sarif = inspectSarif(directory);
   const data = readJson(join(directory, 'semgrep.json'));
   requireEvidence(Array.isArray(data.errors) && data.errors.length === 0, 'Semgrep reported scanner errors');
@@ -84,7 +92,7 @@ function inspectSemgrep(directory, writeReviewedSarif = false) {
     'Semgrep JSON and SARIF results disagree');
   requireEvidence(Array.isArray(data.paths?.scanned) && data.paths.scanned.length > 0,
     'Semgrep did not scan any files');
-  const reviewed = reviewSemgrepFindings(data.results, readJson('.github/security/semgrep-exceptions.json'));
+  const reviewed = reviewSemgrepFindings(data.results, exceptions);
   if (writeReviewedSarif) {
     const upload = readJson(join(directory, 'semgrep.sarif'));
     const keys = new Set(data.results.map(finding => findingKey(finding.check_id, finding.path, finding.start, finding.end)));
@@ -183,9 +191,17 @@ function rawDetections(directory, engine) {
     : yaraDetections(readText(directory, 'yara.ndjson'));
 }
 
-export function reviewMalwareDetections(detections, exceptions) {
+/** The name each engine's detections carry. */
+const ENGINE_NAMES = { clamav: 'ClamAV', 'yara-x': 'YARA-X' };
+
+/**
+ * Pairs each detection with its accepted entry. An entry for one of the
+ * engines judged here that matches no detection is stale and fails, since it
+ * would accept the next detection to arrive with those bytes unreviewed.
+ */
+export function reviewMalwareDetections(detections, exceptions, engines = MALWARE_ENGINES) {
   requireEvidence(Array.isArray(exceptions), 'Invalid malware exceptions');
-  return detections.map(detection => {
+  const reviewed = detections.map(detection => {
     const exception = exceptions.find(entry => entry.engine === detection.engine && entry.signature === detection.signature
       && entry.path === detection.path && entry.sha256 === detection.sha256);
     if (exception) {
@@ -194,6 +210,12 @@ export function reviewMalwareDetections(detections, exceptions) {
     }
     return { ...detection, exception };
   });
+  const judged = engines.map(engine => ENGINE_NAMES[engine]);
+  const stale = exceptions.filter(entry => judged.includes(entry.engine)
+    && !reviewed.some(review => review.exception === entry));
+  requireEvidence(stale.length === 0, `Stale malware exception(s), matching no detection: ${stale
+    .map(entry => `${entry.engine}: ${entry.signature} in ${entry.path} (sha256 ${entry.sha256})`).join('; ')}`);
+  return reviewed;
 }
 
 /** Signatures older than this mean freshclam did not update them. */
@@ -227,7 +249,7 @@ function inspectYara(directory) {
 }
 
 /** Judges the evidence of the engines named, both by default. */
-export function inspectMalware(directory, now = Date.now(), engines = MALWARE_ENGINES) {
+export function inspectMalware(directory, now = Date.now(), engines = MALWARE_ENGINES, exceptions = readJson(MALWARE_EXCEPTIONS)) {
   const targets = readText(directory, 'targets.txt').split('\n').filter(Boolean);
   requireEvidence(targets.length > 0, 'The malware scan listed no files');
   // Recorded rather than scanned: an empty file has nothing to match.
@@ -240,7 +262,7 @@ export function inspectMalware(directory, now = Date.now(), engines = MALWARE_EN
       'Malware detections and raw results disagree');
     return recorded;
   });
-  const reviewed = reviewMalwareDetections(detections, readJson('.github/security/malware-exceptions.json'));
+  const reviewed = reviewMalwareDetections(detections, exceptions, engines);
   const unexpected = reviewed.filter(entry => !entry.exception);
   return {
     findings: unexpected.length,
@@ -274,7 +296,7 @@ const REPORTS = {
     scanners: [
       ['CodeQL JavaScript/TypeScript', 'codeql-javascript-typescript', inspectSarif],
       ['CodeQL GitHub Actions', 'codeql-actions', inspectSarif],
-      ['Semgrep', 'semgrep', inspectSemgrep],
+      ['Semgrep', 'semgrep', (directory, exceptions) => inspectSemgrep(directory, false, exceptions.semgrep)],
       ['npm audit (including development tools)', 'dependencies', inspectAudit],
     ],
     scope: () => ['Scope: CodeQL security-extended for JavaScript/TypeScript and GitHub Actions; Semgrep Community Edition p/security-audit and p/secrets; npm lockfile audit including development tools. Semgrep registry rules and vulnerability advisories are fetched at scan time. Generated output and dependencies are excluded from source scanning. The malware scan of the checkout and the VSIX has its own report.', ''],
@@ -285,7 +307,8 @@ const REPORTS = {
     file: 'malware-report',
     jobs: ['revision', ...MALWARE_ENGINES],
     releaseAsset: true,
-    scanners: [['ClamAV and YARA-X malware scan', 'malware', directory => inspectMalware(directory)]],
+    scanners: [['ClamAV and YARA-X malware scan', 'malware',
+      (directory, exceptions) => inspectMalware(directory, Date.now(), MALWARE_ENGINES, exceptions.malware)]],
     scope: tag => [
       'Scope: ClamAV and YARA-X with the YARA Forge full rule set over the checkout, its installed dependencies and the VSIX. ClamAV signatures are fetched at scan time; the YARA-X engine and YARA Forge release are pinned by SHA-256.', '',
       `VSIX: ${tag ? 'the asset attached to the release, checked against the digest GitHub records for it' : 'built from the scanned commit'}. Each malware engine must detect the EICAR test file before its clean result counts.`, '',
@@ -294,7 +317,11 @@ const REPORTS = {
   },
 };
 
-export function createReport(directory, environment, kind = 'security') {
+/**
+ * `exceptions` replaces the repository's accepted lists, `{ semgrep, malware }`;
+ * a list left out is read from .github/security/.
+ */
+export function createReport(directory, environment, kind = 'security', exceptions = {}) {
   const spec = REPORTS[kind];
   mkdirSync(directory, { recursive: true });
   const problems = [];
@@ -319,7 +346,7 @@ export function createReport(directory, environment, kind = 'security') {
 
   const scanners = spec.scanners.map(([name, folder, inspect]) => {
     try {
-      const result = inspect(join(directory, folder));
+      const result = inspect(join(directory, folder), exceptions);
       if (result.findings > 0) problems.push(`${name}: ${result.findings} finding(s)`, ...(result.details ?? []));
       return { name, ...result };
     } catch (error) {
@@ -357,7 +384,7 @@ export function createReport(directory, environment, kind = 'security') {
     ...problems.map(problem => `- ${problem.replaceAll('\n', ' ')}`), '',
     ...scanners.flatMap(scanner => (scanner.reviewed ?? []).map(entry =>
       `- ${entry.label ?? `Reviewed false positive in \`${entry.path}\``}: ${entry.reason} [Reference](${entry.reference})`)), '',
-    'Policy: every unexpected finding fails, regardless of severity. The only exceptions are the exact reviewed findings listed above, matched against file content hashes or, for an advisory, the exact package version and advisory ID. Scanner failures, warnings, skipped jobs and missing or malformed evidence fail the gate.', '',
+    'Policy: every unexpected finding fails, regardless of severity. The only exceptions are the exact reviewed findings listed above, matched against file content hashes or, for an advisory, the exact package version and advisory ID. An accepted entry that matches no finding, scanner failures, warnings, skipped jobs and missing or malformed evidence fail the gate.', '',
     ...spec.scope(report.tag),
     `Raw results and their SHA-256 digests accompany this report. It records the checks performed on the named ${spec.subject}; it is not an audit or a certification. A passing scan does not prove the absence of vulnerabilities or malware.`, '',
   ].join('\n');

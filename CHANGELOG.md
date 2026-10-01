@@ -15,6 +15,9 @@
   workflow runs them two hundred thousand times.
 - OpenSSF Scorecard rates the repository's security practices on every change
   to main and weekly, and the README shows its badge.
+- Releases are built in CI from the tagged commit, scanned, and signed: each
+  carries the VSIX's build provenance as `wicker-X.Y.Z.sigstore.json`, which
+  `gh attestation verify` checks.
 
 ## 0.12.1
 

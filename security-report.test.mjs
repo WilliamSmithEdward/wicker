@@ -21,10 +21,8 @@ const environment = {
 /** The Malware scan workflow's jobs, as its report job sees them. */
 const malwareEnvironment = {
   ...environment,
-  SCAN_JOBS: JSON.stringify({
-    ...Object.fromEntries(['revision', 'clamav', 'yara-x'].map(name => [name, { result: 'success' }])),
-    'release-asset': { result: 'skipped' },
-  }),
+  SCAN_JOBS: JSON.stringify(Object.fromEntries(
+    ['revision', 'package', 'clamav', 'yara-x'].map(name => [name, { result: 'success' }]))),
 };
 
 function malwareReportFixture(t) {
@@ -313,12 +311,14 @@ test('detections outside the scanned tree, and evidence that disagrees with itse
   assert.throws(() => inspectMalware(directory), /disagree/);
 });
 
-test('a release scan must have fetched the release VSIX, and any other scan must not', t => {
+test('a malware report needs the VSIX the package job built, release or not', t => {
   const directory = malwareReportFixture(t);
   const jobs = JSON.parse(malwareEnvironment.SCAN_JOBS);
   const release = { ...malwareEnvironment, RELEASE_TAG: 'v1.2.3' };
-  assert.ok(createReport(directory, release, 'malware', none).problems.includes('release-asset job: skipped, expected success'));
-  jobs['release-asset'] = { result: 'success' };
-  assert.equal(createReport(directory, { ...release, SCAN_JOBS: JSON.stringify(jobs) }, 'malware', none).status, 'PASS');
-  assert.equal(createReport(directory, { ...malwareEnvironment, SCAN_JOBS: JSON.stringify(jobs) }, 'malware', none).status, 'FAIL');
+  assert.equal(createReport(directory, release, 'malware', none).status, 'PASS');
+  jobs.package = { result: 'failure' };
+  for (const run of [release, malwareEnvironment]) {
+    const report = createReport(directory, { ...run, SCAN_JOBS: JSON.stringify(jobs) }, 'malware', none);
+    assert.ok(report.problems.includes('package job: failure'), report.problems);
+  }
 });

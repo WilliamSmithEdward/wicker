@@ -47,8 +47,8 @@ Three workflows check every pull request and every push to `main`, and
 their gates decide whether a change can merge: **CI passed**,
 **Security passed** and **Malware scan passed**. A gate passes only when
 every job before it did, and any unexpected finding fails it, whatever its
-severity. Security and Malware scan also run daily, on a published release,
-and by hand. A scanner error or warning, a skipped scanner job, and a missing
+severity. Security and Malware scan also run daily, in every release, and
+by hand. A scanner error or warning, a skipped scanner job, and a missing
 or malformed report fail the gate too.
 
 - **Code:** CodeQL with the `security-extended` queries, for
@@ -67,9 +67,8 @@ or malformed report fail the gate too.
   every run, and YARA-X, with the YARA Forge rules pinned to a release and
   its SHA-256, scan every file in the checkout except Git history, the
   dependencies `npm ci --ignore-scripts` installs, and the VSIX, packed and
-  unpacked. The VSIX is the one built from the scanned commit, or on a
-  release scan the asset attached to the release, after checking it against
-  the SHA-256 GitHub records for that asset. YARA-X uses the YARA Forge full
+  unpacked. The VSIX is built once from the scanned commit, and in a release
+  it is the file the release ships. YARA-X uses the YARA Forge full
   rule set. Each engine must detect the EICAR test file, assembled during the
   run, before its clean result counts, and a ClamAV run fails if the daily
   signatures are more than three days old.
@@ -86,10 +85,9 @@ or malformed report fail the gate too.
   its fix.
 - **OpenSSF Scorecard** rates the repository's security practices on every
   change to `main` and weekly, and the README badge shows the result.
-  Two of its checks do not fit this project: a single maintainer cannot have
-  a second person approve every change, and the VSIX is built locally and
-  attached to the release by hand, so a release carries the reports' SHA-256
-  digests rather than a build provenance signature.
+  One of its checks does not fit this project: a single maintainer cannot
+  have a second person approve every change. Signed-Releases rises as
+  releases carry the provenance bundle; it counts the last five.
 
 ## Accepted findings
 
@@ -145,47 +143,38 @@ Code integration suite.
 
 ## Releases
 
-A release is a `vX.Y.Z` tag with a GitHub release carrying the VSIX, the same
-file published to the Marketplace. The VSIX is built locally. When the
-release is published, Security and Malware scan run on the tag and attach
-their reports:
+Pushing a `vX.Y.Z` tag runs the Publish workflow. It builds the VSIX from
+the tagged commit in CI, refusing a tag that is not the extension's version,
+runs Security and Malware scan on that commit and that VSIX, and only when
+both pass signs the VSIX's build provenance and creates the GitHub release
+with:
 
+- `wicker-<version>.vsix`, the file published to the Marketplace
+- `wicker-<version>.sigstore.json`, its signed build provenance
 - `security-report.md`, `security-report.json` and `security-results.tar.gz`
 - `malware-report.md`, `malware-report.json` and `malware-results.tar.gz`
 
 Each tarball holds the raw scanner results. A report names the scanned
 commit, the workflow run, tool versions where reported, finding counts,
-failures, and the SHA-256 digests of the raw results. A failed analysis
-produces a **FAIL** report rather than claiming the release is clean, and
-missing reports mean analysis has not completed. Releases made before these
-workflows are not backfilled.
+failures, and the SHA-256 digests of the raw results. A failed scan fails
+Publish before anything is signed or released. Started by hand, Publish is
+a dry run: it builds, scans and assembles the same files as the
+`release-preview` artifact and releases nothing.
 
-The reports cover the source, the locked dependencies and the VSIX attached
-to the release. They record the checks performed; they are not a
+To check that a VSIX was built by this repository's Publish workflow from a
+tagged commit:
+
+```bash
+gh attestation verify wicker-<version>.vsix --repo WilliamSmithEdward/wicker
+```
+
+The Marketplace upload is by hand, of the VSIX on the release. Releases up to
+0.12.1 were built locally and carry no provenance, and releases before these
+workflows carry no reports.
+
+The reports cover the source, the locked dependencies and the VSIX the
+release carries. They record the checks performed; they are not a
 certification that no vulnerability or malware exists.
-
-### Checking a release before publication
-
-1. Push the release commit and its `vX.Y.Z` tag, then create a **draft**
-   GitHub release with the same title and attach the VSIX.
-2. Run Security and Malware scan on `main` with `release_tag` set to that
-   tag:
-   `gh workflow run security.yml --ref main -f release_tag=vX.Y.Z` and
-   `gh workflow run malware-scan.yml --ref main -f release_tag=vX.Y.Z`.
-   `main` must be at the release commit: the ClamAV and YARA-X jobs build
-   nothing from a ref they did not check out themselves, and stop if the two
-   differ. Started by hand these are dry runs: the reports go to each run's
-   `release-preview` artifact, not to the release.
-3. Wait for both runs to succeed, including **Security passed**, **Malware
-   scan passed** and each **Attach release report**. Download the
-   `release-preview` artifacts and check that the reports name the intended
-   tag and commit. Publish the draft only after the reports and the normal
-   release checks pass, then publish that same VSIX to the Marketplace.
-
-Publication starts another scan, which attaches the reports. A failure after
-publication fails the workflow and attaches a failing report; it cannot undo
-the release or the Marketplace publication. GitHub's publishing controls do
-not enforce this procedure. Do not move a tag after scanning it.
 
 ### Maintainer references
 

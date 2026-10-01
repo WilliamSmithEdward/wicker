@@ -99,7 +99,8 @@ A finding is fixed, or accepted with a written reason in
 entry matches the tool, the rule or signature, the path (for Semgrep, the
 exact location too) and the file's SHA-256 (for Semgrep, of its contents
 with LF line endings), so a changed file needs another review. An entry that
-no longer matches does not fail the report yet, so remove it by hand.
+no longer matches any finding fails the report, so remove it in the change
+that makes it stale.
 CodeQL and `npm audit` have no accepted list: every result fails. zizmor
 keeps its exceptions in `.github/zizmor.yml` or inline beside the line they
 excuse, each with its reason; there are none.

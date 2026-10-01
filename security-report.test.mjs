@@ -4,8 +4,11 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { collectMalwareDetections, createReport, inspectMalware, inspectSarif, parseClamavVersion,
+import { collectMalwareDetections, createReport, inspectMalware, inspectSarif, MALWARE_ENGINES, parseClamavVersion,
   reviewMalwareDetections, reviewSemgrepFindings } from './security-report.mjs';
+
+/** No accepted entries, in place of the repository's own lists, which would be stale against fixtures. */
+const none = { semgrep: [], malware: [] };
 
 const environment = {
   SCAN_SHA: 'a'.repeat(40),
@@ -83,7 +86,7 @@ function writeMalwareEvidence(directory, { signaturesAt = new Date() } = {}) {
 
 test('passing evidence records the scanned commit and digests of every raw report', t => {
   const { directory } = fixture(t);
-  const report = createReport(directory, environment);
+  const report = createReport(directory, environment, 'security', none);
   assert.equal(report.status, 'PASS');
   assert.equal(report.commit, environment.SCAN_SHA);
   assert.equal(report.evidence.length, 5);
@@ -92,7 +95,7 @@ test('passing evidence records the scanned commit and digests of every raw repor
 
 test('a passing malware report is written apart from the security report', t => {
   const directory = malwareReportFixture(t);
-  const report = createReport(directory, malwareEnvironment, 'malware');
+  const report = createReport(directory, malwareEnvironment, 'malware', none);
   assert.equal(report.status, 'PASS');
   assert.equal(report.evidence.length, 16);
   assert.match(readFileSync(join(directory, 'malware-report.md'), 'utf8'), /^# Wicker malware report/);
@@ -109,7 +112,7 @@ test('even a suppressed note-level finding fails', t => {
   const { directory, sarif, write } = fixture(t);
   sarif.runs[0].results.push({ level: 'note', suppressions: [{ status: 'accepted' }] });
   write('codeql-actions/results.sarif', sarif);
-  assert.equal(createReport(directory, environment).status, 'FAIL');
+  assert.equal(createReport(directory, environment, 'security', none).status, 'FAIL');
 });
 
 for (const result of ['failure', 'cancelled', 'skipped', undefined]) {
@@ -117,7 +120,7 @@ for (const result of ['failure', 'cancelled', 'skipped', undefined]) {
     const { directory } = fixture(t);
     const jobs = JSON.parse(environment.SCAN_JOBS);
     jobs.semgrep = { result };
-    assert.equal(createReport(directory, { ...environment, SCAN_JOBS: JSON.stringify(jobs) }).status, 'FAIL');
+    assert.equal(createReport(directory, { ...environment, SCAN_JOBS: JSON.stringify(jobs) }, 'security', none).status, 'FAIL');
   });
 }
 
@@ -135,7 +138,7 @@ test('missing or malformed reports still produce a failing release summary', t =
   const { directory } = fixture(t);
   rmSync(join(directory, 'codeql-actions/results.sarif'));
   writeFileSync(join(directory, 'semgrep/semgrep.json'), '{broken');
-  const report = createReport(directory, environment);
+  const report = createReport(directory, environment, 'security', none);
   assert.equal(report.status, 'FAIL');
   assert.equal(report.scanners.filter(scanner => scanner.error).length, 2);
   assert.match(readFileSync(join(directory, 'security-report.md'), 'utf8'), /\*\*FAIL\*\*/);
@@ -144,10 +147,10 @@ test('missing or malformed reports still produce a failing release summary', t =
 test('empty scans, Semgrep errors and invalid audit evidence fail', t => {
   const { directory, write } = fixture(t);
   write('semgrep/semgrep.json', { results: [], errors: [], paths: { scanned: [] } });
-  assert.equal(createReport(directory, environment).status, 'FAIL');
+  assert.equal(createReport(directory, environment, 'security', none).status, 'FAIL');
   write('semgrep/semgrep.json', { results: [], errors: [{ type: 'ParseError' }], paths: { scanned: ['source.ts'] } });
   write('dependencies/npm-audit.json', { error: { message: 'registry unavailable' } });
-  const report = createReport(directory, environment);
+  const report = createReport(directory, environment, 'security', none);
   assert.equal(report.scanners.filter(scanner => scanner.error).length, 2);
 });
 
@@ -156,8 +159,8 @@ test('dependency advisories of any severity and absent commit identity fail', t 
   write('dependencies/npm-audit.json', {
     auditReportVersion: 2, vulnerabilities: { example: { severity: 'low' } }, metadata: { vulnerabilities: { total: 1 } },
   });
-  assert.equal(createReport(directory, environment).status, 'FAIL');
-  assert.ok(createReport(directory, { ...environment, SCAN_SHA: '' }).problems.includes('Missing or invalid scanned commit'));
+  assert.equal(createReport(directory, environment, 'security', none).status, 'FAIL');
+  assert.ok(createReport(directory, { ...environment, SCAN_SHA: '' }, 'security', none).problems.includes('Missing or invalid scanned commit'));
 });
 
 function reviewedFixture(t) {
@@ -184,7 +187,18 @@ test('review applies only to the exact rule, location and fixture, preserving ot
   const reviews = reviewSemgrepFindings([finding, ...unexpected], [exception], directory);
   assert.equal(reviews.length, 1);
   assert.equal(reviews[0].reason, exception.reason);
-  assert.equal(reviewSemgrepFindings(unexpected, [exception], directory).length, 0);
+  for (const other of unexpected) {
+    assert.throws(() => reviewSemgrepFindings([other], [exception], directory), /Stale Semgrep exception/);
+  }
+});
+
+test('an exception that matches no finding fails, so it cannot accept a later one unreviewed', t => {
+  const { directory, exception } = reviewedFixture(t);
+  assert.throws(() => reviewSemgrepFindings([], [exception], directory),
+    /Stale Semgrep exception\(s\), matching no finding: unquoted-attribute at component\.twig:1:6/);
+  const report = createReport(directory, environment, 'security', { ...none, semgrep: [exception] });
+  assert.equal(report.status, 'FAIL');
+  assert.ok(report.problems.some(problem => problem.startsWith('Semgrep: Stale Semgrep exception')));
 });
 
 test('changed fixture content invalidates review even when the finding stays in place', t => {
@@ -207,7 +221,7 @@ function malwareFixture(t, options) {
 }
 
 test('a clean malware scan passes and names the engines and rule release', t => {
-  const result = inspectMalware(malwareFixture(t));
+  const result = inspectMalware(malwareFixture(t), Date.now(), MALWARE_ENGINES, []);
   assert.equal(result.findings, 0);
   assert.equal(result.scannedFiles, 2);
   assert.equal(result.emptyFiles, 1);
@@ -259,7 +273,7 @@ test('a detection fails the report and is named in it, file digest included', t 
   const detections = collectMalwareDetections(malware, directory);
   assert.deepEqual(detections.map(entry => `${entry.engine} ${entry.signature}`), ['ClamAV Js.Trojan.Example', 'YARA-X EXAMPLE_Rule']);
   assert.ok(detections.every(entry => entry.sha256 === createHash('sha256').update('not really malware').digest('hex')));
-  const report = createReport(directory, malwareEnvironment, 'malware');
+  const report = createReport(directory, malwareEnvironment, 'malware', none);
   assert.equal(report.status, 'FAIL');
   assert.ok(report.problems.includes('ClamAV and YARA-X malware scan: 2 finding(s)'));
   assert.ok(report.problems.some(problem => problem.startsWith('ClamAV: Js.Trojan.Example in scanned/payload.js (sha256 ')));
@@ -270,9 +284,24 @@ test('a detection can only be accepted for the exact engine, signature, path and
   const exception = { ...detection, reason: 'A reviewed false positive.', reference: 'https://example.com/review' };
   assert.ok(reviewMalwareDetections([detection], [exception])[0].exception);
   for (const changed of [{ engine: 'ClamAV' }, { signature: 'OTHER' }, { path: 'node_modules/other.js' }, { sha256: 'c'.repeat(64) }]) {
-    assert.equal(reviewMalwareDetections([{ ...detection, ...changed }], [exception])[0].exception, undefined);
+    assert.throws(() => reviewMalwareDetections([{ ...detection, ...changed }], [exception]), /Stale malware exception/);
   }
   assert.throws(() => reviewMalwareDetections([detection], [{ ...exception, reference: '' }]), /reason and reference/);
+});
+
+test('an accepted detection that is gone fails, but only for the engines being judged', t => {
+  const exception = { engine: 'YARA-X', signature: 'EXAMPLE_Rule', path: 'node_modules/pkg/index.js', sha256: 'b'.repeat(64),
+    reason: 'A reviewed false positive.', reference: 'https://example.com/review' };
+  assert.throws(() => reviewMalwareDetections([], [exception]),
+    /Stale malware exception\(s\), matching no detection: YARA-X: EXAMPLE_Rule in node_modules\/pkg\/index\.js/);
+  // The ClamAV job judges ClamAV alone; the YARA-X entry is checked in its own job and the report.
+  assert.deepEqual(reviewMalwareDetections([], [exception], ['clamav']), []);
+  const directory = malwareFixture(t);
+  assert.throws(() => inspectMalware(directory, Date.now(), ['yara-x'], [exception]), /Stale malware exception/);
+  assert.equal(inspectMalware(directory, Date.now(), ['clamav'], [exception]).findings, 0);
+  const report = createReport(malwareReportFixture(t), malwareEnvironment, 'malware', { ...none, malware: [exception] });
+  assert.equal(report.status, 'FAIL');
+  assert.ok(report.problems.some(problem => problem.includes('Stale malware exception')));
 });
 
 test('detections outside the scanned tree, and evidence that disagrees with itself, fail', t => {
@@ -288,8 +317,8 @@ test('a release scan must have fetched the release VSIX, and any other scan must
   const directory = malwareReportFixture(t);
   const jobs = JSON.parse(malwareEnvironment.SCAN_JOBS);
   const release = { ...malwareEnvironment, RELEASE_TAG: 'v1.2.3' };
-  assert.ok(createReport(directory, release, 'malware').problems.includes('release-asset job: skipped, expected success'));
+  assert.ok(createReport(directory, release, 'malware', none).problems.includes('release-asset job: skipped, expected success'));
   jobs['release-asset'] = { result: 'success' };
-  assert.equal(createReport(directory, { ...release, SCAN_JOBS: JSON.stringify(jobs) }, 'malware').status, 'PASS');
-  assert.equal(createReport(directory, { ...malwareEnvironment, SCAN_JOBS: JSON.stringify(jobs) }, 'malware').status, 'FAIL');
+  assert.equal(createReport(directory, { ...release, SCAN_JOBS: JSON.stringify(jobs) }, 'malware', none).status, 'PASS');
+  assert.equal(createReport(directory, { ...malwareEnvironment, SCAN_JOBS: JSON.stringify(jobs) }, 'malware', none).status, 'FAIL');
 });

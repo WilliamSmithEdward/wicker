@@ -259,9 +259,9 @@ run before their results count, and holds ClamAV to scanning every listed
 file. That check caught two empty files ClamAV does not count, now listed
 apart. YARA-X 1.20.0 also reports `SIGNATURE_BASE_Powershell_Case_Anomaly` on
 six dependency files that the rule, compiled alone, does not match, and that
-1.21.0 does not match at all; they are reviewed in
-`.github/security/malware-exceptions.json` by file hash, and those entries go
-when 1.21.0 is pinned. 1.20.0's NDJSON output also prints a line for every
+1.21.0 does not match at all; they were reviewed in
+`.github/security/malware-exceptions.json` by file hash until 1.21.0 was
+pinned. 1.20.0's NDJSON output also prints a line for every
 file scanned, so detections are read from each line's rules, never counted by
 lines. Every exception is bound to a file's hash, so a dependency update that
 touches one of those files fails the scan until it is reviewed again.

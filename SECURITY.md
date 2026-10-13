@@ -111,10 +111,6 @@ GitHub. The current entries:
   `generic.html-templates.security.unquoted-attribute-var` in the Alert and
   Badge test fixtures, which use Symfony's documented `ComponentAttributes`
   output. The fixtures are not shipped in the extension.
-- Six YARA-X matches of `SIGNATURE_BASE_Powershell_Case_Anomaly` in
-  dependency files that only mention PowerShell in ordinary casing. Only
-  YARA-X 1.20.0 with the full rule set reports them; 1.21.0 does not. Remove
-  them when YARA-X 1.21.0 or later is pinned.
 
 ## Pinning and updates
 

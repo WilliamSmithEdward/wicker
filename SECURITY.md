@@ -99,7 +99,12 @@ exact location too) and the file's SHA-256 (for Semgrep, of its contents
 with LF line endings), so a changed file needs another review. An entry that
 no longer matches any finding fails the report, so remove it in the change
 that makes it stale.
-CodeQL and `npm audit` have no accepted list: every result fails. zizmor
+An `npm audit` advisory is accepted in
+[npm-audit-exceptions.json](.github/security/npm-audit-exceptions.json) by
+its advisory ID, the package and the exact version the lockfile installs,
+with a `reviewBy` date after which the entry fails the report until it is
+reviewed again. Any other advisory, or the same one in another version, fails.
+CodeQL has no accepted list: every result fails. zizmor
 keeps its exceptions in `.github/zizmor.yml` or inline beside the line they
 excuse, each with its reason; there are none.
 
@@ -111,6 +116,11 @@ GitHub. The current entries:
   `generic.html-templates.security.unquoted-attribute-var` in the Alert and
   Badge test fixtures, which use Symfony's documented `ComponentAttributes`
   output. The fixtures are not shipped in the extension.
+- `npm audit` advisory GHSA-xcx6-jx8p-x3h5 in `@azure/msal-node` 5.6.0, a
+  development-only dependency of `@vscode/vsce` through `@azure/identity`.
+  It is used only by vsce's `--azure-credential` publishing, which this
+  repository never uses, and the fixed version, 7.1.0, is outside the range
+  of every `@azure/identity` release. Review by 2026-12-31.
 
 ## Pinning and updates
 

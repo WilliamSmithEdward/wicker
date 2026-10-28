@@ -83,6 +83,7 @@ export function reviewSemgrepFindings(findings, exceptions, root = process.cwd()
 
 const SEMGREP_EXCEPTIONS = '.github/security/semgrep-exceptions.json';
 const MALWARE_EXCEPTIONS = '.github/security/malware-exceptions.json';
+const NPM_AUDIT_EXCEPTIONS = '.github/security/npm-audit-exceptions.json';
 
 function inspectSemgrep(directory, writeReviewedSarif = false, exceptions = readJson(SEMGREP_EXCEPTIONS)) {
   const sarif = inspectSarif(directory);
@@ -275,13 +276,76 @@ export function inspectMalware(directory, now = Date.now(), engines = MALWARE_EN
   };
 }
 
-function inspectAudit(directory) {
+const ADVISORY_ID = /\/(GHSA(?:-[23456789cfghjmpqrvwx]{4}){3})$/;
+
+/**
+ * One entry per advisory and installed copy of the package it names. A
+ * package listed only because it depends on another (`via` names a package,
+ * not an advisory) adds none: the advisory is judged where it is reported.
+ */
+export function auditAdvisories(audit, lockfile) {
+  requireEvidence(lockfile?.packages && typeof lockfile.packages === 'object', 'Missing or invalid audited lockfile');
+  return Object.entries(audit.vulnerabilities).flatMap(([name, vulnerability]) => {
+    requireEvidence(Array.isArray(vulnerability.via) && vulnerability.via.length > 0
+      && Array.isArray(vulnerability.nodes) && vulnerability.nodes.length > 0, `Invalid npm audit entry: ${name}`);
+    const versions = vulnerability.nodes.map(node => {
+      const version = lockfile.packages[node]?.version;
+      requireEvidence(typeof version === 'string', `${node} is not in the audited lockfile`);
+      return version;
+    });
+    return vulnerability.via.flatMap(via => {
+      if (typeof via === 'string') {
+        requireEvidence(Object.hasOwn(audit.vulnerabilities, via), `${name} depends on ${via}, which the audit does not list`);
+        return [];
+      }
+      const advisory = ADVISORY_ID.exec(via?.url ?? '')?.[1];
+      requireEvidence(advisory && via.name === name, `Unreadable advisory for ${name}`);
+      return [...new Set(versions)].map(version => ({ advisory, package: name, version, severity: via.severity, title: via.title }));
+    });
+  });
+}
+
+/**
+ * Pairs each advisory with its accepted entry: the exact advisory, package
+ * and version reviewed, until its review date. An entry that matches nothing
+ * is stale and fails, since it would accept that advisory unreviewed if the
+ * package came back.
+ */
+export function reviewAuditAdvisories(advisories, exceptions, now = Date.now()) {
+  requireEvidence(Array.isArray(exceptions), 'Invalid npm audit exceptions');
+  for (const entry of exceptions) {
+    requireEvidence(typeof entry.reason === 'string' && entry.reason.length > 0
+      && typeof entry.reference === 'string' && entry.reference.length > 0, 'Exception requires a reason and reference');
+    const reviewBy = Date.parse(`${entry.reviewBy}T23:59:59Z`);
+    requireEvidence(/^\d{4}-\d\d-\d\d$/.test(entry.reviewBy ?? '') && !Number.isNaN(reviewBy), 'Exception requires a reviewBy date');
+    requireEvidence(now <= reviewBy, `Accepted advisory ${entry.advisory} in ${entry.package} ${entry.version} is past its review date, ${entry.reviewBy}`);
+  }
+  const reviewed = advisories.map(found => ({ ...found, exception: exceptions.find(entry => entry.advisory === found.advisory
+    && entry.package === found.package && entry.version === found.version) }));
+  const stale = exceptions.filter(entry => !reviewed.some(review => review.exception === entry));
+  requireEvidence(stale.length === 0, `Stale npm audit exception(s), matching no advisory: ${stale
+    .map(entry => `${entry.advisory} in ${entry.package} ${entry.version}`).join('; ')}`);
+  return reviewed;
+}
+
+function inspectAudit(directory, exceptions = readJson(NPM_AUDIT_EXCEPTIONS), now = Date.now()) {
   const data = readJson(join(directory, 'npm-audit.json'));
-  const findings = data.metadata?.vulnerabilities?.total;
-  requireEvidence(!data.error && data.auditReportVersion === 2 && Number.isInteger(findings) && findings >= 0
+  const total = data.metadata?.vulnerabilities?.total;
+  requireEvidence(!data.error && data.auditReportVersion === 2 && Number.isInteger(total) && total >= 0
     && data.vulnerabilities && typeof data.vulnerabilities === 'object', 'Missing or invalid npm audit evidence');
-  requireEvidence(Object.keys(data.vulnerabilities).length === findings, 'Inconsistent npm vulnerability count');
-  return { findings, tools: [{ name: 'npm audit', version: 'Node 22 bundled npm' }] };
+  requireEvidence(Object.keys(data.vulnerabilities).length === total, 'Inconsistent npm vulnerability count');
+  const advisories = total === 0 ? [] : auditAdvisories(data, readJson(join(directory, 'package-lock.json')));
+  const reviewed = reviewAuditAdvisories(advisories, exceptions, now);
+  const unexpected = reviewed.filter(entry => !entry.exception);
+  return {
+    findings: unexpected.length,
+    details: unexpected.map(entry => `${entry.package} ${entry.version}: ${entry.advisory} (${entry.severity}) ${entry.title}`),
+    reviewed: reviewed.filter(entry => entry.exception).map(entry => ({
+      label: `Accepted advisory ${entry.advisory} in \`${entry.package}\` ${entry.version}, review by ${entry.exception.reviewBy}`,
+      advisory: entry.advisory, package: entry.package, version: entry.version,
+      reason: entry.exception.reason, reference: entry.exception.reference, reviewBy: entry.exception.reviewBy })),
+    tools: [{ name: 'npm audit', version: 'Node 22 bundled npm' }],
+  };
 }
 
 /*
@@ -297,7 +361,7 @@ const REPORTS = {
       ['CodeQL JavaScript/TypeScript', 'codeql-javascript-typescript', inspectSarif],
       ['CodeQL GitHub Actions', 'codeql-actions', inspectSarif],
       ['Semgrep', 'semgrep', (directory, exceptions) => inspectSemgrep(directory, false, exceptions.semgrep)],
-      ['npm audit (including development tools)', 'dependencies', inspectAudit],
+      ['npm audit (including development tools)', 'dependencies', (directory, exceptions) => inspectAudit(directory, exceptions.npmAudit)],
     ],
     scope: () => ['Scope: CodeQL security-extended for JavaScript/TypeScript and GitHub Actions; Semgrep Community Edition p/security-audit and p/secrets; npm lockfile audit including development tools. Semgrep registry rules and vulnerability advisories are fetched at scan time. Generated output and dependencies are excluded from source scanning. The malware scan of the checkout and the VSIX has its own report.', ''],
     subject: 'commit',
@@ -319,7 +383,7 @@ const REPORTS = {
 };
 
 /**
- * `exceptions` replaces the repository's accepted lists, `{ semgrep, malware }`;
+ * `exceptions` replaces the repository's accepted lists, `{ semgrep, malware, npmAudit }`;
  * a list left out is read from .github/security/.
  */
 export function createReport(directory, environment, kind = 'security', exceptions = {}) {
@@ -378,7 +442,7 @@ export function createReport(directory, environment, kind = 'security', exceptio
     ...problems.map(problem => `- ${problem.replaceAll('\n', ' ')}`), '',
     ...scanners.flatMap(scanner => (scanner.reviewed ?? []).map(entry =>
       `- ${entry.label ?? `Reviewed false positive in \`${entry.path}\``}: ${entry.reason} [Reference](${entry.reference})`)), '',
-    'Policy: every unexpected finding fails, regardless of severity. The only exceptions are the exact reviewed findings listed above, matched against file content hashes or, for an advisory, the exact package version and advisory ID. An accepted entry that matches no finding, scanner failures, warnings, skipped jobs and missing or malformed evidence fail the gate.', '',
+    'Policy: every unexpected finding fails, regardless of severity. The only exceptions are the exact reviewed findings listed above, matched against file content hashes or, for an advisory, the exact package version and advisory ID until its review date. An accepted entry that matches no finding, scanner failures, warnings, skipped jobs and missing or malformed evidence fail the gate.', '',
     ...spec.scope(report.tag),
     `Raw results and their SHA-256 digests accompany this report. It records the checks performed on the named ${spec.subject}; it is not an audit or a certification. A passing scan does not prove the absence of vulnerabilities or malware.`, '',
   ].join('\n');

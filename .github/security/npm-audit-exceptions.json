@@ -1,0 +1,10 @@
+[
+  {
+    "advisory": "GHSA-xcx6-jx8p-x3h5",
+    "package": "@azure/msal-node",
+    "version": "5.6.0",
+    "reason": "A development-only transitive dependency of @vscode/vsce, through @azure/identity, used only by vsce's --azure-credential publishing, which this repository never uses. The fixed version, 7.1.0, is outside the msal-node range of every @azure/identity release. Revisit when @azure/identity accepts msal-node 7.",
+    "reference": "https://github.com/advisories/GHSA-xcx6-jx8p-x3h5",
+    "reviewBy": "2026-12-31"
+  }
+]

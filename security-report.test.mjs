@@ -4,11 +4,11 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { collectMalwareDetections, createReport, inspectMalware, inspectSarif, MALWARE_ENGINES, parseClamavVersion,
-  reviewMalwareDetections, reviewSemgrepFindings } from './security-report.mjs';
+import { auditAdvisories, collectMalwareDetections, createReport, inspectMalware, inspectSarif, MALWARE_ENGINES,
+  parseClamavVersion, reviewAuditAdvisories, reviewMalwareDetections, reviewSemgrepFindings } from './security-report.mjs';
 
 /** No accepted entries, in place of the repository's own lists, which would be stale against fixtures. */
-const none = { semgrep: [], malware: [] };
+const none = { semgrep: [], malware: [], npmAudit: [] };
 
 const environment = {
   SCAN_SHA: 'a'.repeat(40),
@@ -159,6 +159,78 @@ test('dependency advisories of any severity and absent commit identity fail', t 
   });
   assert.equal(createReport(directory, environment, 'security', none).status, 'FAIL');
   assert.ok(createReport(directory, { ...environment, SCAN_SHA: '' }, 'security', none).problems.includes('Missing or invalid scanned commit'));
+});
+
+/** The audit as npm reports it: one advisory, and the packages that depend on it. */
+const MSAL = { source: 1, name: '@azure/msal-node', dependency: '@azure/msal-node', severity: 'high',
+  title: 'MSAL Node authorization code flow may disclose parameters', url: 'https://github.com/advisories/GHSA-xcx6-jx8p-x3h5' };
+const QS = { source: 2, name: 'qs', dependency: 'qs', severity: 'moderate',
+  title: 'qs.stringify throws on a non-callable toString', url: 'https://github.com/advisories/GHSA-6pq8-jhm2-2vcw' };
+const acceptedMsal = { advisory: 'GHSA-xcx6-jx8p-x3h5', package: '@azure/msal-node', version: '5.6.0',
+  reason: 'Development-only and unused.', reference: 'https://github.com/advisories/GHSA-xcx6-jx8p-x3h5', reviewBy: '2999-12-31' };
+
+function writeAudit(write, { qs = false } = {}) {
+  const vulnerabilities = {
+    '@azure/msal-node': { name: '@azure/msal-node', severity: 'high', via: [MSAL], nodes: ['node_modules/@azure/msal-node'] },
+    '@azure/identity': { name: '@azure/identity', severity: 'high', via: ['@azure/msal-node'], nodes: ['node_modules/@azure/identity'] },
+    ...(qs ? { qs: { name: 'qs', severity: 'moderate', via: [QS], nodes: ['node_modules/qs'] } } : {}),
+  };
+  write('dependencies/npm-audit.json', { auditReportVersion: 2, vulnerabilities,
+    metadata: { vulnerabilities: { total: Object.keys(vulnerabilities).length } } });
+  write('dependencies/package-lock.json', { lockfileVersion: 3, packages: {
+    '': {}, 'node_modules/@azure/msal-node': { version: '5.6.0' }, 'node_modules/@azure/identity': { version: '4.13.2' },
+    'node_modules/qs': { version: '6.16.0' } } });
+}
+
+test('an accepted advisory passes and is listed, but any other advisory still fails and is named', t => {
+  const { directory, write } = fixture(t);
+  writeAudit(write);
+  const accepted = createReport(directory, environment, 'security', { ...none, npmAudit: [acceptedMsal] });
+  assert.equal(accepted.status, 'PASS', accepted.problems.join('; '));
+  const audit = accepted.scanners.find(scanner => scanner.name.startsWith('npm audit'));
+  assert.deepEqual(audit.reviewed.map(entry => entry.advisory), ['GHSA-xcx6-jx8p-x3h5']);
+  assert.match(readFileSync(join(directory, 'security-report.md'), 'utf8'), /Accepted advisory GHSA-xcx6-jx8p-x3h5/);
+
+  writeAudit(write, { qs: true });
+  const second = createReport(directory, environment, 'security', { ...none, npmAudit: [acceptedMsal] });
+  assert.equal(second.status, 'FAIL');
+  assert.ok(second.problems.includes('npm audit (including development tools): 1 finding(s)'));
+  assert.ok(second.problems.some(problem => problem.startsWith('qs 6.16.0: GHSA-6pq8-jhm2-2vcw (moderate)')));
+
+  writeAudit(write);
+  assert.equal(createReport(directory, environment, 'security', none).status, 'FAIL');
+});
+
+test('an advisory is accepted only for the exact advisory, package and version reviewed', () => {
+  const found = { advisory: 'GHSA-xcx6-jx8p-x3h5', package: '@azure/msal-node', version: '5.6.0' };
+  for (const change of [{ advisory: 'GHSA-6pq8-jhm2-2vcw' }, { package: 'qs' }, { version: '5.6.1' }]) {
+    assert.throws(() => reviewAuditAdvisories([found], [{ ...acceptedMsal, ...change }]), /Stale npm audit exception/);
+  }
+  assert.ok(reviewAuditAdvisories([found], [acceptedMsal])[0].exception);
+});
+
+test('an accepted advisory past its review date, or without a reason, fails', () => {
+  const found = { advisory: 'GHSA-xcx6-jx8p-x3h5', package: '@azure/msal-node', version: '5.6.0' };
+  const entry = { ...acceptedMsal, reviewBy: '2026-12-31' };
+  assert.ok(reviewAuditAdvisories([found], [entry], Date.parse('2026-12-31T12:00:00Z'))[0].exception);
+  assert.throws(() => reviewAuditAdvisories([found], [entry], Date.parse('2027-01-01T00:00:00Z')), /past its review date/);
+  assert.throws(() => reviewAuditAdvisories([found], [{ ...entry, reviewBy: undefined }]), /reviewBy/);
+  assert.throws(() => reviewAuditAdvisories([found], [{ ...acceptedMsal, reason: '' }]), /reason and reference/);
+});
+
+test('audit entries the lockfile cannot place, or that name an unlisted dependency, fail', () => {
+  const lockfile = { packages: { 'node_modules/a': { version: '1.0.0' } } };
+  const audit = vulnerabilities => ({ vulnerabilities });
+  assert.throws(() => auditAdvisories(audit({ a: { via: [{ ...QS, name: 'a' }], nodes: ['node_modules/b'] } }), lockfile),
+    /not in the audited lockfile/);
+  assert.throws(() => auditAdvisories(audit({ a: { via: ['b'], nodes: ['node_modules/a'] } }), lockfile), /does not list/);
+  assert.throws(() => auditAdvisories(audit({ a: { via: [{ ...QS, name: 'a', url: 'https://example.com' }], nodes: ['node_modules/a'] } }), lockfile),
+    /Unreadable advisory/);
+});
+
+test('the repository accepts only the reviewed MSAL advisory', () => {
+  const entries = JSON.parse(readFileSync('.github/security/npm-audit-exceptions.json', 'utf8'));
+  assert.deepEqual(entries.map(entry => `${entry.advisory} ${entry.package}`), ['GHSA-xcx6-jx8p-x3h5 @azure/msal-node']);
 });
 
 function reviewedFixture(t) {

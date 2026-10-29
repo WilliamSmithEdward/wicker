@@ -228,9 +228,9 @@ test('audit entries the lockfile cannot place, or that name an unlisted dependen
     /Unreadable advisory/);
 });
 
-test('the repository accepts only the reviewed MSAL advisory', () => {
+test('the repository accepts no npm audit advisory', () => {
   const entries = JSON.parse(readFileSync('.github/security/npm-audit-exceptions.json', 'utf8'));
-  assert.deepEqual(entries.map(entry => `${entry.advisory} ${entry.package}`), ['GHSA-xcx6-jx8p-x3h5 @azure/msal-node']);
+  assert.deepEqual(entries, []);
 });
 
 function reviewedFixture(t) {

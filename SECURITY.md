@@ -116,11 +116,11 @@ GitHub. The current entries:
   `generic.html-templates.security.unquoted-attribute-var` in the Alert and
   Badge test fixtures, which use Symfony's documented `ComponentAttributes`
   output. The fixtures are not shipped in the extension.
-- `npm audit` advisory GHSA-xcx6-jx8p-x3h5 in `@azure/msal-node` 5.6.0, a
-  development-only dependency of `@vscode/vsce` through `@azure/identity`.
-  It is used only by vsce's `--azure-credential` publishing, which this
-  repository never uses, and the fixed version, 7.1.0, is outside the range
-  of every `@azure/identity` release. Review by 2026-12-31.
+
+No `npm audit` advisory is accepted. `package.json` overrides
+`@azure/msal-node` to 7.1.1 under `@azure/identity`, a development-only
+dependency of `@vscode/vsce`, because no `@azure/identity` release accepts
+the version that fixes GHSA-xcx6-jx8p-x3h5. Drop the override once one does.
 
 ## Pinning and updates
 

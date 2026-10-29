@@ -7,7 +7,7 @@
  * breaks the property; it becomes an example in the reader's own tests.
  */
 import fc from 'fast-check';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { parseJsonLoosely } from './console/consoleRunner.js';
 import { parseActionDescriptor } from './frontend/actionDescriptor.js';
@@ -23,6 +23,12 @@ import { parseYaml } from './util/yaml.js';
 
 const runs = Number(process.env.WICKER_PROPERTY_RUNS ?? '100');
 const settings = { numRuns: runs };
+// The time a property may take grows with its runs. Vitest's default of five
+// seconds is about what two hundred thousand runs take on a CI runner, so the
+// daily Fuzz run failed on timeouts about one night in two while every input
+// passed. A quarter of a millisecond a run leaves that run ten times its
+// usual time, and keeps the default for the hundred runs of the unit tests.
+vi.setConfig({ testTimeout: Math.max(5000, runs / 4) });
 
 // Source built from the characters these grammars turn on, so generated text
 // reaches deep into each reader rather than staying in plain text.

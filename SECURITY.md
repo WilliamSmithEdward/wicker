@@ -133,12 +133,14 @@ often to pin, so freshclam fetches and verifies them on every run. Semgrep's
 registry rules and npm's advisories are also fetched at scan time, so a later
 scan can find new problems in unchanged code.
 
-Dependabot proposes updates to npm, GitHub Actions, the ClamAV and Semgrep
-images, and the hash-locked zizmor requirements once a version is a week
-old, and at once for a security advisory. The Update YARA rules workflow
-proposes new YARA pins each week. A minor or patch update, and the YARA
-pull request, merges itself once CI, Security and Malware scan pass; a
-third-party major version waits for review.
+Dependabot proposes updates to npm, GitHub Actions, the ClamAV image, and
+the hash-locked zizmor requirements once a version is a week old, and at
+once for a security advisory. The Update YARA rules workflow proposes new
+YARA pins each week, and the Update Semgrep image workflow a new Semgrep
+image once it is a week old (GitHub refuses Dependabot's updates of that
+image). A minor or patch update, and the YARA and Semgrep pull requests,
+merge themselves once CI, Security and Malware scan pass; a third-party
+major version waits for review.
 
 The VS Code test CLI requests Mocha 11, whose dependencies include
 vulnerable versions of `diff` and `serialize-javascript`. A scoped npm

@@ -29,14 +29,14 @@ updates:
     groups:
       actions:
         update-types: [minor, patch]
-  # The ClamAV and Semgrep images, pinned by digest. ClamAV signatures and
-  # Semgrep registry rules are fetched per run. YARA-X and YARA Forge are
+  # The ClamAV image, pinned by digest; update-semgrep-image.yml moves the
+  # Semgrep image, whose Dependabot updates GitHub refuses. ClamAV
+  # signatures and Semgrep registry rules are fetched per run. YARA-X and YARA Forge are
   # release downloads no ecosystem here follows; update-yara-rules.yml
   # proposes those.
   - package-ecosystem: docker
     directories:
       - /.github/security/clamav
-      - /.github/security/semgrep
     schedule:
       interval: weekly
     cooldown:

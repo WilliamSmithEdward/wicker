@@ -133,8 +133,8 @@ often to pin, so freshclam fetches and verifies them on every run. Semgrep's
 registry rules and npm's advisories are also fetched at scan time, so a later
 scan can find new problems in unchanged code.
 
-Dependabot proposes updates to npm, GitHub Actions, the ClamAV and Semgrep
-images, and the hash-locked zizmor requirements once a version is a week
+Dependabot proposes updates to npm, GitHub Actions, the ClamAV image, and
+the hash-locked zizmor and Semgrep requirements once a version is a week
 old, and at once for a security advisory. The Update YARA rules workflow
 proposes new YARA pins each week. A minor or patch update, and the YARA
 pull request, merges itself once CI, Security and Malware scan pass; a

@@ -228,12 +228,11 @@ test('audit entries the lockfile cannot place, or that name an unlisted dependen
     /Unreadable advisory/);
 });
 
-// picomatch has no fixed release for GHSA-fc5q-39xc-vjpf and reaches the
-// build only through vitest and vite. Any other acceptance changes this test.
-test('the repository accepts only the reviewed picomatch advisory', () => {
+// GitHub withdrew GHSA-fc5q-39xc-vjpf (picomatch) on 2026-11-18, so its
+// acceptance was removed. Any new acceptance changes this test.
+test('the repository accepts no npm advisories', () => {
   const entries = JSON.parse(readFileSync('.github/security/npm-audit-exceptions.json', 'utf8'));
-  assert.deepEqual(entries.map(({ advisory, package: name, version }) => ({ advisory, name, version })),
-    [{ advisory: 'GHSA-fc5q-39xc-vjpf', name: 'picomatch', version: '4.0.7' }]);
+  assert.deepEqual(entries, []);
 });
 
 function reviewedFixture(t) {

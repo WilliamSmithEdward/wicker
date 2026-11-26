@@ -1,10 +1,1 @@
-[
-  {
-    "advisory": "GHSA-fc5q-39xc-vjpf",
-    "package": "picomatch",
-    "version": "4.0.7",
-    "reason": "Development tooling only: the lockfile marks picomatch dev, reached through vitest and vite (via fdir and tinyglobby), and none of it ships in the extension, which carries no third-party runtime code. The ReDoS needs an attacker-chosen glob; the test runner only matches the repository's own fixed patterns. No fixed release exists: every version up to 4.0.7, the newest, is affected.",
-    "reference": "https://github.com/advisories/GHSA-fc5q-39xc-vjpf",
-    "reviewBy": "2026-12-17"
-  }
-]
+[]

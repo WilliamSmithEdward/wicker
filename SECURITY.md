@@ -70,8 +70,7 @@ or malformed report fail the gate too.
   unpacked. The VSIX is built once from the scanned commit, and in a release
   it is the file the release ships. YARA-X uses the YARA Forge full
   rule set. Each engine must detect the EICAR test file, assembled during the
-  run, before its clean result counts, and a ClamAV run fails if the daily
-  signatures are more than three days old.
+  run, before its clean result counts.
 - **Fuzzing:** fast-check properties in
   `packages/core/src/parsers.properties.test.ts` generate input for the
   readers that take text Wicker does not control: the PHP and Twig lexers,

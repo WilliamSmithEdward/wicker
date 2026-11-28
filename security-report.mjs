@@ -219,10 +219,10 @@ export function reviewMalwareDetections(detections, exceptions, engines = MALWAR
   return reviewed;
 }
 
-/** Signatures older than this mean freshclam did not update them. */
-const SIGNATURE_AGE_LIMIT_MS = 3 * 24 * 60 * 60 * 1000;
-
-function inspectClamav(directory, targets, now) {
+// freshclam fetches and verifies the signatures before each scan, and the scan
+// fails if it cannot. Their age is not judged: ClamAV can go days without
+// publishing, and an up-to-date database is still current.
+function inspectClamav(directory, targets) {
   // Each engine proves itself on the EICAR test file before its clean result counts.
   requireEvidence(exitCode(directory, 'clamav-anchor-exit.txt') === 1
     && clamavDetections(readText(directory, 'clamav-anchor.log')).some(entry => entry.signature === 'Eicar-Test-Signature'),
@@ -232,7 +232,6 @@ function inspectClamav(directory, targets, now) {
   const scanned = Number(/^Scanned files: (\d+)$/m.exec(readText(directory, 'clamav.log'))?.[1]);
   requireEvidence(scanned === targets.length, `ClamAV scanned ${Number.isNaN(scanned) ? 'an unknown number' : scanned} of ${targets.length} files`);
   const version = parseClamavVersion(readText(directory, 'clamav-version.txt'));
-  requireEvidence(now - version.date < SIGNATURE_AGE_LIMIT_MS, 'ClamAV signatures are more than three days old; freshclam did not update them');
   return [{ name: 'ClamAV', version: `${version.engine}, daily signatures ${version.daily} of ${new Date(version.date).toISOString()}` }];
 }
 
@@ -250,12 +249,12 @@ function inspectYara(directory) {
 }
 
 /** Judges the evidence of the engines named, both by default. */
-export function inspectMalware(directory, now = Date.now(), engines = MALWARE_ENGINES, exceptions = readJson(MALWARE_EXCEPTIONS)) {
+export function inspectMalware(directory, engines = MALWARE_ENGINES, exceptions = readJson(MALWARE_EXCEPTIONS)) {
   const targets = readText(directory, 'targets.txt').split('\n').filter(Boolean);
   requireEvidence(targets.length > 0, 'The malware scan listed no files');
   // Recorded rather than scanned: an empty file has nothing to match.
   const empty = readText(directory, 'empty.txt').split('\n').filter(Boolean);
-  const tools = engines.flatMap(engine => engine === 'clamav' ? inspectClamav(directory, targets, now) : inspectYara(directory));
+  const tools = engines.flatMap(engine => engine === 'clamav' ? inspectClamav(directory, targets) : inspectYara(directory));
 
   const detections = engines.flatMap(engine => {
     const recorded = readJson(join(directory, `detections-${engine}.json`));
@@ -373,7 +372,7 @@ const REPORTS = {
     // is the file the release ships.
     jobs: ['revision', 'package', ...MALWARE_ENGINES],
     scanners: [['ClamAV and YARA-X malware scan', 'malware',
-      (directory, exceptions) => inspectMalware(directory, Date.now(), MALWARE_ENGINES, exceptions.malware)]],
+      (directory, exceptions) => inspectMalware(directory, MALWARE_ENGINES, exceptions.malware)]],
     scope: tag => [
       'Scope: ClamAV and YARA-X with the YARA Forge full rule set over the checkout, its installed dependencies and the VSIX. ClamAV signatures are fetched at scan time; the YARA-X engine and YARA Forge release are pinned by SHA-256.', '',
       `VSIX: ${tag ? 'the asset attached to the release, checked against the digest GitHub records for it' : 'built from the scanned commit'}. Each malware engine must detect the EICAR test file before its clean result counts.`, '',
@@ -465,7 +464,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       requireEvidence(findings === 0, `${findings} unexpected Semgrep finding(s)`);
     } else if (MALWARE_ENGINES.includes(command)) {
       collectMalwareDetections(directory, process.cwd(), [command]);
-      const { findings, details, reviewed, scannedFiles, emptyFiles } = inspectMalware(directory, Date.now(), [command]);
+      const { findings, details, reviewed, scannedFiles, emptyFiles } = inspectMalware(directory, [command]);
       console.log(`Malware scan (${command}): ${scannedFiles} files and ${emptyFiles} empty, ${findings} unexpected detection(s), ${reviewed.length} reviewed`);
       for (const detail of details) console.error(detail);
       requireEvidence(findings === 0, `${findings} unexpected malware detection(s)`);
